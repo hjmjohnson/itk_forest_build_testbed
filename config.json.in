@@ -1,0 +1,59 @@
+{
+  "_README": "Template for the node-specific build config. Do NOT edit config.json directly for portable changes; edit this template (tracked) and regenerate. 'pixi run config' (or python3 bin/config.py generate) writes config.json (git-ignored) by resolving each key on THIS machine. Keys with 'candidates' pick the first existing path (globs allowed; 'verify' is a required sub-path); 'required' keys with no match are written as '__SET_MANUALLY__' and must be filled in. Keys with 'value' are literal defaults. Env vars (e.g. QT6_DIR=...) always override config.json at run time.",
+
+  "QT6_DIR": {
+    "doc": "Qt6 prefix for the Slicer SuperBuild; must contain lib/cmake/Qt6. macOS: ~/Qt/<ver>/macos.",
+    "candidates": ["${HOME}/Qt/6.9.1/macos", "${HOME}/Qt/6.9.1", "${HOME}/Qt/6.*/macos", "${HOME}/Qt/6.*"],
+    "verify": "lib/cmake/Qt6",
+    "required": true
+  },
+
+  "BUILD_FOREST_ROOT": {
+    "doc": "Where source checkouts + *-build trees go. Relative paths resolve against the repo root.",
+    "value": "build_forest",
+    "required": false
+  },
+
+  "SRC_ROOT": {
+    "doc": "Directory holding canonical source repos and the vxl checkout (for worktree reuse).",
+    "candidates": ["${HOME}/src"],
+    "required": false
+  },
+
+  "VXL_SRC": {
+    "doc": "vxl (ITK fork of VXL) source under test.",
+    "candidates": ["${HOME}/src/vxl"],
+    "verify": "core/vnl",
+    "required": false
+  },
+
+  "CCACHE_DIR": {
+    "doc": "ccache cache directory (created if absent).",
+    "candidates": ["${CCACHE_DIR}", "${HOME}/.ccache"],
+    "required": false
+  },
+
+  "JOBS": {
+    "doc": "Parallel build jobs. Empty => auto-detect (nproc/sysctl).",
+    "value": "",
+    "required": false
+  },
+
+  "CC": {
+    "doc": "C compiler. Empty => auto (Homebrew LLVM if present, else system/pixi).",
+    "value": "",
+    "required": false
+  },
+
+  "CXX": {
+    "doc": "C++ compiler. Empty => auto.",
+    "value": "",
+    "required": false
+  },
+
+  "HEAVY": {
+    "doc": "1 to include CUDA/Java/wasm remote modules.",
+    "value": "0",
+    "required": false
+  }
+}

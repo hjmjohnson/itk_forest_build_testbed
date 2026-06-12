@@ -1,0 +1,188 @@
+# VXL/VNL downstream-breakage testbed — pixi workspace
+#
+# Builds every open-source ITK consumer the pruned vxl fork must not break,
+# against the locally built ITK (USE_SYSTEM_ITK), all accelerated by ccache.
+# The dependency graph is encoded via task `depends-on`, so building any
+# consumer transparently (re)builds ITK first:
+#
+#   pixi run checkout        # clone/worktree every project (run once)
+#   pixi run build-ITK       # build ITK (carries the vnl change)
+#   pixi run build-elastix   # -> ITK, then elastix
+#   pixi run build-Slicer    # -> ITK, then Slicer SuperBuild
+#   pixi run build-BRAINSTools # -> ITK -> ANTs -> BRAINSTools
+#   pixi run build-remotes   # -> ITK, then all ITK remote modules (external)
+#   pixi run build-all       # everything in dependency order (very long)
+#   pixi run sync-vnl        # rsync local vxl into ITK's vendored vnl, then rebuild
+#   pixi run status          # ccache stats + checked-out projects
+#
+# To test a vnl change: edit ~/src/vxl, `pixi run sync-vnl`, then rebuild the
+# consumers you care about. ccache makes the unaffected TUs near-instant.
+#
+# Relocatable: clone the repo (pixi.toml + bin/ + docs/) to any Linux/macOS
+# machine and `pixi run checkout`. Source checkouts and build trees land in
+# build_forest/ (git-ignored). See CLAUDE.md for the doc library.
+
+[workspace]
+name = "vxl-downstream-tests"
+channels = ["conda-forge"]
+platforms = ["osx-arm64", "osx-64", "linux-64"]
+
+[dependencies]
+cmake = ">=3.28,<3.32"  # Slicer SuperBuild needs >=3.28; CMake 4.x breaks it (CPS find_package)
+ninja = "*"
+ccache = "*"
+git = "*"
+rsync = "*"
+cxx-compiler = "*"
+c-compiler = "*"
+fftw = "*"  # double + single precision; enables ITK_USE_FFTWD/F for ITKUltrasound
+qt-main = "5.15.*"  # Qt5.15 for Slicer SuperBuild (matches Slicer_REQUIRED_QT_VERSION)
+
+# ccache tuning for cross-machine, path-independent reuse. CCACHE_DIR is left at
+# the user default (~/.ccache) so it is shared with other local builds.
+[activation.env]
+CCACHE_MAXSIZE = "75G"
+CCACHE_COMPILERCHECK = "content"
+CCACHE_SLOPPINESS = "time_macros,include_file_mtime,include_file_ctime,system_headers,pch_defines"
+
+# ---- infrastructure tasks -------------------------------------------------
+[tasks.config]
+cmd = "python3 ./bin/config.py generate --force"
+description = "Regenerate node-local config.sh from config.json.in"
+
+[tasks.checkout]
+cmd = "bash ./bin/setup-vxl-downstream-testbed.sh checkout"
+description = "Clone/worktree every consumer + remote module"
+
+[tasks.status]
+cmd = "bash ./bin/setup-vxl-downstream-testbed.sh status"
+description = "ccache stats + checked-out projects"
+
+[tasks.list]
+cmd = "bash ./bin/setup-vxl-downstream-testbed.sh list"
+
+[tasks.sync-vnl]
+cmd = "bash ./bin/setup-vxl-downstream-testbed.sh sync-vnl"
+description = "rsync local vxl into ITK's vendored vnl (call before rebuilding)"
+
+[tasks.repoint-itk]
+cmd = "bash ./bin/setup-vxl-downstream-testbed.sh repoint-itk"
+description = "Move ITK worktree to ITK_REF (default upstream/main); then sync-vnl + build-ITK"
+
+# ---- consumers (dependency graph via depends-on) --------------------------
+[tasks.build-ITK]
+cmd = "bash ./bin/setup-vxl-downstream-testbed.sh build ITK"
+description = "Build ITK against local/vendored vnl"
+
+[tasks.build-ANTs]
+cmd = "bash ./bin/setup-vxl-downstream-testbed.sh build ANTs"
+depends-on = ["build-ITK"]
+
+[tasks.build-BRAINSTools]
+cmd = "bash ./bin/setup-vxl-downstream-testbed.sh build BRAINSTools"
+depends-on = ["build-ANTs"]
+
+[tasks.build-Slicer]
+cmd = "bash ./bin/setup-vxl-downstream-testbed.sh build Slicer"
+depends-on = ["build-ITK"]
+
+[tasks.build-SlicerExtensions]
+cmd = "bash ./bin/setup-vxl-downstream-testbed.sh build SlicerExtensions"
+depends-on = ["build-Slicer"]
+
+[tasks.build-elastix]
+cmd = "bash ./bin/setup-vxl-downstream-testbed.sh build elastix"
+depends-on = ["build-ITK"]
+
+[tasks.build-c3d]
+cmd = "bash ./bin/setup-vxl-downstream-testbed.sh build c3d"
+depends-on = ["build-ITK"]
+
+[tasks.build-MITK]
+cmd = "bash ./bin/setup-vxl-downstream-testbed.sh build MITK"
+depends-on = ["build-ITK"]
+
+[tasks.build-SimpleITK]
+cmd = "bash ./bin/setup-vxl-downstream-testbed.sh build SimpleITK"
+depends-on = ["build-ITK"]
+description = "SimpleITK SuperBuild (C++ only) against system ITK"
+
+# ---- ITK remote modules, each built externally against system ITK ---------
+[tasks.build-remotes]
+cmd = "bash ./bin/setup-vxl-downstream-testbed.sh remotes"
+depends-on = ["build-ITK"]
+description = "Build all (non-heavy) ITK remote modules externally"
+
+[tasks.build-BioCell]
+cmd = "bash ./bin/setup-vxl-downstream-testbed.sh build BioCell"
+depends-on = ["build-ITK"]
+[tasks.build-Cleaver]
+cmd = "bash ./bin/setup-vxl-downstream-testbed.sh build Cleaver"
+depends-on = ["build-ITK"]
+[tasks.build-HASI]
+cmd = "bash ./bin/setup-vxl-downstream-testbed.sh build HASI"
+depends-on = ["build-ITK"]
+[tasks.build-LesionSizingToolkit]
+cmd = "bash ./bin/setup-vxl-downstream-testbed.sh build LesionSizingToolkit"
+depends-on = ["build-ITK"]
+[tasks.build-PerformanceBenchmarking]
+cmd = "bash ./bin/setup-vxl-downstream-testbed.sh build PerformanceBenchmarking"
+depends-on = ["build-ITK"]
+[tasks.build-Shape]
+cmd = "bash ./bin/setup-vxl-downstream-testbed.sh build Shape"
+depends-on = ["build-ITK"]
+[tasks.build-SimpleITKFilters]
+cmd = "bash ./bin/setup-vxl-downstream-testbed.sh build SimpleITKFilters"
+depends-on = ["build-ITK"]
+[tasks.build-SkullStrip]
+cmd = "bash ./bin/setup-vxl-downstream-testbed.sh build SkullStrip"
+depends-on = ["build-ITK"]
+[tasks.build-SphinxExamples]
+cmd = "bash ./bin/setup-vxl-downstream-testbed.sh build SphinxExamples"
+depends-on = ["build-ITK"]
+[tasks.build-TractographyTRX]
+cmd = "bash ./bin/setup-vxl-downstream-testbed.sh build TractographyTRX"
+depends-on = ["build-ITK"]
+[tasks.build-TubeTK]
+cmd = "bash ./bin/setup-vxl-downstream-testbed.sh build TubeTK"
+depends-on = ["build-ITK"]
+[tasks.build-Ultrasound]
+cmd = "bash ./bin/setup-vxl-downstream-testbed.sh build Ultrasound"
+depends-on = ["build-ITK"]
+[tasks.build-VkFFTBackend]
+cmd = "bash ./bin/setup-vxl-downstream-testbed.sh build VkFFTBackend"
+depends-on = ["build-ITK"]
+
+# RTK — CPU build by default (portable, important on Linux). CUDA via build-RTK-cuda.
+[tasks.build-RTK]
+cmd = "bash ./bin/setup-vxl-downstream-testbed.sh build RTK"
+depends-on = ["build-ITK"]
+description = "RTK cone-beam CT reconstruction (CPU; RTK_USE_CUDA=OFF)"
+
+[tasks.build-RTK-cuda]
+cmd = "HEAVY=1 RTK_USE_CUDA=ON bash ./bin/setup-vxl-downstream-testbed.sh build RTK"
+depends-on = ["build-ITK", "build-CudaCommon"]
+description = "RTK with CUDA acceleration (Linux + CUDA toolkit; needs CudaCommon)"
+
+# heavy remote modules (CUDA / Java / Emscripten) — opt in with HEAVY=1
+[tasks.build-CudaCommon]
+cmd = "HEAVY=1 bash ./bin/setup-vxl-downstream-testbed.sh build CudaCommon"
+depends-on = ["build-ITK"]
+[tasks.build-IOOpenSlide]
+cmd = "HEAVY=1 bash ./bin/setup-vxl-downstream-testbed.sh build IOOpenSlide"
+depends-on = ["build-ITK"]
+[tasks.build-SCIFIO]
+cmd = "HEAVY=1 bash ./bin/setup-vxl-downstream-testbed.sh build SCIFIO"
+depends-on = ["build-ITK"]
+[tasks.build-WebAssemblyInterface]
+cmd = "HEAVY=1 bash ./bin/setup-vxl-downstream-testbed.sh build WebAssemblyInterface"
+depends-on = ["build-ITK"]
+
+# ---- aggregate ------------------------------------------------------------
+[tasks.build-consumers]
+depends-on = ["build-ANTs", "build-BRAINSTools", "build-Slicer", "build-elastix", "build-c3d", "build-MITK", "build-SimpleITK"]
+description = "Build all main consumers"
+
+[tasks.build-all]
+depends-on = ["build-consumers", "build-remotes"]
+description = "Build every consumer + remote module (very long)"
