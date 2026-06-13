@@ -258,6 +258,48 @@ cmd_sync_vnl(){ require rsync
     "${VXL_SRC}/config/" "${vendored}/config/"
   warn "rebuild: pixi run build-ITK   (then any downstream)"; }
 
+# Some enabled remote modules (IOMeshMZ3, AnisotropicDiffusionLBR) ship a
+# CMakeLists that calls itk_module_examples() but no examples/ dir, which is a
+# fatal add_subdirectory error under BUILD_EXAMPLES=ON. Stub an empty
+# examples/CMakeLists.txt for any such module so ITK configure completes.
+_stub_remote_examples(){
+  local src="${FOREST}/ITK" m cml
+  for cml in "${src}"/Modules/*/*/CMakeLists.txt; do
+    m="$(dirname "${cml}")"
+    grep -q "itk_module_examples" "${cml}" 2>/dev/null || continue
+    [ -d "${m}/examples" ] && continue
+    mkdir -p "${m}/examples"
+    printf '# Stub (itk_forest_build_testbed): module ships no examples/; satisfy itk_module_examples()\n' \
+      > "${m}/examples/CMakeLists.txt"
+    log "stubbed missing examples/ for $(basename "${m}")"
+  done; }
+
+# ITKDCMTK's ExternalProject exports INTERFACE_INCLUDE_DIRECTORIES pointing at
+# ijg{8,12,16}/include paths that never exist (the real 12/16/8-bit IJG headers
+# live in dcmjpeg/libijg{8,12,16}/). CMake rejects the dangling paths for every
+# DCMTK consumer (elastix, ANTs, ...). Symlink each to the real header dir.
+_fix_dcmtk_ijg_symlinks(){
+  local ep="${ITK_BUILD}/Modules/ThirdParty/DCMTK/ITKDCMTK_ExtProject" n
+  [ -d "${ep}/dcmjpeg" ] || return 0
+  for n in 8 12 16; do
+    [ -d "${ep}/dcmjpeg/libijg${n}" ] || continue
+    mkdir -p "${ep}/ijg${n}"
+    ln -snf "../dcmjpeg/libijg${n}" "${ep}/ijg${n}/include"
+  done; }
+
+# ITK main's vendored vnl no longer ships some headers that downstream consumers
+# still include (e.g. elastix's AffineLogTransform needs vnl/vnl_matrix_exp.h).
+# That gap is pre-existing in ITK main and orthogonal to the change under test,
+# so overlay the missing header-only files to isolate the validation. Files live
+# in bin/overlays/vnl/ and are copied only when absent from the vendored vnl.
+_overlay_vnl_headers(){
+  local ov="${SCRIPT_DIR}/overlays/vnl" dst="${FOREST}/ITK/Modules/ThirdParty/VNL/src/vxl/core/vnl" f
+  [ -d "${ov}" ] || return 0
+  for f in "${ov}"/*; do
+    [ -e "${f}" ] || continue
+    [ -e "${dst}/$(basename "${f}")" ] || { cp "${f}" "${dst}/"; log "overlay vnl/$(basename "${f}")"; }
+  done; }
+
 configure_one(){
   local name="$1" meta; meta="$(row_for "$name")" || die "unknown project: $name"
   local s="${FOREST}/${name}" b="${FOREST}/${name}-build"
@@ -294,7 +336,8 @@ configure_one(){
       -DModule_MultipleImageIterator=ON -DModule_ParabolicMorphology=ON
       -DModule_PhaseSymmetry=ON -DModule_PolarTransform=ON
       -DModule_PrincipalComponentsAnalysis=ON -DModule_RANSAC=ON
-      -DModule_RLEImage=ON -DModule_SmoothingRecursiveYvvGaussianFilter=ON
+      -DModule_RLEImage=ON -DModule_SimpleITKFilters=ON
+      -DModule_SmoothingRecursiveYvvGaussianFilter=ON
       -DModule_SplitComponents=ON -DModule_Strain=ON
       -DModule_StructuralSimilarity=ON -DModule_SubdivisionQuadEdgeMeshFilter=ON
       -DModule_TextureFeatures=ON -DModule_Thickness3D=ON
@@ -303,10 +346,17 @@ configure_one(){
       -DModule_ITKReview=ON)
     # ITK_BUILD_ALL_MODULES so downstreams (ANTs/c3d/...) find non-default
     # modules they depend on (e.g. AdaptiveDenoising, MorphologicalContourInterpolation).
-    cmake -S "$s" -B "${ITK_BUILD}" $(common_cmake_args) \
-      -DBUILD_EXAMPLES=ON -DITK_USE_BRAINWEB_DATA=ON \
-      -DITK_BUILD_DEFAULT_MODULES=ON -DITK_BUILD_ALL_MODULES=ON \
-      "${fftw[@]}" "${mods[@]}"
+    local _itk_cmake=(cmake -S "$s" -B "${ITK_BUILD}" $(common_cmake_args)
+      -DBUILD_EXAMPLES=ON -DITK_USE_BRAINWEB_DATA=ON
+      -DITK_BUILD_DEFAULT_MODULES=ON -DITK_BUILD_ALL_MODULES=ON
+      "${fftw[@]}" "${mods[@]}")
+    _overlay_vnl_headers
+    # First pass fetches the enabled remote modules (and may fail on one that
+    # calls itk_module_examples() without an examples/ dir); stub those, then
+    # configure for real.
+    "${_itk_cmake[@]}" || true
+    _stub_remote_examples
+    "${_itk_cmake[@]}"
     return
   fi
   [ -f "${ITK_BUILD}/ITKConfig.cmake" ] || die "ITK not built; run: pixi run ITK"
@@ -380,6 +430,9 @@ build_one(){ require cmake ninja ccache
   # CMakeCache.txt. Require build.ninja so a broken tree is reconfigured.
   [ -f "${b}/build.ninja" ] || configure_one "$name"
   log "build ${name} (-j${JOBS})"; cmake --build "$b" -j"${JOBS}"
+  # After ITK builds, repair the ITKDCMTK export's dangling ijg include paths so
+  # downstream DCMTK consumers (elastix, ANTs, ...) configure cleanly.
+  [ "$name" = ITK ] && _fix_dcmtk_ijg_symlinks
   [ "$name" = ITK ] && [ "${ITK_USE_INSTALL:-0}" = 1 ] && install_itk; }
 
 # Install ITK so downstreams consume the install tree (whose export defines the

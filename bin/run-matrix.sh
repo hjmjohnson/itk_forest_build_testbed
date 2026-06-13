@@ -47,7 +47,7 @@ build_target(){
   fi
 }
 
-# DEFERRED — known non-vxl failures, excluded until fixed (see DEFERRED-FAILURES.md):
+# DEFERRED — known non-vxl failures, excluded until fixed (see docs/DEFERRED-FAILURES.md):
 #   TubeTK c3d BioCell HASI Shape SkullStrip : need their own module/data deps
 #   Ultrasound          : extra ITK COMPILE_DEPENDS / clFFT not resolved
 #   LesionSizingToolkit : missing itkCannyEdgeDetectionRecursiveGaussianImageFilter.h,
