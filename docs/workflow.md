@@ -54,3 +54,21 @@ INTERFACE/header-only); `sync-vnl` then overlays your working-tree vxl on top.
 Regenerate the upstream ITK re-vendor PR branch with
 `bin/revendor-vnl-into-itk.sh <isc-vxl-tag>` (prerequisite: the vxl snapshot is
 already a tag on `InsightSoftwareConsortium/vxl`).
+
+## Side-by-side scenario forests
+
+Set `FOREST_REFERENCE_SUFFIX=<tag>` to route everything (checkout, builds,
+matrix, logs) into `build_forest-<tag>` instead of `build_forest`, e.g.:
+
+```bash
+FOREST_REFERENCE_SUFFIX=pocketfft pixi run checkout
+FOREST_REFERENCE_SUFFIX=pocketfft ITK_REF=hjmjohnson/pocketfft-backend pixi run repoint-itk
+FOREST_REFERENCE_SUFFIX=pocketfft pixi run bash bin/run-matrix.sh   # logs: /tmp/matrix-<name>-pocketfft.log
+```
+
+Worktree branch names are suffixed (`itk-vxl-master-pocketfft`) since git
+allows a branch in only one worktree. Cross-forest ccache hits are enabled by
+`CCACHE_BASEDIR=<testbed root>` + `CCACHE_NOHASHDIR=true` (set by the build
+engine): identical TUs hash identically regardless of which forest compiled
+them, so the second forest only recompiles objects its scenario actually
+changes.

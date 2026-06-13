@@ -6,6 +6,8 @@
 /*
 !/.gitignore
 !/CLAUDE.md
+!/README.md
+!/CATALOG.md
 !/pixi.toml
 !/pixi.lock
 !/config.json.in

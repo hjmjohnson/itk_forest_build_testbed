@@ -4,7 +4,10 @@
 #   pixi run bash bin/run-matrix.sh
 BIN_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(dirname "${BIN_DIR}")"            # repo root = parent of bin/
-FOREST="${FOREST:-${ROOT}/build_forest}"  # source checkouts + build trees
+_forest_dir="build_forest${FOREST_REFERENCE_SUFFIX:+-${FOREST_REFERENCE_SUFFIX}}"
+FOREST="${FOREST:-${ROOT}/${_forest_dir}}"  # source checkouts + build trees
+export FOREST
+LOG_TAG="${FOREST_REFERENCE_SUFFIX:+-${FOREST_REFERENCE_SUFFIX}}"
 # Prefer the pixi env's toolchain (cmake/ninja/compilers) over any system one,
 # so a bare `bash bin/run-matrix.sh` matches `pixi run` (system cmake 3.26.6 is
 # too old for Slicer's >=3.28 requirement).
@@ -35,12 +38,12 @@ artifact_ok(){
 build_target(){
   local n="$1"
   echo "==================== BUILD ${n} ===================="
-  bash "${ENG}" build "${n}" >"/tmp/matrix-${n}.log" 2>&1
+  bash "${ENG}" build "${n}" >"/tmp/matrix-${n}${LOG_TAG}.log" 2>&1
   if artifact_ok "${n}"; then
     SUMMARY="${SUMMARY}PASS  ${n}"$'\n'; echo "RESULT ${n}: PASS"
   else
-    SUMMARY="${SUMMARY}FAIL  ${n}"$'\n'; echo "RESULT ${n}: FAIL  (/tmp/matrix-${n}.log)"
-    grep -iE 'error:|CMake Error|library not found|No such module|undefined sym' "/tmp/matrix-${n}.log" | head -3
+    SUMMARY="${SUMMARY}FAIL  ${n}"$'\n'; echo "RESULT ${n}: FAIL  (/tmp/matrix-${n}${LOG_TAG}.log)"
+    grep -iE 'error:|CMake Error|library not found|No such module|undefined sym' "/tmp/matrix-${n}${LOG_TAG}.log" | head -3
   fi
 }
 

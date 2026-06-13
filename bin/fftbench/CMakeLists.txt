@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.16.3)
+project(fftbench CXX)
+find_package(ITK REQUIRED COMPONENTS ITKFFT ITKCommon ITKImageGrid)
+include(${ITK_USE_FILE})
+add_executable(bench-fft-backends bench-fft-backends.cxx)
+target_link_libraries(bench-fft-backends ${ITK_LIBRARIES})

@@ -50,12 +50,20 @@ SRC_ROOT="${SRC_ROOT:-${HOME}/src}"
 # build_forest root: config BUILD_FOREST_ROOT (default 'build_forest'); a
 # relative value resolves against the repo root, an absolute value is used as-is.
 BUILD_FOREST_ROOT="${BUILD_FOREST_ROOT:-build_forest}"
+# FOREST_REFERENCE_SUFFIX selects an alternate forest (build_forest-<suffix>)
+# for side-by-side scenario comparisons against the default build_forest.
+[ -n "${FOREST_REFERENCE_SUFFIX:-}" ] && BUILD_FOREST_ROOT="${BUILD_FOREST_ROOT}-${FOREST_REFERENCE_SUFFIX}"
 case "${BUILD_FOREST_ROOT}" in
   /*) FOREST="${FOREST:-${BUILD_FOREST_ROOT}}" ;;
   *)  FOREST="${FOREST:-${TESTBED}/${BUILD_FOREST_ROOT}}" ;;
 esac
 VXL_SRC="${VXL_SRC:-${SRC_ROOT}/vxl}"
 export CCACHE_DIR="${CCACHE_DIR:-${HOME}/.ccache}"
+# Path-independent caching across build_forest-<suffix> forests: rewrite
+# testbed-absolute paths to relative before hashing, and don't hash the CWD
+# (safe: Release builds carry no -g CWD-sensitive debug info).
+export CCACHE_BASEDIR="${CCACHE_BASEDIR:-${TESTBED}}"
+export CCACHE_NOHASHDIR="${CCACHE_NOHASHDIR:-true}"
 HEAVY="${HEAVY:-0}"
 # ITK base ref: the branch that vendors for/itk-vxl-master with a matching VNL
 # wrapper (vcl is INTERFACE/header-only). sync-vnl then overlays the working
@@ -191,13 +199,15 @@ row_for(){ # name -> "kind|url|branch_or_heavy"
 all_names(){ for r in "${CONSUMERS[@]}" "${REMOTES[@]}"; do echo "${r%%|*}"; done; }
 
 common_cmake_args(){
-  printf '%s ' -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  printf '%s ' -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON \
     -DCMAKE_C_COMPILER="${CC}" -DCMAKE_CXX_COMPILER="${CXX}" \
     -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 }
 
 checkout_one(){
   local name="$1" url="$2" branch="$3" dest="${FOREST}/$1"
+  # A branch can only be checked out in one worktree; suffix per-forest.
+  [ -n "${branch}" ] && branch="${branch}${FOREST_REFERENCE_SUFFIX:+-${FOREST_REFERENCE_SUFFIX}}"
   if [ -e "${dest}/.git" ]; then log "${name}: present (skip)"; return 0; fi
   local canon="${SRC_ROOT}/${name}"
   if [ -d "${canon}/.git" ] && [ -n "${branch}" ]; then
@@ -232,7 +242,7 @@ cmd_repoint_itk(){ require git
   if [ "${remote}" != "${ITK_REF}" ]; then  # remote ref (has a '/') -> fetch first
     git -C "${itk}" fetch "${remote}" --quiet || warn "fetch ${remote} failed; using cached refs"
   fi
-  git -C "${itk}" checkout -f -B itk-vxl-master "${ITK_REF}"
+  git -C "${itk}" checkout -f -B "itk-vxl-master${FOREST_REFERENCE_SUFFIX:+-${FOREST_REFERENCE_SUFFIX}}" "${ITK_REF}"
   warn "ITK now at ${ITK_REF}; run sync-vnl then build-ITK to apply the vxl change"; }
 
 cmd_sync_vnl(){ require rsync
@@ -266,14 +276,35 @@ configure_one(){
     # Modules downstreams need compiled into ITK: Ultrasound's COMPILE_DEPENDS
     # plus ANTs' required set (ITKReview, GenericLabelInterpolator, AdaptiveDenoising,
     # MGHIO). TractographyTRX is genuinely remote (not ingested) so it is left off.
-    local mods=(-DModule_SplitComponents=ON -DModule_MeshToPolyData=ON
-                -DModule_BSplineGradient=ON -DModule_HigherOrderAccurateGradient=ON
-                -DModule_Strain=ON -DModule_MGHIO=ON -DModule_ITKReview=ON
-                -DModule_GenericLabelInterpolator=ON -DModule_AdaptiveDenoising=ON)
+    # Superset of ITK's own pixi `configure-ci` module list, plus ANTs' required
+    # set (ITKReview). Keep in sync with ITK pyproject.toml [tasks.configure-ci].
+    local mods=(
+      -DModule_AdaptiveDenoising=ON -DModule_AnisotropicDiffusionLBR=ON
+      -DModule_BoneEnhancement=ON -DModule_BoneMorphometry=ON
+      -DModule_BSplineGradient=ON -DModule_Cuberille=ON
+      -DModule_FastBilateral=ON -DModule_FixedPointInverseDisplacementField=ON
+      -DModule_Fpfh=ON -DModule_GenericLabelInterpolator=ON
+      -DModule_GrowCut=ON -DModule_HigherOrderAccurateGradient=ON
+      -DModule_IOFDF=ON -DModule_IOMeshMZ3=ON -DModule_IOMeshSTL=ON
+      -DModule_IOMeshSWC=ON -DModule_IOTransformDCMTK=ON -DModule_ITKDCMTK=ON
+      -DModule_IsotropicWavelets=ON -DModule_LabelErodeDilate=ON
+      -DModule_MGHIO=ON -DModule_MeshNoise=ON -DModule_MeshToPolyData=ON
+      -DModule_MinimalPathExtraction=ON -DModule_Montage=ON
+      -DModule_MorphologicalContourInterpolation=ON
+      -DModule_MultipleImageIterator=ON -DModule_ParabolicMorphology=ON
+      -DModule_PhaseSymmetry=ON -DModule_PolarTransform=ON
+      -DModule_PrincipalComponentsAnalysis=ON -DModule_RANSAC=ON
+      -DModule_RLEImage=ON -DModule_SmoothingRecursiveYvvGaussianFilter=ON
+      -DModule_SplitComponents=ON -DModule_Strain=ON
+      -DModule_StructuralSimilarity=ON -DModule_SubdivisionQuadEdgeMeshFilter=ON
+      -DModule_TextureFeatures=ON -DModule_Thickness3D=ON
+      -DModule_TotalVariation=ON -DModule_TwoProjectionRegistration=ON
+      -DModule_VariationalRegistration=ON
+      -DModule_ITKReview=ON)
     # ITK_BUILD_ALL_MODULES so downstreams (ANTs/c3d/...) find non-default
     # modules they depend on (e.g. AdaptiveDenoising, MorphologicalContourInterpolation).
     cmake -S "$s" -B "${ITK_BUILD}" $(common_cmake_args) \
-      -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF \
+      -DBUILD_EXAMPLES=ON -DITK_USE_BRAINWEB_DATA=ON \
       -DITK_BUILD_DEFAULT_MODULES=ON -DITK_BUILD_ALL_MODULES=ON \
       "${fftw[@]}" "${mods[@]}"
     return
@@ -281,9 +312,9 @@ configure_one(){
   [ -f "${ITK_BUILD}/ITKConfig.cmake" ] || die "ITK not built; run: pixi run ITK"
   case "$name" in
     ANTs)        cmake -S "$s" -B "$b" $(common_cmake_args) -DUSE_SYSTEM_ITK=ON -DITK_DIR="$(itk_dir)" \
-                   -DBUILD_TESTING=ON -DUSE_VTK=OFF -DUSE_TractographyTRX=OFF ;;
+                   -DUSE_VTK=OFF -DUSE_TractographyTRX=OFF ;;
     BRAINSTools) cmake -S "$s" -B "$b" $(common_cmake_args) -DUSE_SYSTEM_ITK=ON -DITK_DIR="$(itk_dir)" \
-                   -DBUILD_TESTING=ON -DUSE_VTK=OFF -DBRAINSTools_BUILD_DICOM_SUPPORT=OFF ;;
+                   -DUSE_VTK=OFF -DBRAINSTools_BUILD_DICOM_SUPPORT=OFF ;;
     Slicer)      warn "Slicer SuperBuild is long (builds VTK/CTK + own ITK 6; Qt6 from ${SLICER_QT_PREFIX})"
                  # The testbed ITK is headless (Module_ITKVtkGlue=OFF), so it cannot
                  # satisfy Slicer_USE_SYSTEM_ITK. Let Slicer's SuperBuild build its
@@ -325,21 +356,21 @@ configure_one(){
                    -DSlicer_EXTENSION_DESCRIPTION_DIR="${descdir}" \
                    -DQt6_DIR="${SLICER_QT_PREFIX}/lib/cmake/Qt6" \
                    -DCMAKE_PREFIX_PATH="${SLICER_QT_PREFIX}" \
-                   -DBUILD_TESTING=OFF ;;
+                   ;;
     MITK)        warn "MITK SuperBuild is long";   cmake -S "$s" -B "$b" $(common_cmake_args) -DMITK_USE_SYSTEM_ITK=ON -DITK_DIR="$(itk_dir)" ;;
-    elastix)     cmake -S "$s" -B "$b" $(common_cmake_args) -DITK_DIR="$(itk_dir)" -DBUILD_TESTING=OFF ;;
+    elastix)     cmake -S "$s" -B "$b" $(common_cmake_args) -DITK_DIR="$(itk_dir)" ;;
     c3d)         cmake -S "$s" -B "$b" $(common_cmake_args) -DITK_DIR="$(itk_dir)" ;;
     SimpleITK)   warn "SimpleITK SuperBuild (C++ only; WRAP_DEFAULT=OFF)"
                  cmake -S "${s}/SuperBuild" -B "$b" $(common_cmake_args) \
                    -DUSE_SYSTEM_ITK=ON -DITK_DIR="$(itk_dir)" \
-                   -DWRAP_DEFAULT=OFF -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF ;;
+                   -DWRAP_DEFAULT=OFF -DBUILD_EXAMPLES=OFF ;;
     RTK)         cmake -S "$s" -B "$b" $(common_cmake_args) -DITK_DIR="$(itk_dir)" \
-                   -DRTK_USE_CUDA="${RTK_USE_CUDA:-OFF}" -DBUILD_TESTING=OFF ;;
+                   -DRTK_USE_CUDA="${RTK_USE_CUDA:-OFF}" ;;
     Ultrasound)  # optional VTK off; ignore Homebrew so its broken VTK/HDF5 config isn't found
                  cmake -S "$s" -B "$b" $(common_cmake_args) -DITK_DIR="$(itk_dir)" \
-                   -DBUILD_TESTING=OFF -DITKUltrasound_USE_VTK=OFF \
+                   -DITKUltrasound_USE_VTK=OFF \
                    -DCMAKE_IGNORE_PREFIX_PATH=/opt/homebrew ;;
-    *)  cmake -S "$s" -B "$b" $(common_cmake_args) -DITK_DIR="$(itk_dir)" -DBUILD_TESTING=OFF ;;
+    *)  cmake -S "$s" -B "$b" $(common_cmake_args) -DITK_DIR="$(itk_dir)" ;;
   esac
 }
 
