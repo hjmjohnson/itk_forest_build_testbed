@@ -56,14 +56,30 @@ lib is blocked.
 no OpenCL runtime; macOS provides it as a system framework, where VkFFTBackend
 builds. Platform dependency, not FFT (zero FFT/vnl refs in the log).
 
-### BRAINSTools — ANTs `itkSurfaceImageCurvature.h` missing include (GCC only)
-On GCC (cortex), `'ImageRegionIteratorWithIndex' does not name a type` in
-ANTs's `Utilities/itkSurfaceImageCurvature.{h,hxx}` — the header uses the
-iterator without including `itkImageRegionIteratorWithIndex.h` and relies on a
-transitive include that Apple clang provides but GCC does not. Pre-existing ANTs
-code bug surfaced by the stricter compiler; a one-line `#include` upstream fix.
-Not FFT (the standalone ANTs target builds; BRAINSTools bundles its own ANTs
-that compiles this Examples header).
+### BRAINSTools — fixed the ANTs include; deeper `FindProgramPath` skew remains
+**Fixed (committed):** ~10 ANTs `Utilities/Examples` headers used
+`ImageRegionIteratorWithIndex` without including its header, relying on a
+transitive include Apple clang provides but GCC does not — broke BRAINSTools on
+Linux/GCC. `_patch_ants_missing_includes` adds the include to every offending
+file in every ANTs checkout. This lets ANTs compile and `BRAINSFit` build, so
+the matrix (artifact = `BRAINSFit`) now scores BRAINSTools **PASS** on cortex.
+
+**Fixed (committed):** `BRAINSConstellationDetector.cxx` called
+`itksys::SystemTools::FindProgramPath`, removed from ITK's current KWSys.
+`_patch_brainstools_kwsys` rewrites it to `FindProgram(name)` (modern KWSys).
+
+**Still incomplete (full SuperBuild) — a chain of BRAINSTools bit-rot vs current
+ITK/GCC, all pre-existing and non-FFT:**
+- `BRAINSABCUtilities.h` includes `tbb/blocked_range.h` directly; no TBB include
+  path on hosts without a system TBB (cortex).
+- `BRAINSLinearModelerEPCA.cxx` / `BRAINSAlignMSP.cxx`: `expected ';' before '}'`
+  from a tclap `MultiArg<T>` injected-class-name issue (SlicerExecutionModel's
+  bundled tclap) under GCC.
+
+Each is a separate consumer-vs-toolchain skew needing a BRAINSTools/SEM source
+update. The matrix's representative-tool artifact (`BRAINSFit`) passes on both
+platforms; the full SuperBuild does not complete on GCC. None caused by the FFT
+change.
 
 ## Platform matrix (PocketFFT branch e817a4dc60)
 
@@ -71,7 +87,7 @@ that compiles this Examples header).
 |---|---|---|---|
 | ITK, RTK, Cleaver, PerfBenchmarking, SimpleITKFilters, TractographyTRX, ANTs | PASS | PASS | — |
 | VkFFTBackend | PASS | FAIL | cortex: no OpenCL |
-| BRAINSTools | PASS | FAIL | cortex: ANTs GCC missing-include |
+| BRAINSTools | PASS | PASS* | *artifact (`BRAINSFit`) passes both; full SuperBuild blocked by KWSys `FindProgramPath` skew. cortex also needed the ANTs include patch |
 | SimpleITK | FAIL | PASS | macOS: SimpleITK `EnhancementEnum` skew |
 | elastix | FAIL | FAIL | vnl_matrix_exp instantiations |
 | Slicer / SlicerExtensions | FAIL | FAIL | `itkNamespace.h` (ITK-side, upstream) |

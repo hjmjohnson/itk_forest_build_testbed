@@ -41,6 +41,15 @@ pixi run bash bin/run-matrix.sh   # full sweep, scored by artifact
 
 ## Non-negotiables
 
+- **Latest `upstream/main` first; on failure, update before debugging.** Every
+  source repo (ITK, ANTs, BRAINSTools, SlicerExecutionModel, …) defaults to its
+  `origin/main` / `upstream/main` tip unless a specific commit is requested. On
+  the **first build/test failure of a repo, the first action is to fetch and
+  checkout its latest main** — the failure is frequently already fixed upstream —
+  and only debug/patch if the latest tip still fails. Bump SuperBuild `GIT_TAG`
+  pins (e.g. `SuperBuild/External_ANTs.cmake`) to latest main rather than patching
+  stale pinned source. Genuine remaining failures become upstream PRs against
+  latest main (maintainer has PR access on most of these repos).
 - **Verify by artifact, not pipe exit code.** `… | tee/tail` masks failures;
   confirm the binary/library exists on disk. (`bin/run-matrix.sh` does this.)
 - **build_forest/ is disposable** and git-ignored (except its README). Never

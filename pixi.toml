@@ -43,7 +43,7 @@ qt-main = "5.15.*"  # Qt5.15 for Slicer SuperBuild (matches Slicer_REQUIRED_QT_V
 [activation.env]
 CCACHE_MAXSIZE = "75G"
 CCACHE_COMPILERCHECK = "content"
-CCACHE_SLOPPINESS = "time_macros,include_file_mtime,include_file_ctime,system_headers,pch_defines"
+CCACHE_SLOPPINESS = "time_macros,system_headers,pch_defines"
 
 # ---- infrastructure tasks -------------------------------------------------
 [tasks.config]
@@ -186,3 +186,10 @@ description = "Build all main consumers"
 [tasks.build-all]
 depends-on = ["build-consumers", "build-remotes"]
 description = "Build every consumer + remote module (very long)"
+
+[target.linux-64.dependencies]
+mesalib = ">=26.0.3,<27"
+xorg-libx11 = ">=1.8.13,<2"
+xorg-xorgproto = ">=2025.1,<2026"
+xorg-libxext = ">=1.3.7,<2"
+xorg-libxt = ">=1.3.1,<2"

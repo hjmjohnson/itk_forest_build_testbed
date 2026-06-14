@@ -287,6 +287,95 @@ _fix_dcmtk_ijg_symlinks(){
     ln -snf "../dcmjpeg/libijg${n}" "${ep}/ijg${n}/include"
   done; }
 
+# Several ANTs Utilities/Examples headers use ImageRegionIteratorWithIndex
+# without including its header, relying on a transitive include Apple clang
+# provides but GCC does not -> BRAINSTools fails to build on Linux/GCC. Add the
+# missing include (after the first itk* include) to every offending file in
+# every ANTs checkout in the forest (standalone + BRAINSTools' bundled ANTs).
+# Recurring upstream-ANTs bug; pre-existing, not FFT.
+_patch_ants_missing_includes(){
+  local a f
+  while IFS= read -r a; do
+    while IFS= read -r f; do
+      grep -q '#include "itkImageRegionIteratorWithIndex.h"' "${f}" && continue
+      grep -q "ImageRegionIteratorWithIndex" "${f}" || continue
+      perl -0pi -e 's{(#include "itk[^"]+\.h"\n)}{$1#include "itkImageRegionIteratorWithIndex.h"\n}' "${f}" \
+        && log "patched ANTs include: ${f#"${FOREST}/"}"
+    done < <(find "${a}/Utilities" "${a}/Examples" \( -name '*.h' -o -name '*.hxx' \) 2>/dev/null)
+  done < <(find "${FOREST}" -type d -name Utilities -path '*ANTs*' -exec dirname {} \; 2>/dev/null | sort -u)
+}
+
+# BRAINSTools' BRAINSConstellationDetector calls itksys::SystemTools::
+# FindProgramPath(argv0, pathOut, errorMsg), removed from ITK's current KWSys.
+# The modern equivalent is FindProgram(name) -> path ("" on failure). Rewrite the
+# call in place. Pre-existing BRAINSTools-vs-ITK-KWSys skew, not FFT.
+_patch_brainstools_kwsys(){
+  local f
+  while IFS= read -r f; do
+    grep -q "FindProgramPath" "${f}" 2>/dev/null || continue
+    perl -0pi -e 's{^(\s*)if \(!itksys::SystemTools::FindProgramPath\((argv\[0\]), (\w+), (\w+)\)\)$}{$1$3 = itksys::SystemTools::FindProgram($2);\n$1if ($3.empty())}mg' "${f}" \
+      && log "patched BRAINSTools KWSys: ${f#"${FOREST}/"}"
+  done < <(grep -rlE "itksys::SystemTools::FindProgramPath" "${FOREST}"/BRAINSTools* 2>/dev/null | grep -vE '/[A-Za-z]+-build/' )
+}
+
+# BRAINSABC links the legacy ${TBB_IMPORTED_TARGETS} variable, which modern
+# oneTBB's TBBConfig does not set (it provides the TBB::tbb target). The empty
+# variable means TBB's include never reaches BRAINSABC -> tbb/blocked_range.h not
+# found on toolchains without TBB on the default path (GCC/conda). Link TBB::tbb.
+_patch_brainstools_tbb(){
+  local f
+  # oneTBB's TBBConfig sets TBB::tbb's interface link to Threads::Threads at
+  # config-load time, so find_package(Threads) MUST precede find_package(TBB)
+  # (top level), or CMake errors "link interface ... contains Threads::Threads".
+  for f in $(grep -rlE "find_package\(\s*TBB" "${FOREST}/BRAINSTools" 2>/dev/null | grep -vE '/[A-Za-z]+-build/'); do
+    grep -q "find_package(Threads" "${f}" || {
+      perl -0pi -e 's{^(\s*)(find_package\(\s*TBB)}{$1find_package(Threads REQUIRED)\n$1$2}m' "${f}"
+      log "added find_package(Threads) before TBB in ${f#"${FOREST}/"}"; }
+  done
+  # BRAINSABC links the legacy ${TBB_IMPORTED_TARGETS} (unset by oneTBB); use the
+  # modern TBB::tbb target so TBB's include reaches the compile.
+  while IFS= read -r f; do
+    grep -q "TBB::tbb" "${f}" || { perl -0pi -e 's{\$\{TBB_IMPORTED_TARGETS\}}{TBB::tbb}g' "${f}"; \
+      log "linked TBB::tbb in ${f#"${FOREST}/"}"; }
+  done < <(grep -rlE "TBB_IMPORTED_TARGETS" "${FOREST}/BRAINSTools" 2>/dev/null | grep -vE '/[A-Za-z]+-build/')
+}
+
+# The SuperBuild's inner BRAINSTools sub-build does not reliably pick up patches
+# to its source CMakeLists/headers; force a cmake re-generate so the linkage and
+# header changes above take effect on the next build.
+_reconfigure_brainstools_inner(){
+  local ib
+  ib="$(find "${FOREST}/BRAINSTools-build" -maxdepth 1 -type d -name 'BRAINSTools-*-EP*-build' 2>/dev/null | head -1)"
+  [ -n "${ib}" ] && [ -f "${ib}/CMakeCache.txt" ] && cmake "${ib}" >/dev/null 2>&1 || true
+}
+
+# BRAINSTools omits the trailing ';' after ITK exception/warning/debug macros
+# (old ITK convention); current ITK macros require it -> "expected ';' before
+# '}'". Add a ';' after each such invocation that lacks one, balanced-paren aware
+# so multi-line calls terminate at the true close. Idempotent (negative
+# lookahead skips calls that already end in ';').
+_patch_brainstools_itk_macros(){
+  local f
+  while IFS= read -r f; do
+    LC_ALL=C perl -0777 -pi -e \
+      's{(itk(?:Generic)?\w*(?:Exception|Warning|Debug|Output)Macro\s*(\((?:[^()]++|(?2))*+\)))(?!\s*;)}{$1;}g' "${f}"
+  done < <(grep -rlE "itk(Generic)?\w*(Exception|Warning|Debug|Output)Macro" "${FOREST}/BRAINSTools" \
+             --include=*.cxx --include=*.h --include=*.hxx 2>/dev/null | grep -vE '/[A-Za-z]+-build/')
+}
+
+# SlicerExecutionModel's bundled tclap declares copy ctors with the
+# injected-class-name plus explicit template args (MultiArg<T>(const ...)),
+# which current GCC rejects ("remove the '< >'") and cascades into parse errors
+# in BRAINSTools sources that include tclap. Drop the redundant <T> on the
+# constructor name (the parameter's <T> stays).
+_patch_sem_tclap(){
+  local f
+  while IFS= read -r f; do
+    perl -0pi -e 's{^(\s*)([A-Za-z_]\w*)<T>(\(const )}{$1$2$3}mg' "${f}" \
+      && log "patched tclap injected-class-name: ${f#"${FOREST}/"}"
+  done < <(grep -rlE '^\s*[A-Za-z_]\w*<T>\(const ' "${FOREST}"/BRAINSTools-build/SlicerExecutionModel/tclap/ 2>/dev/null)
+}
+
 # ITK main's vendored vnl no longer ships some headers that downstream consumers
 # still include (e.g. elastix's AffineLogTransform needs vnl/vnl_matrix_exp.h).
 # That gap is pre-existing in ITK main and orthogonal to the change under test,
@@ -364,7 +453,7 @@ configure_one(){
     ANTs)        cmake -S "$s" -B "$b" $(common_cmake_args) -DUSE_SYSTEM_ITK=ON -DITK_DIR="$(itk_dir)" \
                    -DUSE_VTK=OFF -DUSE_TractographyTRX=OFF ;;
     BRAINSTools) cmake -S "$s" -B "$b" $(common_cmake_args) -DUSE_SYSTEM_ITK=ON -DITK_DIR="$(itk_dir)" \
-                   -DUSE_VTK=OFF -DBRAINSTools_BUILD_DICOM_SUPPORT=OFF ;;
+                   -DOpenGL_GL_PREFERENCE=GLVND -DUSE_VTK=OFF -DBRAINSTools_BUILD_DICOM_SUPPORT=OFF ;;
     Slicer)      warn "Slicer SuperBuild is long (builds VTK/CTK + own ITK 6; Qt6 from ${SLICER_QT_PREFIX})"
                  # The testbed ITK is headless (Module_ITKVtkGlue=OFF), so it cannot
                  # satisfy Slicer_USE_SYSTEM_ITK. Let Slicer's SuperBuild build its
@@ -424,12 +513,49 @@ configure_one(){
   esac
 }
 
+
+# Conda's libjpeg-turbo ships jconfig.h/jpeglib.h/jerror.h/jmorecfg.h in the env
+# include dir, which is first on the compile -I path and shadows ITK's *vendored*
+# jpeg headers. ITK's vendored jpeg then includes conda's jconfig.h (no symbol
+# mangling) while jpeg_nbits.c self-mangles, leaving libitkjpeg internally
+# inconsistent (undefined itk_jpeg_nbits_table). Every consumer here vendors its
+# own jpeg, so the conda headers are unused at compile time; hide them.
+_hide_conda_jpeg_shadow_headers(){
+  local inc="${PIXI_PROJECT_ROOT:-${TESTBED}}/.pixi/envs/default/include"
+  [ -d "$inc" ] || inc="${TESTBED}/.pixi/envs/default/include"
+  local h
+  for h in jconfig.h jpeglib.h jerror.h jmorecfg.h jpegint.h jconfigint.h; do
+    [ -f "${inc}/${h}" ] && mv "${inc}/${h}" "${inc}/${h}.itk-shadow-disabled"
+  done; :; }
+
 build_one(){ require cmake ninja ccache
+  _hide_conda_jpeg_shadow_headers
   local name="$1" b="${FOREST}/${1}-build"; [ "$name" = ITK ] && b="${ITK_BUILD}"
   # A complete configure leaves build.ninja; a half-failed one leaves only
   # CMakeCache.txt. Require build.ninja so a broken tree is reconfigured.
   [ -f "${b}/build.ninja" ] || configure_one "$name"
-  log "build ${name} (-j${JOBS})"; cmake --build "$b" -j"${JOBS}"
+  [ "$name" = ANTs ] && _patch_ants_missing_includes
+  log "build ${name} (-j${JOBS})"
+  if [ "$name" = BRAINSTools ]; then
+    # BRAINSTools' SuperBuild clones ANTs during the build; first pass fetches
+    # (may fail on the ANTs include bug), patch, second pass resumes. The
+    # BRAINSTools KWSys/TBB fixes apply up front (their source is present); ANTs
+    # and SlicerExecutionModel/tclap are cloned during the build, so re-apply
+    # after the first pass.
+    _patch_brainstools_kwsys
+    _patch_brainstools_tbb
+    _patch_brainstools_itk_macros
+    cmake --build "$b" -j"${JOBS}" || true
+    _patch_ants_missing_includes
+    _patch_brainstools_kwsys
+    _patch_brainstools_tbb
+    _patch_brainstools_itk_macros
+    _patch_sem_tclap
+    _reconfigure_brainstools_inner
+    cmake --build "$b" -j"${JOBS}"
+  else
+    cmake --build "$b" -j"${JOBS}"
+  fi
   # After ITK builds, repair the ITKDCMTK export's dangling ijg include paths so
   # downstream DCMTK consumers (elastix, ANTs, ...) configure cleanly.
   [ "$name" = ITK ] && _fix_dcmtk_ijg_symlinks
