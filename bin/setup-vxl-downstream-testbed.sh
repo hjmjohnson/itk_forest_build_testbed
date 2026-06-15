@@ -74,13 +74,20 @@ if command -v nproc >/dev/null 2>&1; then JOBS="${JOBS:-$(nproc)}"
 elif command -v sysctl >/dev/null 2>&1; then JOBS="${JOBS:-$(sysctl -n hw.ncpu)}"
 else JOBS="${JOBS:-4}"; fi
 
-if [ -z "${CXX:-}" ]; then
-  if [ -x /opt/homebrew/opt/llvm/bin/clang++ ]; then
-    CC=/opt/homebrew/opt/llvm/bin/clang; CXX=/opt/homebrew/opt/llvm/bin/clang++
-  else CC="$(command -v cc || command -v clang || command -v gcc)"
-       CXX="$(command -v c++ || command -v clang++ || command -v g++)"; fi
+# Force the conda toolchain for EVERY build (including SuperBuild ExternalProjects
+# such as Slicer's VTK/ITK/Python); never the system or Homebrew compilers. Under
+# `pixi run`, conda activation already sets CC/CXX to the env's conda compilers;
+# prefer those and override anything pointing outside ${CONDA_PREFIX}. Exported so
+# child ExternalProject configures inherit them.
+if [ -n "${CONDA_PREFIX:-}" ]; then
+  case "${CC:-}" in "${CONDA_PREFIX}"/*) : ;;
+    *) CC="$(ls "${CONDA_PREFIX}"/bin/*-cc "${CONDA_PREFIX}"/bin/clang "${CONDA_PREFIX}"/bin/gcc 2>/dev/null | head -1)" ;; esac
+  case "${CXX:-}" in "${CONDA_PREFIX}"/*) : ;;
+    *) CXX="$(ls "${CONDA_PREFIX}"/bin/*-c++ "${CONDA_PREFIX}"/bin/clang++ "${CONDA_PREFIX}"/bin/g++ 2>/dev/null | head -1)" ;; esac
 fi
 : "${CC:=$(command -v cc || command -v clang || command -v gcc)}"
+: "${CXX:=$(command -v c++ || command -v clang++ || command -v g++)}"
+export CC CXX
 
 # Slicer needs a real Qt6 (its SuperBuild builds VTK/CTK against it). On macOS a
 # Homebrew qt@6 on PATH shadows a user Qt: its host-tools (Qt6CoreTools, ...) get
@@ -167,6 +174,40 @@ vkfft_backend(){
     && { echo 3; return; }
   echo ""; }
 
+# An already-built VTK (vtk-config.cmake) for consumers that need one (PlusLib).
+# Reuses the Slicer or BRAINSTools VTK build; override with VTK_DIR.
+vtk_dir(){
+  local d
+  for d in "${VTK_DIR:-}" \
+           "${FOREST}/Slicer-build/VTK-build" \
+           "${FOREST}/BRAINSTools-build/VTK-Release-build"; do
+    [ -n "$d" ] && [ -f "${d}/vtk-config.cmake" ] && { echo "$d"; return; }
+  done
+  find "${FOREST}" -maxdepth 3 -name vtk-config.cmake 2>/dev/null \
+    | grep -v CMakeFiles | head -1 | xargs -r dirname; }
+
+# Built OpenIGTLink / OpenIGTLinkIO (the IGT comms stack PlusLib requires).
+openigtlink_dir(){
+  local d="${OpenIGTLink_DIR:-${FOREST}/OpenIGTLink-build}"
+  [ -f "${d}/OpenIGTLinkConfig.cmake" ] && { echo "$d"; return; }
+  find "${FOREST}/OpenIGTLink-build" -maxdepth 2 -name OpenIGTLinkConfig.cmake 2>/dev/null | head -1 | xargs -r dirname; }
+openigtlinkio_dir(){
+  local d="${OpenIGTLinkIO_DIR:-${FOREST}/OpenIGTLinkIO-build}"
+  [ -f "${d}/OpenIGTLinkIOConfig.cmake" ] && { echo "$d"; return; }
+  find "${FOREST}/OpenIGTLinkIO-build" -maxdepth 2 -name OpenIGTLinkIOConfig.cmake 2>/dev/null | head -1 | xargs -r dirname; }
+
+# An already-built vtkAddon (config file) that IGSIO consumes; override with vtkAddon_DIR.
+vtkaddon_dir(){
+  local d="${vtkAddon_DIR:-${FOREST}/vtkAddon-build}"
+  { [ -f "${d}/vtkAddonConfig.cmake" ] || [ -f "${d}/vtkAddon-config.cmake" ]; } && { echo "$d"; return; }
+  find "${FOREST}/vtkAddon-build" -maxdepth 2 \( -name vtkAddonConfig.cmake -o -name vtkAddon-config.cmake \) 2>/dev/null | head -1 | xargs -r dirname; }
+
+# An already-built IGSIO (IGSIOConfig.cmake) that PlusLib consumes; override with IGSIO_DIR.
+igsio_dir(){
+  local d="${IGSIO_DIR:-${FOREST}/IGSIO-build}"
+  [ -f "${d}/IGSIOConfig.cmake" ] && { echo "$d"; return; }
+  find "${FOREST}/IGSIO-build" -maxdepth 2 -name IGSIOConfig.cmake 2>/dev/null | head -1 | xargs -r dirname; }
+
 # --- main consumers:  name | git URL | worktree branch
 CONSUMERS=(
   "ITK|https://github.com/InsightSoftwareConsortium/ITK.git|itk-vxl-master"
@@ -178,6 +219,11 @@ CONSUMERS=(
   "MITK|https://github.com/MITK/MITK.git|mitk-vxl-master"
   "c3d|https://github.com/pyushkevich/c3d.git|c3d-vxl-master"
   "SimpleITK|https://github.com/SimpleITK/SimpleITK.git|simpleitk-vxl-master"
+  "OpenIGTLink|https://github.com/openigtlink/OpenIGTLink.git|openigtlink-vxl-master"
+  "OpenIGTLinkIO|https://github.com/IGSIO/OpenIGTLinkIO.git|openigtlinkio-vxl-master"
+  "vtkAddon|https://github.com/Slicer/vtkAddon.git|vtkaddon-vxl-master"
+  "IGSIO|https://github.com/IGSIO/IGSIO.git|igsio-vxl-master"
+  "PlusLib|https://github.com/PlusToolkit/PlusLib.git|pluslib-vxl-master"
 )
 # Curated, ITK/vnl-exercising subset of Slicer extensions built against the
 # locally built Slicer (Slicer_DIR). Each name is a <name>.json descriptor in
@@ -314,6 +360,19 @@ _fix_dcmtk_ijg_symlinks(){
 # missing include (after the first itk* include) to every offending file in
 # every ANTs checkout in the forest (standalone + BRAINSTools' bundled ANTs).
 # Recurring upstream-ANTs bug; pre-existing, not FFT.
+# IGSIO sources use std::cout/cerr/endl relying on a transitive <iostream> that
+# vtkSystemIncludes.h (VTK 9.6+) no longer provides; add the include where missing.
+_patch_igsio_iostream(){
+  local d="${FOREST}/IGSIO" f
+  [ -d "${d}" ] || return 0
+  while IFS= read -r f; do
+    grep -qE '#include <iostream>' "${f}" && continue
+    grep -qE 'std::(cout|cerr|endl)' "${f}" || continue
+    perl -i -pe 'if (!$ins && /^#include/) { $_ = "#include <iostream>\n".$_; $ins=1 }' "${f}" \
+      && log "patched IGSIO iostream: ${f#"${FOREST}/"}"
+  done < <(grep -rlE 'std::(cout|cerr|endl)' "${d}" --include='*.cxx' --include='*.h' --include='*.hxx' 2>/dev/null)
+}
+
 _patch_ants_missing_includes(){
   local a f
   while IFS= read -r a; do
@@ -483,12 +542,11 @@ configure_one(){
                  # Slicer forwards -DCMAKE_<LANG>_COMPILER to every ExternalProject
                  # (VTK/ITK/Python/...) but NOT the ccache *launcher*, so a launcher
                  # flag would skip ccache for those EPs. Point the compiler at ccache's
-                 # libexec wrapper instead: it propagates ccache to every EP and runs
-                 # real Apple clang underneath (the pixi/conda clang's darwin20 target
-                 # fails the CPython _ssl link).
+                 # Policy: use the conda toolchain (CC/CXX), never system/Homebrew;
+                 # Slicer forwards CMAKE_<LANG>_COMPILER to its VTK/ITK/Python EPs.
                  cmake -S "$s" -B "$b" $(common_cmake_args) \
-                   -DCMAKE_C_COMPILER="${SLICER_CC:-$(slicer_cc clang)}" \
-                   -DCMAKE_CXX_COMPILER="${SLICER_CXX:-$(slicer_cc clang++)}" \
+                   -DCMAKE_C_COMPILER="${SLICER_CC:-${CC}}" \
+                   -DCMAKE_CXX_COMPILER="${SLICER_CXX:-${CXX}}" \
                    -DSlicer_ITK_GIT_REPOSITORY="${SLICER_ITK_GIT_REPOSITORY:-https://github.com/hjmjohnson/ITK}" \
                    -DSlicer_ITK_GIT_TAG="${SLICER_ITK_GIT_TAG:-slicer-v6.0.0-2026-06-11-57ff6c6}" \
                    -DSlicer_REQUIRED_QT_VERSION="${SLICER_QT_VERSION}" \
@@ -530,6 +588,34 @@ configure_one(){
                  cmake -S "$s" -B "$b" $(common_cmake_args) -DITK_DIR="$(itk_dir)" \
                    -DITKUltrasound_USE_VTK=OFF \
                    -DCMAKE_IGNORE_PREFIX_PATH=/opt/homebrew ;;
+    OpenIGTLink) log "OpenIGTLink (protocol v3, static)"
+                 cmake -S "$s" -B "$b" $(common_cmake_args) -DBUILD_SHARED_LIBS=OFF \
+                   -DOpenIGTLink_PROTOCOL_VERSION_3=ON -DOpenIGTLink_ENABLE_VIDEOSTREAMING=OFF ;;
+    OpenIGTLinkIO) local _vtk _oi; _vtk="$(vtk_dir)"; _oi="$(openigtlink_dir)"
+                 [ -n "${_vtk}" ] || die "OpenIGTLinkIO: no built VTK — build Slicer/BRAINSTools or set VTK_DIR"
+                 [ -n "${_oi}" ] || die "OpenIGTLinkIO: OpenIGTLink not built — run: build OpenIGTLink"
+                 log "OpenIGTLinkIO: VTK_DIR=${_vtk}  OpenIGTLink_DIR=${_oi}"
+                 cmake -S "$s" -B "$b" $(common_cmake_args) -DVTK_DIR="${_vtk}" -DOpenIGTLink_DIR="${_oi}" \
+                   -DIGTLIO_USE_GUI=OFF ;;
+    vtkAddon)    local _vtk; _vtk="$(vtk_dir)"
+                 [ -n "${_vtk}" ] || die "vtkAddon: no built VTK (vtk-config.cmake) found — build Slicer/BRAINSTools or set VTK_DIR"
+                 log "vtkAddon: VTK_DIR=${_vtk}"
+                 cmake -S "$s" -B "$b" $(common_cmake_args) -DVTK_DIR="${_vtk}" ;;
+    IGSIO)       local _vtk _va; _vtk="$(vtk_dir)"; _va="$(vtkaddon_dir)"
+                 [ -n "${_vtk}" ] || die "IGSIO: no built VTK (vtk-config.cmake) found — build Slicer/BRAINSTools or set VTK_DIR"
+                 [ -n "${_va}" ] || die "IGSIO: vtkAddon not built — run: build vtkAddon (or set vtkAddon_DIR)"
+                 log "IGSIO: ITK_DIR=$(itk_dir)  VTK_DIR=${_vtk}  vtkAddon_DIR=${_va}"
+                 cmake -S "$s" -B "$b" $(common_cmake_args) -DITK_DIR="$(itk_dir)" \
+                   -DVTK_DIR="${_vtk}" -DvtkAddon_DIR="${_va}" -DIGSIO_USE_3DSlicer=OFF ;;
+    PlusLib)     local _vtk _igsio _oi _oio; _vtk="$(vtk_dir)"; _igsio="$(igsio_dir)"
+                 _oi="$(openigtlink_dir)"; _oio="$(openigtlinkio_dir)"
+                 [ -n "${_vtk}" ] || die "PlusLib: no built VTK (vtk-config.cmake) found — build Slicer/BRAINSTools or set VTK_DIR"
+                 [ -n "${_igsio}" ] || die "PlusLib: IGSIO not built — run: build IGSIO (or set IGSIO_DIR)"
+                 [ -n "${_oio}" ] || die "PlusLib: OpenIGTLinkIO not built (igtlioConverter target required) — run: build OpenIGTLinkIO"
+                 log "PlusLib: ITK_DIR=$(itk_dir)  VTK_DIR=${_vtk}  IGSIO_DIR=${_igsio}  OpenIGTLinkIO_DIR=${_oio}"
+                 cmake -S "$s" -B "$b" $(common_cmake_args) -DITK_DIR="$(itk_dir)" \
+                   -DVTK_DIR="${_vtk}" -DIGSIO_DIR="${_igsio}" -DPLUS_USE_OpenIGTLink=ON \
+                   -DOpenIGTLink_DIR="${_oi}" -DOpenIGTLinkIO_DIR="${_oio}" ;;
     VkFFTBackend)
                  local _vk; _vk="$(vkfft_backend)"
                  [ -n "${_vk}" ] || die "VkFFTBackend: no GPU backend (CUDA/Metal/OpenCL) on this host"
@@ -563,6 +649,7 @@ build_one(){ require cmake ninja ccache
   # CMakeCache.txt. Require build.ninja so a broken tree is reconfigured.
   [ -f "${b}/build.ninja" ] || configure_one "$name"
   [ "$name" = ANTs ] && _patch_ants_missing_includes
+  [ "$name" = IGSIO ] && _patch_igsio_iostream
   log "build ${name} (-j${JOBS})"
   if [ "$name" = BRAINSTools ]; then
     # BRAINSTools' SuperBuild clones ANTs during the build; first pass fetches

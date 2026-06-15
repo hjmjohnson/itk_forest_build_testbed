@@ -84,6 +84,11 @@ artifact_ok(){
     SimpleITK) find "${b}" -name 'libSimpleITK*' 2>/dev/null | grep -q . ;;
     ANTs)        find "${b}" -name 'antsRegistration' 2>/dev/null | grep -q . ;;
     BRAINSTools) find "${b}" -name 'BRAINSFit' 2>/dev/null | grep -q . ;;
+    OpenIGTLink)   find "${b}" -iname 'libOpenIGTLink*' 2>/dev/null | grep -q . ;;
+    OpenIGTLinkIO) find "${b}" \( -iname 'libigtlio*' -o -iname 'libOpenIGTLinkIO*' \) 2>/dev/null | grep -q . ;;
+    vtkAddon)    find "${b}" -iname 'libvtkAddon-*' 2>/dev/null | grep -q . ;;
+    IGSIO)       find "${b}" -iname 'libvtkIGSIO*' 2>/dev/null | grep -q . ;;
+    PlusLib)     find "${b}" \( -iname 'libvtkPlus*' -o -iname 'libPlus*' \) 2>/dev/null | grep -q . ;;
     Slicer)      find "${TB}/Slicer-build/Slicer-build" \( -name 'SlicerApp-real' -o -name 'libMRMLCore*' \) 2>/dev/null | grep -q . ;;
     SlicerExtensions) find "${b}" \( -name '*.so' -o -name '*.dylib' \) 2>/dev/null | grep -q . ;;
     *)  # external ITK modules link their lib into the ITK tree, not ${name}-build
@@ -121,6 +126,7 @@ build_target(){
 TARGETS=(ITK elastix SimpleITK RTK Cleaver
          PerformanceBenchmarking SimpleITKFilters
          TractographyTRX VkFFTBackend ANTs BRAINSTools
+         OpenIGTLink OpenIGTLinkIO vtkAddon IGSIO PlusLib
          Slicer SlicerExtensions)
 
 for t in "${TARGETS[@]}"; do
