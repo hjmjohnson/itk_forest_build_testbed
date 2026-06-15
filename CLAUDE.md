@@ -27,6 +27,7 @@ This directory is a **kit** (scripts + pixi config + docs), not a checkout —
 | Test a vnl change, run the build matrix, or read the dependency model | [docs/workflow.md](docs/workflow.md) |
 | Understand the repo layout, what's tracked, or the `bin/` scripts | [docs/layout.md](docs/layout.md) |
 | Build Slicer (Qt6 / ccache / conda-flag / ITK-branch specifics on macOS) | [docs/slicer-macos.md](docs/slicer-macos.md) |
+| Pick / build the ITK that Slicer + SlicerExtensions consume | [docs/slicer-itk-policy.md](docs/slicer-itk-policy.md) |
 
 ## Fast path
 

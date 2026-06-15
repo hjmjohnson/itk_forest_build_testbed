@@ -88,12 +88,14 @@ fi
 # configuration. Prefer ~/Qt/<ver>/macos and drop Homebrew qt@6 from PATH so Qt6
 # and its host-tools resolve consistently for both configure and build.
 SLICER_QT_VERSION="${SLICER_QT_VERSION:-6.9.1}"
+# Official Qt installer platform subdir: macos on Darwin, gcc_64 on Linux.
+case "$(uname -s)" in Darwin) _QT_PLAT="${QT_PLATFORM_SUBDIR:-macos}" ;; *) _QT_PLAT="${QT_PLATFORM_SUBDIR:-gcc_64}" ;; esac
 # Prefer the node config's QT6_DIR; fall back to the version-derived path.
-SLICER_QT_PREFIX="${SLICER_QT_PREFIX:-${QT6_DIR:-${HOME}/Qt/${SLICER_QT_VERSION}/macos}}"
-# Fallback: if the pinned Qt isn't installed, pick the newest ~/Qt/6.*/macos
+SLICER_QT_PREFIX="${SLICER_QT_PREFIX:-${QT6_DIR:-${HOME}/Qt/${SLICER_QT_VERSION}/${_QT_PLAT}}}"
+# Fallback: if the pinned Qt isn't installed, pick the newest ~/Qt/6.*/${_QT_PLAT}
 # that has a Qt6 config (override with SLICER_QT_PREFIX or SLICER_QT_VERSION).
 if [ ! -d "${SLICER_QT_PREFIX}/lib/cmake/Qt6" ]; then
-  for _q in $(ls -d "${HOME}"/Qt/6.*/macos 2>/dev/null | sort -Vr); do
+  for _q in $(ls -d "${HOME}"/Qt/6.*/"${_QT_PLAT}" 2>/dev/null | sort -Vr); do
     [ -d "${_q}/lib/cmake/Qt6" ] && { SLICER_QT_PREFIX="${_q}"; break; }
   done
   unset _q
@@ -145,6 +147,25 @@ itk_dir(){
     [ -f "${d}/ITKConfig.cmake" ] && { echo "${d}"; return; }
   fi
   echo "${ITK_BUILD}"; }
+
+# nvcc is frequently installed outside PATH (/usr/local/cuda*/bin); find it so
+# CMake's check_language(CUDA) succeeds and VkFFT can use the CUDA backend.
+_find_nvcc(){
+  command -v nvcc 2>/dev/null && return
+  local c
+  for c in /usr/local/cuda/bin/nvcc $(ls -d /usr/local/cuda-*/bin/nvcc 2>/dev/null | sort -Vr); do
+    [ -x "$c" ] && { echo "$c"; return; }
+  done; }
+
+# VkFFT compute backend for this host: 1=CUDA, 5=Metal (macOS arm), 3=OpenCL;
+# empty => no GPU backend (skip). Override with VKFFT_BACKEND.
+vkfft_backend(){
+  [ -n "${VKFFT_BACKEND:-}" ] && { echo "${VKFFT_BACKEND}"; return; }
+  [ -n "$(_find_nvcc)" ] && { echo 1; return; }
+  [ "$(uname -s)" = Darwin ] && [ "$(uname -m)" = arm64 ] && { echo 5; return; }
+  { ls /usr/lib/*/libOpenCL.so* /usr/lib/libOpenCL.so* >/dev/null 2>&1 || [ -n "${OpenCL_LIBRARY:-}" ]; } \
+    && { echo 3; return; }
+  echo ""; }
 
 # --- main consumers:  name | git URL | worktree branch
 CONSUMERS=(
@@ -455,9 +476,9 @@ configure_one(){
     BRAINSTools) cmake -S "$s" -B "$b" $(common_cmake_args) -DUSE_SYSTEM_ITK=ON -DITK_DIR="$(itk_dir)" \
                    -DOpenGL_GL_PREFERENCE=GLVND -DUSE_VTK=OFF -DBRAINSTools_BUILD_DICOM_SUPPORT=OFF ;;
     Slicer)      warn "Slicer SuperBuild is long (builds VTK/CTK + own ITK 6; Qt6 from ${SLICER_QT_PREFIX})"
-                 # The testbed ITK is headless (Module_ITKVtkGlue=OFF), so it cannot
-                 # satisfy Slicer_USE_SYSTEM_ITK. Let Slicer's SuperBuild build its
-                 # own ITK 6 (with ITKVtkGlue + Qt) from the slicer-v6 ITK branch.
+                 # Policy: Slicer NEVER uses the system ITK; it always builds a
+                 # dedicated Slicer-vendored ITK branch (hjmjohnson/ITK @ slicer-itk-*)
+                 # via -DSlicer_ITK_GIT_TAG below. See docs/slicer-itk-policy.md.
                  [ -d "${SLICER_QT_PREFIX}/lib/cmake/Qt6" ] || die "Qt6 not found at ${SLICER_QT_PREFIX} (set SLICER_QT_PREFIX/SLICER_QT_VERSION)"
                  # Slicer forwards -DCMAKE_<LANG>_COMPILER to every ExternalProject
                  # (VTK/ITK/Python/...) but NOT the ccache *launcher*, so a launcher
@@ -509,6 +530,13 @@ configure_one(){
                  cmake -S "$s" -B "$b" $(common_cmake_args) -DITK_DIR="$(itk_dir)" \
                    -DITKUltrasound_USE_VTK=OFF \
                    -DCMAKE_IGNORE_PREFIX_PATH=/opt/homebrew ;;
+    VkFFTBackend)
+                 local _vk; _vk="$(vkfft_backend)"
+                 [ -n "${_vk}" ] || die "VkFFTBackend: no GPU backend (CUDA/Metal/OpenCL) on this host"
+                 local _cuda=(); [ "${_vk}" = 1 ] && _cuda=(-DCMAKE_CUDA_COMPILER="$(_find_nvcc)")
+                 log "VkFFTBackend: VKFFT_BACKEND=${_vk} (1=CUDA 5=Metal 3=OpenCL)"
+                 cmake -S "$s" -B "$b" $(common_cmake_args) -DITK_DIR="$(itk_dir)" \
+                   -DVKFFT_BACKEND="${_vk}" "${_cuda[@]}" ;;
     *)  cmake -S "$s" -B "$b" $(common_cmake_args) -DITK_DIR="$(itk_dir)" ;;
   esac
 }
@@ -600,5 +628,6 @@ case "${1:-checkout}" in
   repoint-itk) cmd_repoint_itk ;;
   list)      cmd_list ;;
   status)    cmd_status ;;
-  *) die "unknown command '$1' (checkout|configure|build|build-all|remotes|sync-vnl|list|status)" ;;
+  vkfft-backend) vkfft_backend ;;
+  *) die "unknown command '$1' (checkout|configure|build|build-all|remotes|sync-vnl|list|status|vkfft-backend)" ;;
 esac

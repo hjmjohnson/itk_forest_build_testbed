@@ -51,10 +51,12 @@ a stale clone at the previous tip — clear `Slicer-build/ITK*` to force a fresh
 clone. The ITK *library* builds clean for Slicer; only Slicer's own factory-reg
 lib is blocked.
 
-### VkFFTBackend — OpenCL not available (cortex/headless Linux only)
-`Could NOT find OpenCL (missing: OpenCL_LIBRARY)`. The headless Linux host has
-no OpenCL runtime; macOS provides it as a system framework, where VkFFTBackend
-builds. Platform dependency, not FFT (zero FFT/vnl refs in the log).
+### VkFFTBackend — RESOLVED (now built per-host GPU backend)
+Previously failed `Could NOT find OpenCL` on cortex. The engine now selects the
+VkFFT compute backend per host (`vkfft_backend`): **CUDA** where `nvcc` is found
+(including outside PATH, e.g. cortex's CUDA 13.2 + RTX 6000 Ada), **Metal** on
+macOS arm, **OpenCL** otherwise; `run-matrix` **skips** (not fails) hosts with no
+GPU backend. cortex now builds `libitkVkFFTBackend` with `VKFFT_BACKEND=1`.
 
 ### BRAINSTools — fixed the ANTs include; deeper `FindProgramPath` skew remains
 **Fixed (committed):** ~10 ANTs `Utilities/Examples` headers used
@@ -86,7 +88,7 @@ change.
 | Target | macOS arm64 | Linux x86_64 (cortex) | Blocker (if red) |
 |---|---|---|---|
 | ITK, RTK, Cleaver, PerfBenchmarking, SimpleITKFilters, TractographyTRX, ANTs | PASS | PASS | — |
-| VkFFTBackend | PASS | FAIL | cortex: no OpenCL |
+| VkFFTBackend | PASS (Metal) | PASS (CUDA) | per-host backend; skip if no GPU |
 | BRAINSTools | PASS | PASS* | *artifact (`BRAINSFit`) passes both; full SuperBuild blocked by KWSys `FindProgramPath` skew. cortex also needed the ANTs include patch |
 | SimpleITK | FAIL | PASS | macOS: SimpleITK `EnhancementEnum` skew |
 | elastix | FAIL | FAIL | vnl_matrix_exp instantiations |
