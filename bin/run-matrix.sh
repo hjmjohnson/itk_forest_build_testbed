@@ -86,7 +86,7 @@ artifact_ok(){
     BRAINSTools) find "${b}" -name 'BRAINSFit' 2>/dev/null | grep -q . ;;
     OpenIGTLink)   find "${b}" -iname 'libOpenIGTLink*' 2>/dev/null | grep -q . ;;
     OpenIGTLinkIO) find "${b}" \( -iname 'libigtlio*' -o -iname 'libOpenIGTLinkIO*' \) 2>/dev/null | grep -q . ;;
-    vtkAddon)    find "${b}" -iname 'libvtkAddon-*' 2>/dev/null | grep -q . ;;
+    vtkAddon)    find "${b}" -iname 'libvtkAddon*' 2>/dev/null | grep -q . ;;
     IGSIO)       find "${b}" -iname 'libvtkIGSIO*' 2>/dev/null | grep -q . ;;
     PlusLib)     find "${b}" \( -iname 'libvtkPlus*' -o -iname 'libPlus*' \) 2>/dev/null | grep -q . ;;
     Slicer)      find "${TB}/Slicer-build/Slicer-build" \( -name 'SlicerApp-real' -o -name 'libMRMLCore*' \) 2>/dev/null | grep -q . ;;

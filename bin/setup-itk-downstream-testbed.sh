@@ -49,6 +49,9 @@ fi
 [ -f "${CONFIG_SH}" ] && . "${CONFIG_SH}"
 
 SRC_ROOT="${SRC_ROOT:-${HOME}/src}"
+# Central FULL clones of every forest repo (never shallow). Each build_forest
+# tree is a git worktree off the matching clone here. Override FOREST_GIT_REPOS.
+REPOS="${FOREST_GIT_REPOS:-${TESTBED}/forest_git_repos}"
 # build_forest root: config BUILD_FOREST_ROOT (default 'build_forest'); a
 # relative value resolves against the repo root, an absolute value is used as-is.
 BUILD_FOREST_ROOT="${BUILD_FOREST_ROOT:-build_forest}"
@@ -208,7 +211,7 @@ CONSUMERS=(
   "ANTs|https://github.com/ANTsX/ANTs.git|ants-itk-downstream"
   "BRAINSTools|https://github.com/BRAINSia/BRAINSTools.git|braintools-itk-downstream"
   "Slicer|https://github.com/Slicer/Slicer.git|slicer-itk-downstream"
-  "SlicerExtensions|https://github.com/Slicer/ExtensionsIndex.git|main"
+  "SlicerExtensions|https://github.com/Slicer/ExtensionsIndex.git|"
   "elastix|https://github.com/SuperElastix/elastix.git|elastix-itk-downstream"
   "MITK|https://github.com/MITK/MITK.git|mitk-itk-downstream"
   "c3d|https://github.com/pyushkevich/c3d.git|c3d-itk-downstream"
@@ -270,23 +273,51 @@ common_cmake_args(){
     -DCMAKE_IGNORE_PREFIX_PATH=/opt/homebrew
 }
 
+# Full clone of one repo into the central forest_git_repos store (fetched if it
+# already exists). NEVER shallow. A clean clone from the URL (no --reference) so
+# the clone's object store is self-contained and integrity-checked.
+ensure_repo(){
+  local name="$1" url="$2" repo="${REPOS}/${name}"
+  if [ -d "${repo}/.git" ]; then
+    git -C "${repo}" fetch --all --tags --prune --quiet 2>/dev/null \
+      || warn "${name}: fetch failed (using cached objects)"
+    return 0
+  fi
+  mkdir -p "${REPOS}"
+  log "${name}: full clone ${url} -> forest_git_repos/${name}"
+  git clone "${url}" "${repo}"
+}
+
+# Default branch of the central clone (origin/HEAD, else origin/main|master).
+_repo_base(){
+  local repo="$1" b
+  b="$(git -C "${repo}" symbolic-ref --short -q refs/remotes/origin/HEAD || true)"
+  [ -n "${b}" ] && { echo "${b}"; return; }
+  for b in origin/main origin/master; do
+    git -C "${repo}" show-ref --verify --quiet "refs/remotes/${b}" && { echo "${b}"; return; }
+  done
+}
+
+# A build_forest tree is a git worktree off the central full clone. Each tree
+# gets its own branch (a branch lives in one worktree only), suffixed per
+# scenario forest; consumers carry their patch-branch name, remotes get one
+# synthesized. New branches start at the clone's default branch.
 checkout_one(){
   local name="$1" url="$2" branch="$3" dest="${FOREST}/$1"
-  # A branch can only be checked out in one worktree; suffix per-forest.
-  [ -n "${branch}" ] && branch="${branch}${FOREST_REFERENCE_SUFFIX:+-${FOREST_REFERENCE_SUFFIX}}"
   if [ -e "${dest}/.git" ]; then log "${name}: present (skip)"; return 0; fi
-  local canon="${SRC_ROOT}/${name}"
-  if [ -d "${canon}/.git" ] && [ -n "${branch}" ]; then
-    git -C "${canon}" worktree prune   # clear stale regs from removed/disposed forests
-    log "${name}: worktree from ${canon} (branch ${branch})"
-    if git -C "${canon}" show-ref --verify --quiet "refs/heads/${branch}"; then
-      git -C "${canon}" worktree add "${dest}" "${branch}"
-    else
-      git -C "${canon}" worktree add -b "${branch}" "${dest}"
-    fi
+  ensure_repo "${name}" "${url}" || { warn "${name}: clone failed"; return 1; }
+  local repo="${REPOS}/${name}"
+  git -C "${repo}" worktree prune   # clear stale regs from removed/disposed forests
+  [ -z "${branch}" ] && branch="${name}-itk-downstream"
+  branch="${branch}${FOREST_REFERENCE_SUFFIX:+-${FOREST_REFERENCE_SUFFIX}}"
+  if git -C "${repo}" show-ref --verify --quiet "refs/heads/${branch}"; then
+    log "${name}: worktree (existing branch ${branch})"
+    git -C "${repo}" worktree add "${dest}" "${branch}"
   else
-    log "${name}: clone ${url}"
-    git clone --depth 1 "${url}" "${dest}"
+    local base; base="$(_repo_base "${repo}")"
+    [ -n "${base}" ] || { warn "${name}: no default branch in ${repo}"; return 1; }
+    log "${name}: worktree (branch ${branch} off ${base})"
+    git -C "${repo}" worktree add -b "${branch}" "${dest}" "${base}"
   fi
 }
 
@@ -642,6 +673,10 @@ build_one(){ require cmake ninja ccache
   # A complete configure leaves build.ninja; a half-failed one leaves only
   # CMakeCache.txt. Require build.ninja so a broken tree is reconfigured.
   [ -f "${b}/build.ninja" ] || configure_one "$name"
+  # Re-stub missing remote-module examples/ dirs before building ITK: repoint-itk's
+  # `git reset --hard` removes these untracked stubs, and a ninja-triggered
+  # reconfigure during `cmake --build` then fails (e.g. IOMeshMZ3 examples/).
+  [ "$name" = ITK ] && _stub_remote_examples
   [ "$name" = ANTs ] && _patch_ants_missing_includes
   [ "$name" = IGSIO ] && _patch_igsio_iostream
   log "build ${name} (-j${JOBS})"
@@ -682,7 +717,7 @@ install_itk(){
   log "install ITK -> ${ITK_INSTALL}"
   cmake --install "${ITK_BUILD}" --prefix "${ITK_INSTALL}" >/dev/null; }
 
-cmd_remotes(){ build_one ITK
+cmd_remotes(){ build_one ITK || warn "ITK (re)build issue; continuing with existing ITK build tree"
   for r in "${REMOTES[@]}"; do IFS='|' read -r nm url hv <<<"$r"
     [ "$hv" = 1 ] && [ "${HEAVY}" != 1 ] && { log "$nm: heavy (skip; HEAVY=1 to include)"; continue; }
     [ -d "${FOREST}/${nm}" ] || { warn "$nm not checked out (skip)"; continue; }

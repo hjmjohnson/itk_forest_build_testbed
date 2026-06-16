@@ -32,13 +32,16 @@ lives elsewhere, export to match (or edit `config.sh`):
 
 | Var | Default | Meaning |
 |---|---|---|
-| `SRC_ROOT` | `~/src` | where canonical source repos live (for worktree reuse) |
+| `SRC_ROOT` | `~/src` | optional clone-speedup source (`--reference-if-able`) |
+| `FOREST_GIT_REPOS` | `$TESTBED/forest_git_repos` | central full clones (worktree origin) |
 | `TESTBED` | repo root (parent of `bin/`) | the kit root |
-| `FOREST` | `$TESTBED/build_forest` | source checkouts + build trees |
+| `FOREST` | `$TESTBED/build_forest` | per-forest worktrees + build trees |
 | `ITK_REF` | `origin/main` | ITK ref under test (PR/branch/tag/SHA) |
 | `ITK_PR_REMOTE` | `origin` | remote to fetch `pr/NNNN` shorthand from |
 | `JOBS` | `nproc` | parallel build jobs |
 | `HEAVY` | `0` | `1` includes CUDA/Java/wasm remote modules |
 
-`checkout` prefers a **git worktree** of `~/src/<name>` (branch `<name>-itk-downstream`)
-when that canonical repo exists, else a shallow clone of the upstream URL.
+`checkout` makes a **full clone** of each repo under `forest_git_repos/<name>`
+(reusing `~/src/<name>` objects via `--reference-if-able --dissociate` when
+present, purely as a download speedup), then adds each `build_forest/<name>` as
+a **git worktree** off that clone. No shallow clones.

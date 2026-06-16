@@ -12,9 +12,16 @@ itk_forest_build_testbed/
 ├── config.sh           generated node config (git-ignored)
 ├── bin/                 scripts — the build engine + helpers (tracked)
 ├── docs/                this md library (tracked)
-└── build_forest/        source checkouts + *-build trees (git-ignored,
+├── forest_git_repos/    central FULL clones of every repo (git-ignored)
+└── build_forest/        per-forest worktrees + *-build trees (git-ignored,
     └── README.md        except this README)
 ```
+
+`pixi run checkout` makes one **full clone** of each repo under
+`forest_git_repos/<name>` (never shallow), then adds each `build_forest/<name>`
+as a **git worktree** off that clone. Scenario forests (`build_forest-<suffix>/`)
+add additional worktrees from the same central clones. Override the central
+store location with `FOREST_GIT_REPOS`.
 
 ## bin/ — the scripts
 
@@ -37,8 +44,9 @@ beside each `<name>/` source tree. Reclaim disk with
 
 ## What is NOT tracked
 
-`.pixi/` (the env), `.remember/` `.memsearch/` `.devlocal/` (Claude scratch),
-and everything under `build_forest/` except its README. The top-level `/*`
+`.pixi/` (the env), `forest_git_repos/` (the central full clones), `.remember/`
+`.memsearch/` `.devlocal/` (Claude scratch), and everything under
+`build_forest/` except its README. The top-level `/*`
 ignore rule means new files at the root are ignored unless explicitly
 whitelisted — so a stray checkout can never be accidentally committed.
 
