@@ -5,14 +5,11 @@ The repo is a *kit* — scripts + pixi config + docs. Cloning gives you the kit;
 `build_forest/`.
 
 ```bash
-git clone git@github.com:hjmjohnson/itk_forest_build_testbed.git ~/src/vxl_downstream_tests
-cd ~/src/vxl_downstream_tests
-
-# The vnl source under test must exist at ~/src/vxl (the ITK fork of VXL):
-git clone -b for/itk-vxl-master https://github.com/InsightSoftwareConsortium/vxl ~/src/vxl
+git clone git@github.com:hjmjohnson/itk_forest_build_testbed.git ~/src/itk_forest_build_testbed
+cd ~/src/itk_forest_build_testbed
 
 pixi run checkout        # clone/worktree every consumer + remote module
-pixi run build-ITK       # build ITK carrying the vendored/synced vnl
+pixi run build-ITK       # build the ITK under test (default ITK_REF=origin/main)
 pixi run build-elastix   # -> ITK, then elastix (any consumer pulls ITK first)
 ```
 
@@ -30,18 +27,18 @@ node. Regenerate with `pixi run config`. Details in [config.md](config.md).
 
 ## Relocation / env overrides
 
-Env vars override `config.sh`, which overrides built-in defaults. If the kit or
-vxl source live elsewhere, export to match (or edit `config.sh`):
+Env vars override `config.sh`, which overrides built-in defaults. If the kit
+lives elsewhere, export to match (or edit `config.sh`):
 
 | Var | Default | Meaning |
 |---|---|---|
-| `SRC_ROOT` | `~/src` | where canonical source repos + vxl live |
+| `SRC_ROOT` | `~/src` | where canonical source repos live (for worktree reuse) |
 | `TESTBED` | repo root (parent of `bin/`) | the kit root |
 | `FOREST` | `$TESTBED/build_forest` | source checkouts + build trees |
-| `VXL_SRC` | `$SRC_ROOT/vxl` | the vnl source under test |
-| `ITK_REF` | (script default) | ITK branch the testbed builds |
+| `ITK_REF` | `origin/main` | ITK ref under test (PR/branch/tag/SHA) |
+| `ITK_PR_REMOTE` | `origin` | remote to fetch `pr/NNNN` shorthand from |
 | `JOBS` | `nproc` | parallel build jobs |
 | `HEAVY` | `0` | `1` includes CUDA/Java/wasm remote modules |
 
-`checkout` prefers a **git worktree** of `~/src/<name>` (branch `<name>-vxl-master`)
+`checkout` prefers a **git worktree** of `~/src/<name>` (branch `<name>-itk-downstream`)
 when that canonical repo exists, else a shallow clone of the upstream URL.

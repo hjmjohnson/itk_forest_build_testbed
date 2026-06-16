@@ -4,7 +4,7 @@ Three directories + pixi config at the root. **Only the kit is git-tracked**
 (see `.gitignore`); the artifact tree is regenerated.
 
 ```
-vxl_downstream_tests/
+itk_forest_build_testbed/
 ├── CLAUDE.md            entry point + routing tables (tracked)
 ├── pixi.toml            toolchain + task graph (tracked)
 ├── pixi.lock            locked deps (tracked)
@@ -20,16 +20,14 @@ vxl_downstream_tests/
 
 | Script | Role |
 |---|---|
-| `setup-vxl-downstream-testbed.sh` | the build engine — `checkout`/`configure`/`build`/`sync-vnl`/`repoint-itk`/`remotes`/`list`/`status` |
+| `setup-itk-downstream-testbed.sh` | the build engine — `checkout`/`configure`/`build`/`repoint-itk`/`remotes`/`list`/`status` |
 | `run-matrix.sh` | build every consumer, score PASS/FAIL **by artifact** (not exit code) |
-| `harvest-vnl-warnings.sh` | collect `vnl_math::` deprecation sites from build logs |
-| `revendor-vnl-into-itk.sh` | regenerate the ITK PR branch that re-vendors stripped vxl into `Modules/ThirdParty/VNL` |
 | `config.py` | generate `config.sh` from `config.json.in` (node-specific paths). See [config.md](config.md). |
 
 The engine resolves `TESTBED` (repo root) from its own location, sources the
 node-specific `config.sh`, and puts every artifact under `FOREST`
 (`$BUILD_FOREST_ROOT`, default `$TESTBED/build_forest`). pixi tasks invoke it as
-`bash ./bin/setup-vxl-downstream-testbed.sh <cmd>`.
+`bash ./bin/setup-itk-downstream-testbed.sh <cmd>`.
 
 ## build_forest/ — artifacts
 

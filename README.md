@@ -5,11 +5,11 @@ ITK consumers — ITK itself plus ANTs, BRAINSTools, Slicer, elastix, c3d, MITK,
 SimpleITK, and the ITK remote modules — against one locally built ITK
 (`USE_SYSTEM_ITK`), with every compile wrapped by ccache.
 
-**Purpose:** prove that a proposed ITK change (a vnl/vcl pruning, an FFT
-backend swap, any branch under test) does not break downstream builds *before*
-proposing it upstream. The unit of evidence is the **build matrix**: every
-consumer built and scored PASS/FAIL by the existence of its artifact on disk,
-never by pipe exit codes.
+**Purpose:** prove that a proposed ITK change — any pull request, branch, tag,
+or SHA under test — does not break downstream builds *before* it lands
+upstream. The unit of evidence is the **build matrix**: every consumer built
+and scored PASS/FAIL by the existence of its artifact on disk, never by pipe
+exit codes.
 
 This repo is a **kit** — scripts, pixi config, and docs only. `git clone` it,
 then `pixi run checkout` materializes all source trees (git worktrees from
@@ -25,13 +25,10 @@ pixi run build-ITK                         # build ITK (the root of the forest)
 pixi run build-elastix                     # build one consumer (auto-builds ITK first)
 pixi run bash bin/run-matrix.sh            # full sweep -> PASS/FAIL per consumer
 
-# Test an ITK branch:
-ITK_REF=hjmjohnson/pocketfft-backend pixi run repoint-itk
-pixi run bash bin/run-matrix.sh
-
-# Test a local vxl/vnl edit (edit ~/src/vxl first):
-pixi run sync-vnl                          # overlay vxl into ITK's vendored vnl
+# Test an ITK PR / branch / tag / SHA:
+ITK_REF=pr/6250 pixi run repoint-itk       # or upstream/main, a tag, or a SHA
 pixi run build-ITK && pixi run build-ANTs
+pixi run bash bin/run-matrix.sh
 
 # A/B scenarios — independent parallel forest, same ccache:
 export FOREST_REFERENCE_SUFFIX=itkv6_main  # -> build_forest-itkv6_main/
@@ -59,8 +56,8 @@ Full repository URLs and the floating upstream branch each tree tracks are in
   IOOpenSlide, SCIFIO, WebAssemblyInterface under `HEAVY=1`.
 
 Each tree tracks an upstream floating branch (`main`/`master`); the testbed
-builds a local worktree off it so the forest follows the moving target a
-vnl/vcl change must not break.
+builds a local worktree off it so the forest follows the moving target an ITK
+change must not break.
 
 ## How it works
 

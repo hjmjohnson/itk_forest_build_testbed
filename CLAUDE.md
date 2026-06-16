@@ -5,14 +5,22 @@ first, then route to the focused doc in `docs/` for the task at hand.
 
 ## What this is
 
-A **pixi workspace** that builds every open-source ITK consumer the pruned
-[ITK fork of VXL](https://github.com/InsightSoftwareConsortium/vxl) (branch
-`for/itk-vxl-master`, in `~/src/vxl`) must not break — ITK itself, plus ANTs,
-BRAINSTools, Slicer, elastix, c3d, MITK, SimpleITK, and the ITK remote modules.
-Everything builds against one locally built ITK (`USE_SYSTEM_ITK`), every
-compile `ccache`-wrapped, so a single vnl header edit only recompiles the TUs
-that include it. The goal: **prove a vnl/vcl pruning or deprecation change does
-not break downstream builds before proposing it upstream.**
+A **pixi workspace** that builds every open-source ITK consumer — ITK itself,
+plus ANTs, BRAINSTools, Slicer, elastix, c3d, MITK, SimpleITK, and the ITK
+remote modules — against one locally built ITK (`USE_SYSTEM_ITK`), every compile
+`ccache`-wrapped, so a single ITK header change only recompiles the TUs that
+include it. The goal: **given any ITK ref under test (a pull request, branch,
+tag, or SHA), prove it does not break downstream builds before it lands
+upstream.**
+
+Point the ITK worktree at the ref under test with `ITK_REF` (e.g. `pr/6250`,
+`upstream/main`, a tag, or a SHA) and `pixi run repoint-itk`, then rebuild the
+forest. We assume developer/push privileges on most downstream projects, so a
+genuine breakage becomes an upstream PR against that consumer's latest main.
+
+The build environment is reproducible: the conda toolchain (compilers, ninja,
+ccache, git, cmake) is version-pinned in `pixi.toml` and frozen exactly by
+`pixi.lock`.
 
 This directory is a **kit** (scripts + pixi config + docs), not a checkout —
 `git clone` then `pixi run checkout` materializes the rest under
@@ -24,7 +32,7 @@ This directory is a **kit** (scripts + pixi config + docs), not a checkout —
 |---|---|
 | Set up the kit on a fresh machine / understand env overrides | [docs/bootstrap.md](docs/bootstrap.md) |
 | Set node-specific paths (Qt6, ccache, forest root, compilers) | [docs/config.md](docs/config.md) |
-| Test a vnl change, run the build matrix, or read the dependency model | [docs/workflow.md](docs/workflow.md) |
+| Test an ITK PR/branch/tag, run the build matrix, or read the dependency model | [docs/workflow.md](docs/workflow.md) |
 | Understand the repo layout, what's tracked, or the `bin/` scripts | [docs/layout.md](docs/layout.md) |
 | Build Slicer (Qt6 / ccache / conda-flag / ITK-branch specifics on macOS) | [docs/slicer-macos.md](docs/slicer-macos.md) |
 | Pick / build the ITK that Slicer + SlicerExtensions consume | [docs/slicer-itk-policy.md](docs/slicer-itk-policy.md) |
@@ -33,9 +41,10 @@ This directory is a **kit** (scripts + pixi config + docs), not a checkout —
 
 ```bash
 pixi run checkout          # materialize source trees into build_forest/
-pixi run build-ITK         # build ITK carrying the vendored/synced vnl
-# edit ~/src/vxl, then:
-pixi run sync-vnl          # overlay vxl into ITK's vendored vnl + rebuild ITK
+pixi run build-ITK         # build the ITK under test
+# point ITK at the ref under test (PR / branch / tag / SHA), then rebuild:
+ITK_REF=pr/6250 pixi run repoint-itk   # or ITK_REF=upstream/main, a tag, a SHA
+pixi run build-ITK
 pixi run build-elastix     # rebuild a consumer (ccache keeps it fast)
 pixi run bash bin/run-matrix.sh   # full sweep, scored by artifact
 ```
@@ -61,4 +70,4 @@ pixi run bash bin/run-matrix.sh   # full sweep, scored by artifact
 
 ## Related
 
-- `~/src/vxl/CLAUDE.md` — the vxl fork itself (what is pruned, how to build/test).
+- Each consumer's upstream repo + the floating branch it tracks: see `CATALOG.md`.

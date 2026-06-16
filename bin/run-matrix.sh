@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build every downstream against the for/itk-vxl-master ITK; record PASS/FAIL
+# Build every downstream against the ITK ref under test; record PASS/FAIL
 # by artifact (not exit code), then run each built target's ctest suite and
 # record pass/fail counts as a separate column. Continues past failures.
 #   pixi run bash bin/run-matrix.sh            # build + test
@@ -18,7 +18,7 @@ LOG_TAG="${FOREST_REFERENCE_SUFFIX:+-${FOREST_REFERENCE_SUFFIX}}"
 # so a bare `bash bin/run-matrix.sh` matches `pixi run` (system cmake 3.26.6 is
 # too old for Slicer's >=3.28 requirement).
 [ -d "${ROOT}/.pixi/envs/default/bin" ] && PATH="${ROOT}/.pixi/envs/default/bin:$PATH"
-ENG="${BIN_DIR}/setup-vxl-downstream-testbed.sh"
+ENG="${BIN_DIR}/setup-itk-downstream-testbed.sh"
 TB="${FOREST}"
 SUMMARY=""
 
@@ -116,18 +116,21 @@ build_target(){
   fi
 }
 
-# DEFERRED — known non-vxl failures, excluded until fixed (see docs/DEFERRED-FAILURES.md):
+# DEFERRED — known pre-existing failures unrelated to the ITK ref under test,
+# excluded until fixed (see docs/DEFERRED-FAILURES.md):
 #   TubeTK c3d BioCell HASI Shape SkullStrip : need their own module/data deps
 #   Ultrasound          : extra ITK COMPILE_DEPENDS / clFFT not resolved
 #   LesionSizingToolkit : missing itkCannyEdgeDetectionRecursiveGaussianImageFilter.h,
 #                         itkLandmarksReader.h (needs more ITK modules enabled)
 #   SphinxExamples      : ExternalData test-data fetch (not a build/link issue)
-# None are vxl/vnl-related. Re-include a target here only after its cause is fixed.
+# None are caused by the ITK ref under test. Re-include a target only after its cause is fixed.
+# Slicer (and its full rendering+Qt VTK) precedes the VTK consumers
+# (OpenIGTLinkIO/vtkAddon/IGSIO/PlusLib), which need that VTK via vtk_dir().
 TARGETS=(ITK elastix SimpleITK RTK Cleaver
          PerformanceBenchmarking SimpleITKFilters
          TractographyTRX VkFFTBackend ANTs BRAINSTools
-         OpenIGTLink OpenIGTLinkIO vtkAddon IGSIO PlusLib
-         Slicer SlicerExtensions)
+         OpenIGTLink Slicer SlicerExtensions
+         OpenIGTLinkIO vtkAddon IGSIO PlusLib)
 
 for t in "${TARGETS[@]}"; do
   # VkFFTBackend is GPU-gated: build with CUDA/Metal/OpenCL where available,

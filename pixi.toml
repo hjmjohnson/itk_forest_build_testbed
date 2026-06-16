@@ -1,40 +1,47 @@
-# VXL/VNL downstream-breakage testbed — pixi workspace
+# ITK downstream-breakage testbed — pixi workspace
 #
-# Builds every open-source ITK consumer the pruned vxl fork must not break,
-# against the locally built ITK (USE_SYSTEM_ITK), all accelerated by ccache.
+# Builds every open-source ITK consumer against one locally built ITK
+# (USE_SYSTEM_ITK), all accelerated by ccache, to prove that an ITK change
+# under test (any PR, branch, tag, or SHA) does not break downstream builds.
 # The dependency graph is encoded via task `depends-on`, so building any
 # consumer transparently (re)builds ITK first:
 #
 #   pixi run checkout        # clone/worktree every project (run once)
-#   pixi run build-ITK       # build ITK (carries the vnl change)
+#   pixi run build-ITK       # build the ITK under test
 #   pixi run build-elastix   # -> ITK, then elastix
 #   pixi run build-Slicer    # -> ITK, then Slicer SuperBuild
 #   pixi run build-BRAINSTools # -> ITK -> ANTs -> BRAINSTools
 #   pixi run build-remotes   # -> ITK, then all ITK remote modules (external)
 #   pixi run build-all       # everything in dependency order (very long)
-#   pixi run sync-vnl        # rsync local vxl into ITK's vendored vnl, then rebuild
+#   pixi run repoint-itk     # move the ITK worktree to ITK_REF, then rebuild
 #   pixi run status          # ccache stats + checked-out projects
 #
-# To test a vnl change: edit ~/src/vxl, `pixi run sync-vnl`, then rebuild the
-# consumers you care about. ccache makes the unaffected TUs near-instant.
+# To test an ITK PR/branch/tag: `ITK_REF=pr/6250 pixi run repoint-itk`
+# (or ITK_REF=upstream/main, a tag, or a SHA), then rebuild the consumers you
+# care about. ccache makes the unaffected TUs near-instant.
+#
+# The conda toolchain (compilers, ninja, ccache, git, cmake) is version-pinned
+# below and frozen exactly by pixi.lock, so every node builds reproducibly.
 #
 # Relocatable: clone the repo (pixi.toml + bin/ + docs/) to any Linux/macOS
 # machine and `pixi run checkout`. Source checkouts and build trees land in
 # build_forest/ (git-ignored). See CLAUDE.md for the doc library.
 
 [workspace]
-name = "vxl-downstream-tests"
+name = "itk-downstream-tests"
 channels = ["conda-forge"]
 platforms = ["osx-arm64", "osx-64", "linux-64"]
 
+# Pinned toolchain (pixi.lock freezes the exact build). Ranges track the
+# conda-forge series currently locked; bump deliberately + re-lock.
 [dependencies]
 cmake = ">=3.28,<3.32"  # Slicer SuperBuild needs >=3.28; CMake 4.x breaks it (CPS find_package)
-ninja = "*"
-ccache = "*"
-git = "*"
-rsync = "*"
-cxx-compiler = "*"
-c-compiler = "*"
+ninja = "1.13.*"
+ccache = "4.13.*"
+git = "2.54.*"
+gengetopt = "2.23.*"  # RTK applications generate *_ggo.{h,c} via gengetopt
+cxx-compiler = "1.11.*"  # conda-forge clang 19 (macOS) / gcc 14 (linux)
+c-compiler = "1.11.*"
 fftw = "*"  # double + single precision; enables ITK_USE_FFTWD/F for ITKUltrasound
 qt-main = "5.15.*"  # Qt5.15 for Slicer SuperBuild (matches Slicer_REQUIRED_QT_VERSION)
 
@@ -51,131 +58,127 @@ cmd = "python3 ./bin/config.py generate --force"
 description = "Regenerate node-local config.sh from config.json.in"
 
 [tasks.checkout]
-cmd = "bash ./bin/setup-vxl-downstream-testbed.sh checkout"
+cmd = "bash ./bin/setup-itk-downstream-testbed.sh checkout"
 description = "Clone/worktree every consumer + remote module"
 
 [tasks.status]
-cmd = "bash ./bin/setup-vxl-downstream-testbed.sh status"
+cmd = "bash ./bin/setup-itk-downstream-testbed.sh status"
 description = "ccache stats + checked-out projects"
 
 [tasks.list]
-cmd = "bash ./bin/setup-vxl-downstream-testbed.sh list"
-
-[tasks.sync-vnl]
-cmd = "bash ./bin/setup-vxl-downstream-testbed.sh sync-vnl"
-description = "rsync local vxl into ITK's vendored vnl (call before rebuilding)"
+cmd = "bash ./bin/setup-itk-downstream-testbed.sh list"
 
 [tasks.repoint-itk]
-cmd = "bash ./bin/setup-vxl-downstream-testbed.sh repoint-itk"
-description = "Move ITK worktree to ITK_REF (default upstream/main); then sync-vnl + build-ITK"
+cmd = "bash ./bin/setup-itk-downstream-testbed.sh repoint-itk"
+description = "Move ITK worktree to ITK_REF (PR/branch/tag/SHA; default origin/main), then build-ITK"
 
 # ---- consumers (dependency graph via depends-on) --------------------------
 [tasks.build-ITK]
-cmd = "bash ./bin/setup-vxl-downstream-testbed.sh build ITK"
-description = "Build ITK against local/vendored vnl"
+cmd = "bash ./bin/setup-itk-downstream-testbed.sh build ITK"
+description = "Build the ITK ref under test"
 
 [tasks.build-ANTs]
-cmd = "bash ./bin/setup-vxl-downstream-testbed.sh build ANTs"
+cmd = "bash ./bin/setup-itk-downstream-testbed.sh build ANTs"
 depends-on = ["build-ITK"]
 
 [tasks.build-BRAINSTools]
-cmd = "bash ./bin/setup-vxl-downstream-testbed.sh build BRAINSTools"
+cmd = "bash ./bin/setup-itk-downstream-testbed.sh build BRAINSTools"
 depends-on = ["build-ANTs"]
 
 [tasks.build-Slicer]
-cmd = "bash ./bin/setup-vxl-downstream-testbed.sh build Slicer"
+cmd = "bash ./bin/setup-itk-downstream-testbed.sh build Slicer"
 depends-on = ["build-ITK"]
 
 [tasks.build-SlicerExtensions]
-cmd = "bash ./bin/setup-vxl-downstream-testbed.sh build SlicerExtensions"
+cmd = "bash ./bin/setup-itk-downstream-testbed.sh build SlicerExtensions"
 depends-on = ["build-Slicer"]
 
 [tasks.build-elastix]
-cmd = "bash ./bin/setup-vxl-downstream-testbed.sh build elastix"
+cmd = "bash ./bin/setup-itk-downstream-testbed.sh build elastix"
 depends-on = ["build-ITK"]
 
 [tasks.build-c3d]
-cmd = "bash ./bin/setup-vxl-downstream-testbed.sh build c3d"
+cmd = "bash ./bin/setup-itk-downstream-testbed.sh build c3d"
 depends-on = ["build-ITK"]
 
 [tasks.build-MITK]
-cmd = "bash ./bin/setup-vxl-downstream-testbed.sh build MITK"
+cmd = "bash ./bin/setup-itk-downstream-testbed.sh build MITK"
 depends-on = ["build-ITK"]
 
 [tasks.build-SimpleITK]
-cmd = "bash ./bin/setup-vxl-downstream-testbed.sh build SimpleITK"
+cmd = "bash ./bin/setup-itk-downstream-testbed.sh build SimpleITK"
 depends-on = ["build-ITK"]
 description = "SimpleITK SuperBuild (C++ only) against system ITK"
 
 # ---- ITK remote modules, each built externally against system ITK ---------
 [tasks.build-remotes]
-cmd = "bash ./bin/setup-vxl-downstream-testbed.sh remotes"
+cmd = "bash ./bin/setup-itk-downstream-testbed.sh remotes"
 depends-on = ["build-ITK"]
 description = "Build all (non-heavy) ITK remote modules externally"
 
 [tasks.build-BioCell]
-cmd = "bash ./bin/setup-vxl-downstream-testbed.sh build BioCell"
+cmd = "bash ./bin/setup-itk-downstream-testbed.sh build BioCell"
 depends-on = ["build-ITK"]
 [tasks.build-Cleaver]
-cmd = "bash ./bin/setup-vxl-downstream-testbed.sh build Cleaver"
+cmd = "bash ./bin/setup-itk-downstream-testbed.sh build Cleaver"
 depends-on = ["build-ITK"]
 [tasks.build-HASI]
-cmd = "bash ./bin/setup-vxl-downstream-testbed.sh build HASI"
+cmd = "bash ./bin/setup-itk-downstream-testbed.sh build HASI"
 depends-on = ["build-ITK"]
 [tasks.build-LesionSizingToolkit]
-cmd = "bash ./bin/setup-vxl-downstream-testbed.sh build LesionSizingToolkit"
+cmd = "bash ./bin/setup-itk-downstream-testbed.sh build LesionSizingToolkit"
 depends-on = ["build-ITK"]
 [tasks.build-PerformanceBenchmarking]
-cmd = "bash ./bin/setup-vxl-downstream-testbed.sh build PerformanceBenchmarking"
+cmd = "bash ./bin/setup-itk-downstream-testbed.sh build PerformanceBenchmarking"
 depends-on = ["build-ITK"]
 [tasks.build-Shape]
-cmd = "bash ./bin/setup-vxl-downstream-testbed.sh build Shape"
+cmd = "bash ./bin/setup-itk-downstream-testbed.sh build Shape"
 depends-on = ["build-ITK"]
 [tasks.build-SimpleITKFilters]
-cmd = "bash ./bin/setup-vxl-downstream-testbed.sh build SimpleITKFilters"
+cmd = "bash ./bin/setup-itk-downstream-testbed.sh build SimpleITKFilters"
 depends-on = ["build-ITK"]
 [tasks.build-SkullStrip]
-cmd = "bash ./bin/setup-vxl-downstream-testbed.sh build SkullStrip"
+cmd = "bash ./bin/setup-itk-downstream-testbed.sh build SkullStrip"
 depends-on = ["build-ITK"]
 [tasks.build-SphinxExamples]
-cmd = "bash ./bin/setup-vxl-downstream-testbed.sh build SphinxExamples"
+cmd = "bash ./bin/setup-itk-downstream-testbed.sh build SphinxExamples"
 depends-on = ["build-ITK"]
 [tasks.build-TractographyTRX]
-cmd = "bash ./bin/setup-vxl-downstream-testbed.sh build TractographyTRX"
+cmd = "bash ./bin/setup-itk-downstream-testbed.sh build TractographyTRX"
 depends-on = ["build-ITK"]
 [tasks.build-TubeTK]
-cmd = "bash ./bin/setup-vxl-downstream-testbed.sh build TubeTK"
+cmd = "bash ./bin/setup-itk-downstream-testbed.sh build TubeTK"
 depends-on = ["build-ITK"]
 [tasks.build-Ultrasound]
-cmd = "bash ./bin/setup-vxl-downstream-testbed.sh build Ultrasound"
+cmd = "bash ./bin/setup-itk-downstream-testbed.sh build Ultrasound"
 depends-on = ["build-ITK"]
 [tasks.build-VkFFTBackend]
-cmd = "bash ./bin/setup-vxl-downstream-testbed.sh build VkFFTBackend"
+cmd = "bash ./bin/setup-itk-downstream-testbed.sh build VkFFTBackend"
 depends-on = ["build-ITK"]
 
 # RTK — CPU build by default (portable, important on Linux). CUDA via build-RTK-cuda.
 [tasks.build-RTK]
-cmd = "bash ./bin/setup-vxl-downstream-testbed.sh build RTK"
+cmd = "bash ./bin/setup-itk-downstream-testbed.sh build RTK"
 depends-on = ["build-ITK"]
 description = "RTK cone-beam CT reconstruction (CPU; RTK_USE_CUDA=OFF)"
 
 [tasks.build-RTK-cuda]
-cmd = "HEAVY=1 RTK_USE_CUDA=ON bash ./bin/setup-vxl-downstream-testbed.sh build RTK"
+cmd = "HEAVY=1 RTK_USE_CUDA=ON bash ./bin/setup-itk-downstream-testbed.sh build RTK"
 depends-on = ["build-ITK", "build-CudaCommon"]
 description = "RTK with CUDA acceleration (Linux + CUDA toolkit; needs CudaCommon)"
 
 # heavy remote modules (CUDA / Java / Emscripten) — opt in with HEAVY=1
 [tasks.build-CudaCommon]
-cmd = "HEAVY=1 bash ./bin/setup-vxl-downstream-testbed.sh build CudaCommon"
+cmd = "HEAVY=1 bash ./bin/setup-itk-downstream-testbed.sh build CudaCommon"
 depends-on = ["build-ITK"]
 [tasks.build-IOOpenSlide]
-cmd = "HEAVY=1 bash ./bin/setup-vxl-downstream-testbed.sh build IOOpenSlide"
+cmd = "HEAVY=1 bash ./bin/setup-itk-downstream-testbed.sh build IOOpenSlide"
 depends-on = ["build-ITK"]
 [tasks.build-SCIFIO]
-cmd = "HEAVY=1 bash ./bin/setup-vxl-downstream-testbed.sh build SCIFIO"
+cmd = "HEAVY=1 bash ./bin/setup-itk-downstream-testbed.sh build SCIFIO"
 depends-on = ["build-ITK"]
 [tasks.build-WebAssemblyInterface]
-cmd = "HEAVY=1 bash ./bin/setup-vxl-downstream-testbed.sh build WebAssemblyInterface"
+cmd = "HEAVY=1 bash ./bin/setup-itk-downstream-testbed.sh build WebAssemblyInterface"
 depends-on = ["build-ITK"]
 
 # ---- aggregate ------------------------------------------------------------

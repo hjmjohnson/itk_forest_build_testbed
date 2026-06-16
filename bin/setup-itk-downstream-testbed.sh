@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# setup-vxl-downstream-testbed.sh
+# setup-itk-downstream-testbed.sh
 #
-# Build engine for the VXL/VNL downstream-breakage testbed. Checks out every
-# open-source ITK consumer the vxl fork must not break, instruments all builds
-# with ccache, and builds them against the locally built ITK (USE_SYSTEM_ITK).
+# Build engine for the ITK downstream-breakage testbed. Checks out every
+# open-source ITK consumer, instruments all builds with ccache, and builds them
+# against one locally built ITK (USE_SYSTEM_ITK). Point the ITK worktree at any
+# ITK ref under test (a PR, branch, tag, or SHA) with `repoint-itk`, then rebuild
+# the forest to prove the change does not break downstream consumers.
 #
 # Pixi (pixi.toml at the repo root) drives the dependency graph:
 #   pixi run build-elastix  -> builds ITK then elastix
@@ -20,7 +22,7 @@
 #   build <name>           configure (if needed) + build one project
 #   build-all              build every consumer in dependency order
 #   remotes                build all ITK remote modules (external, system-ITK)
-#   sync-vnl               rsync local vxl into ITK's vendored vnl, then rebuild ITK
+#   repoint-itk            move the ITK worktree to ITK_REF (PR/branch/tag/SHA)
 #   list                   print every known project + category
 #   status                 ccache + worktree state
 #
@@ -29,7 +31,7 @@
 # the artifact dir.
 #
 # Env overrides (defaults): SRC_ROOT=~/src  TESTBED=<repo root (parent of bin/)>
-#   FOREST=$TESTBED/build_forest  VXL_SRC=$SRC_ROOT/vxl  CCACHE_DIR=~/.ccache
+#   FOREST=$TESTBED/build_forest  ITK_REF=origin/main  CCACHE_DIR=~/.ccache
 #   JOBS=(nproc)  CC/CXX=(auto/pixi)  HEAVY=0 (1 to include CUDA/Java/wasm remotes)
 set -euo pipefail
 
@@ -57,7 +59,6 @@ case "${BUILD_FOREST_ROOT}" in
   /*) FOREST="${FOREST:-${BUILD_FOREST_ROOT}}" ;;
   *)  FOREST="${FOREST:-${TESTBED}/${BUILD_FOREST_ROOT}}" ;;
 esac
-VXL_SRC="${VXL_SRC:-${SRC_ROOT}/vxl}"
 export CCACHE_DIR="${CCACHE_DIR:-${HOME}/.ccache}"
 # Path-independent caching across build_forest-<suffix> forests: rewrite
 # testbed-absolute paths to relative before hashing, and don't hash the CWD
@@ -65,10 +66,10 @@ export CCACHE_DIR="${CCACHE_DIR:-${HOME}/.ccache}"
 export CCACHE_BASEDIR="${CCACHE_BASEDIR:-${TESTBED}}"
 export CCACHE_NOHASHDIR="${CCACHE_NOHASHDIR:-true}"
 HEAVY="${HEAVY:-0}"
-# ITK base ref: the branch that vendors for/itk-vxl-master with a matching VNL
-# wrapper (vcl is INTERFACE/header-only). sync-vnl then overlays the working
-# tree's vxl. Override to test a later re-vendor branch / proposed PR.
-ITK_REF="${ITK_REF:-update-vnl-stripped-vxl-v3}"
+# ITK ref under test: any branch, tag, SHA, remote ref (e.g. upstream/main), or
+# GitHub PR shorthand (pr/NNNN -> pull/NNNN/head). `repoint-itk` moves the ITK
+# worktree here; the rest of the forest then rebuilds against it.
+ITK_REF="${ITK_REF:-origin/main}"
 
 if command -v nproc >/dev/null 2>&1; then JOBS="${JOBS:-$(nproc)}"
 elif command -v sysctl >/dev/null 2>&1; then JOBS="${JOBS:-$(sysctl -n hw.ncpu)}"
@@ -81,13 +82,24 @@ else JOBS="${JOBS:-4}"; fi
 # child ExternalProject configures inherit them.
 if [ -n "${CONDA_PREFIX:-}" ]; then
   case "${CC:-}" in "${CONDA_PREFIX}"/*) : ;;
-    *) CC="$(ls "${CONDA_PREFIX}"/bin/*-cc "${CONDA_PREFIX}"/bin/clang "${CONDA_PREFIX}"/bin/gcc 2>/dev/null | head -1)" ;; esac
+    *) for _c in "${CONDA_PREFIX}"/bin/*-cc "${CONDA_PREFIX}"/bin/clang "${CONDA_PREFIX}"/bin/gcc; do
+         [ -x "${_c}" ] && { CC="${_c}"; break; }; done ;; esac
   case "${CXX:-}" in "${CONDA_PREFIX}"/*) : ;;
-    *) CXX="$(ls "${CONDA_PREFIX}"/bin/*-c++ "${CONDA_PREFIX}"/bin/clang++ "${CONDA_PREFIX}"/bin/g++ 2>/dev/null | head -1)" ;; esac
+    *) for _x in "${CONDA_PREFIX}"/bin/*-c++ "${CONDA_PREFIX}"/bin/clang++ "${CONDA_PREFIX}"/bin/g++; do
+         [ -x "${_x}" ] && { CXX="${_x}"; break; }; done ;; esac
+  unset _c _x
 fi
 : "${CC:=$(command -v cc || command -v clang || command -v gcc)}"
 : "${CXX:=$(command -v c++ || command -v clang++ || command -v g++)}"
 export CC CXX
+# Never the Homebrew toolchain (its packages are built with a different
+# compiler and ABI-mismatch the conda-forge stack). Conda-forge runtime libs
+# (fftw, qt, ...) are fine; only the Homebrew *compilers* are rejected.
+case "${CC}:${CXX}" in
+  */opt/homebrew/*|*/usr/local/opt/*|*/usr/local/Cellar/*|*/homebrew/*)
+    printf '\033[1;31m[err]\033[0m Homebrew compiler refused (CC=%s CXX=%s); run under "pixi run" or set CC/CXX to the conda toolchain\n' "${CC}" "${CXX}" >&2
+    exit 1 ;;
+esac
 
 # Slicer needs a real Qt6 (its SuperBuild builds VTK/CTK against it). On macOS a
 # Homebrew qt@6 on PATH shadows a user Qt: its host-tools (Qt6CoreTools, ...) get
@@ -125,29 +137,11 @@ fi
 # deps are passed explicitly via -D flags, so drop these contaminating flags.
 unset CFLAGS CPPFLAGS CXXFLAGS LDFLAGS CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH
 
-# Resolve a ccache-wrapping compiler for Slicer's ExternalProjects. Slicer
-# forwards -DCMAKE_<LANG>_COMPILER to every EP but NOT the ccache *launcher*, so
-# pointing the compiler at ccache's libexec wrapper (which execs the real clang
-# from PATH) is what gets ccache into VTK/ITK/Python/Slicer. Falls back to a
-# plain compiler (builds, no ccache) when no libexec wrapper is found.
-slicer_cc(){  # $1 = clang | clang++
-  local name="$1" d
-  for d in "$(brew --prefix ccache 2>/dev/null)/libexec" \
-           /opt/homebrew/opt/ccache/libexec /usr/local/opt/ccache/libexec \
-           /usr/lib/ccache /usr/lib64/ccache; do
-    [ -x "${d}/${name}" ] && { printf '%s' "${d}/${name}"; return; }
-  done
-  [ -x "/usr/bin/${name}" ] && { printf '%s' "/usr/bin/${name}"; return; }
-  command -v "${name}" 2>/dev/null || printf '%s' "${name}"
-}
-
 ITK_BUILD="${FOREST}/ITK-build"       # ITK build tree
-ITK_INSTALL="${FOREST}/ITK-install"   # installed ITK (its export defines vcl) — consumers use this
+ITK_INSTALL="${FOREST}/ITK-install"   # installed ITK tree (consumers use this when ITK_USE_INSTALL=1)
 
-# Consumers point ITK_DIR at the ITK build tree. Its build-tree export now
-# defines the vcl static target (vxl vcl/CMakeLists.txt exports it), and the
-# build tree ships all CMake helper modules the install tree omits. Set
-# ITK_USE_INSTALL=1 to use the install tree instead.
+# Consumers point ITK_DIR at the ITK build tree; it ships all CMake helper
+# modules the install tree omits. Set ITK_USE_INSTALL=1 to use the install tree.
 itk_dir(){
   if [ "${ITK_USE_INSTALL:-0}" = 1 ]; then
     local d; d="$(echo "${ITK_INSTALL}"/lib/cmake/ITK-* 2>/dev/null)"
@@ -174,16 +168,16 @@ vkfft_backend(){
     && { echo 3; return; }
   echo ""; }
 
-# An already-built VTK (vtk-config.cmake) for consumers that need one (PlusLib).
-# Reuses the Slicer or BRAINSTools VTK build; override with VTK_DIR.
+# A rendering-capable VTK (vtk-config.cmake) for consumers that need one
+# (vtkAddon/IGSIO/PlusLib/OpenIGTLinkIO require RenderingOpenGL2). Slicer's VTK
+# (full + Qt) qualifies; BRAINSTools' VTK is headless and is NOT used here.
+# Override with VTK_DIR (must point at a rendering-enabled VTK).
 vtk_dir(){
   local d
-  for d in "${VTK_DIR:-}" \
-           "${FOREST}/Slicer-build/VTK-build" \
-           "${FOREST}/BRAINSTools-build/VTK-Release-build"; do
+  for d in "${VTK_DIR:-}" "${FOREST}/Slicer-build/VTK-build"; do
     [ -n "$d" ] && [ -f "${d}/vtk-config.cmake" ] && { echo "$d"; return; }
   done
-  find "${FOREST}" -maxdepth 3 -name vtk-config.cmake 2>/dev/null \
+  find "${FOREST}/Slicer-build" -maxdepth 3 -name vtk-config.cmake 2>/dev/null \
     | grep -v CMakeFiles | head -1 | xargs -r dirname; }
 
 # Built OpenIGTLink / OpenIGTLinkIO (the IGT comms stack PlusLib requires).
@@ -210,25 +204,26 @@ igsio_dir(){
 
 # --- main consumers:  name | git URL | worktree branch
 CONSUMERS=(
-  "ITK|https://github.com/InsightSoftwareConsortium/ITK.git|itk-vxl-master"
-  "ANTs|https://github.com/ANTsX/ANTs.git|ants-vxl-master"
-  "BRAINSTools|https://github.com/BRAINSia/BRAINSTools.git|braintools-vxl-master"
-  "Slicer|https://github.com/Slicer/Slicer.git|slicer-vxl-master"
+  "ITK|https://github.com/InsightSoftwareConsortium/ITK.git|itk-downstream"
+  "ANTs|https://github.com/ANTsX/ANTs.git|ants-itk-downstream"
+  "BRAINSTools|https://github.com/BRAINSia/BRAINSTools.git|braintools-itk-downstream"
+  "Slicer|https://github.com/Slicer/Slicer.git|slicer-itk-downstream"
   "SlicerExtensions|https://github.com/Slicer/ExtensionsIndex.git|main"
-  "elastix|https://github.com/SuperElastix/elastix.git|elastix-vxl-master"
-  "MITK|https://github.com/MITK/MITK.git|mitk-vxl-master"
-  "c3d|https://github.com/pyushkevich/c3d.git|c3d-vxl-master"
-  "SimpleITK|https://github.com/SimpleITK/SimpleITK.git|simpleitk-vxl-master"
-  "OpenIGTLink|https://github.com/openigtlink/OpenIGTLink.git|openigtlink-vxl-master"
-  "OpenIGTLinkIO|https://github.com/IGSIO/OpenIGTLinkIO.git|openigtlinkio-vxl-master"
-  "vtkAddon|https://github.com/Slicer/vtkAddon.git|vtkaddon-vxl-master"
-  "IGSIO|https://github.com/IGSIO/IGSIO.git|igsio-vxl-master"
-  "PlusLib|https://github.com/PlusToolkit/PlusLib.git|pluslib-vxl-master"
+  "elastix|https://github.com/SuperElastix/elastix.git|elastix-itk-downstream"
+  "MITK|https://github.com/MITK/MITK.git|mitk-itk-downstream"
+  "c3d|https://github.com/pyushkevich/c3d.git|c3d-itk-downstream"
+  "SimpleITK|https://github.com/SimpleITK/SimpleITK.git|simpleitk-itk-downstream"
+  "OpenIGTLink|https://github.com/openigtlink/OpenIGTLink.git|openigtlink-itk-downstream"
+  "OpenIGTLinkIO|https://github.com/IGSIO/OpenIGTLinkIO.git|openigtlinkio-itk-downstream"
+  "vtkAddon|https://github.com/Slicer/vtkAddon.git|vtkaddon-itk-downstream"
+  "IGSIO|https://github.com/IGSIO/IGSIO.git|igsio-itk-downstream"
+  "PlusLib|https://github.com/PlusToolkit/PlusLib.git|pluslib-itk-downstream"
 )
-# Curated, ITK/vnl-exercising subset of Slicer extensions built against the
+# Curated, ITK-exercising subset of Slicer extensions built against the
 # locally built Slicer (Slicer_DIR). Each name is a <name>.json descriptor in
 # the ExtensionsIndex checkout. Add more here to widen coverage.
-SLICER_EXTENSIONS=(BoneTextureExtension AnomalousFiltersExtension SlicerElastix)
+SLICER_EXTENSIONS=(BoneTextureExtension AnomalousFiltersExtension SlicerElastix
+                   SlicerRT SlicerIGSIO SlicerANTs)
 # --- ITK remote modules, built EXTERNALLY against system ITK.  name | git URL | heavy?
 REMOTES=(
   "BioCell|https://github.com/InsightSoftwareConsortium/ITKBioCell.git|0"
@@ -266,9 +261,13 @@ row_for(){ # name -> "kind|url|branch_or_heavy"
 all_names(){ for r in "${CONSUMERS[@]}" "${REMOTES[@]}"; do echo "${r%%|*}"; done; }
 
 common_cmake_args(){
+  # CMAKE_IGNORE_PREFIX_PATH=/opt/homebrew keeps every find_package/find_library
+  # off the Homebrew tree (its libs ABI-mismatch the conda-forge stack); the
+  # conda-forge equivalents (fftw, ...) are found under ${CONDA_PREFIX}.
   printf '%s ' -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON \
     -DCMAKE_C_COMPILER="${CC}" -DCMAKE_CXX_COMPILER="${CXX}" \
-    -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+    -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+    -DCMAKE_IGNORE_PREFIX_PATH=/opt/homebrew
 }
 
 checkout_one(){
@@ -278,10 +277,13 @@ checkout_one(){
   if [ -e "${dest}/.git" ]; then log "${name}: present (skip)"; return 0; fi
   local canon="${SRC_ROOT}/${name}"
   if [ -d "${canon}/.git" ] && [ -n "${branch}" ]; then
+    git -C "${canon}" worktree prune   # clear stale regs from removed/disposed forests
     log "${name}: worktree from ${canon} (branch ${branch})"
-    git -C "${canon}" show-ref --verify --quiet "refs/heads/${branch}" \
-      && git -C "${canon}" worktree add "${dest}" "${branch}" \
-      || git -C "${canon}" worktree add -b "${branch}" "${dest}"
+    if git -C "${canon}" show-ref --verify --quiet "refs/heads/${branch}"; then
+      git -C "${canon}" worktree add "${dest}" "${branch}"
+    else
+      git -C "${canon}" worktree add -b "${branch}" "${dest}"
+    fi
   else
     log "${name}: clone ${url}"
     git clone --depth 1 "${url}" "${dest}"
@@ -295,35 +297,30 @@ cmd_checkout(){ require git; mkdir -p "${FOREST}"
     IFS='|' read -r kind url br <<<"$meta"
     if [ "$kind" = remote ]; then
       [ "$br" = 1 ] && [ "${HEAVY}" != 1 ] && { log "$n: heavy (CUDA/Java/wasm); set HEAVY=1 to include (skip)"; continue; }
-      checkout_one "$n" "$url" ""
-    else checkout_one "$n" "$url" "$br"; fi
+      checkout_one "$n" "$url" "" || warn "$n: checkout failed (skip)"
+    else checkout_one "$n" "$url" "$br" || warn "$n: checkout failed (skip)"; fi
   done
   log "checkout dir: ${FOREST}"; }
 
 cmd_repoint_itk(){ require git
   local itk="${FOREST}/ITK"
   [ -e "${itk}/.git" ] || die "ITK not checked out"   # .git is a FILE in a worktree
-  log "discard any vendored overlay, move ITK worktree to ${ITK_REF}"
-  git -C "${itk}" reset --hard --quiet   # drop prior sync-vnl overlay so checkout can switch
-  local remote="${ITK_REF%%/*}"
-  if [ "${remote}" != "${ITK_REF}" ]; then  # remote ref (has a '/') -> fetch first
-    git -C "${itk}" fetch "${remote}" --quiet || warn "fetch ${remote} failed; using cached refs"
-  fi
-  git -C "${itk}" checkout -f -B "itk-vxl-master${FOREST_REFERENCE_SUFFIX:+-${FOREST_REFERENCE_SUFFIX}}" "${ITK_REF}"
-  warn "ITK now at ${ITK_REF}; run sync-vnl then build-ITK to apply the vxl change"; }
-
-cmd_sync_vnl(){ require rsync
-  local vendored="${FOREST}/ITK/Modules/ThirdParty/VNL/src/vxl"
-  [ -d "${vendored}" ] || die "vendored vnl missing at ${vendored} (checkout ITK first)"
-  log "rsync ${VXL_SRC}/{vcl,core,v3p} -> vendored vnl"
-  for sub in vcl core v3p; do [ -d "${VXL_SRC}/${sub}" ] && \
-    rsync -a --delete --exclude '.git' --exclude 'build*/' \
-      "${VXL_SRC}/${sub}/" "${vendored}/${sub}/"; done
-  # config/ holds the CMake probes (e.g. ConfigurePlatformMathTarget); sync
-  # additively so vxl-owned modules update without removing ITK-added files.
-  [ -d "${VXL_SRC}/config" ] && rsync -a --exclude '.git' \
-    "${VXL_SRC}/config/" "${vendored}/config/"
-  warn "rebuild: pixi run build-ITK   (then any downstream)"; }
+  local ref="${ITK_REF}" wt="itk-downstream${FOREST_REFERENCE_SUFFIX:+-${FOREST_REFERENCE_SUFFIX}}"
+  log "move ITK worktree to ${ref}"
+  git -C "${itk}" reset --hard --quiet   # clean tree so checkout can switch
+  case "${ref}" in
+    pr/*|pull/*)   # GitHub PR shorthand: pr/6250 -> pull/6250/head on ITK_PR_REMOTE
+      local num="${ref##*/}"
+      git -C "${itk}" fetch "${ITK_PR_REMOTE:-origin}" "pull/${num}/head" --quiet \
+        || die "fetch PR ${num} from ${ITK_PR_REMOTE:-origin} failed"
+      git -C "${itk}" checkout -f -B "${wt}" FETCH_HEAD ;;
+    */*)           # remote ref (has a '/') -> fetch its remote first
+      git -C "${itk}" fetch "${ref%%/*}" --quiet || warn "fetch ${ref%%/*} failed; using cached refs"
+      git -C "${itk}" checkout -f -B "${wt}" "${ref}" ;;
+    *)             # local branch / tag / SHA
+      git -C "${itk}" checkout -f -B "${wt}" "${ref}" ;;
+  esac
+  warn "ITK now at ${ref}; run build-ITK then rebuild the downstream consumers"; }
 
 # Some enabled remote modules (IOMeshMZ3, AnisotropicDiffusionLBR) ship a
 # CMakeLists that calls itk_module_examples() but no examples/ dir, which is a
@@ -456,11 +453,10 @@ _patch_sem_tclap(){
   done < <(grep -rlE '^\s*[A-Za-z_]\w*<T>\(const ' "${FOREST}"/BRAINSTools-build/SlicerExecutionModel/tclap/ 2>/dev/null)
 }
 
-# ITK main's vendored vnl no longer ships some headers that downstream consumers
-# still include (e.g. elastix's AffineLogTransform needs vnl/vnl_matrix_exp.h).
-# That gap is pre-existing in ITK main and orthogonal to the change under test,
-# so overlay the missing header-only files to isolate the validation. Files live
-# in bin/overlays/vnl/ and are copied only when absent from the vendored vnl.
+# Compat shim: some ITK-vendored third-party headers a few consumers still
+# include (e.g. elastix's AffineLogTransform needs vnl/vnl_matrix_exp.h) are no
+# longer shipped by recent ITK. Header-only files in bin/overlays/vnl/ are copied
+# in only when absent, so the forest builds regardless of the ITK ref under test.
 _overlay_vnl_headers(){
   local ov="${SCRIPT_DIR}/overlays/vnl" dst="${FOREST}/ITK/Modules/ThirdParty/VNL/src/vxl/core/vnl" f
   [ -d "${ov}" ] || return 0
@@ -584,32 +580,30 @@ configure_one(){
                    -DWRAP_DEFAULT=OFF -DBUILD_EXAMPLES=OFF ;;
     RTK)         cmake -S "$s" -B "$b" $(common_cmake_args) -DITK_DIR="$(itk_dir)" \
                    -DRTK_USE_CUDA="${RTK_USE_CUDA:-OFF}" ;;
-    Ultrasound)  # optional VTK off; ignore Homebrew so its broken VTK/HDF5 config isn't found
-                 cmake -S "$s" -B "$b" $(common_cmake_args) -DITK_DIR="$(itk_dir)" \
-                   -DITKUltrasound_USE_VTK=OFF \
-                   -DCMAKE_IGNORE_PREFIX_PATH=/opt/homebrew ;;
+    Ultrasound)  cmake -S "$s" -B "$b" $(common_cmake_args) -DITK_DIR="$(itk_dir)" \
+                   -DITKUltrasound_USE_VTK=OFF ;;
     OpenIGTLink) log "OpenIGTLink (protocol v3, static)"
                  cmake -S "$s" -B "$b" $(common_cmake_args) -DBUILD_SHARED_LIBS=OFF \
                    -DOpenIGTLink_PROTOCOL_VERSION_3=ON -DOpenIGTLink_ENABLE_VIDEOSTREAMING=OFF ;;
     OpenIGTLinkIO) local _vtk _oi; _vtk="$(vtk_dir)"; _oi="$(openigtlink_dir)"
-                 [ -n "${_vtk}" ] || die "OpenIGTLinkIO: no built VTK — build Slicer/BRAINSTools or set VTK_DIR"
+                 [ -n "${_vtk}" ] || die "OpenIGTLinkIO: no built VTK — build Slicer (full VTK) or set VTK_DIR"
                  [ -n "${_oi}" ] || die "OpenIGTLinkIO: OpenIGTLink not built — run: build OpenIGTLink"
                  log "OpenIGTLinkIO: VTK_DIR=${_vtk}  OpenIGTLink_DIR=${_oi}"
                  cmake -S "$s" -B "$b" $(common_cmake_args) -DVTK_DIR="${_vtk}" -DOpenIGTLink_DIR="${_oi}" \
                    -DIGTLIO_USE_GUI=OFF ;;
     vtkAddon)    local _vtk; _vtk="$(vtk_dir)"
-                 [ -n "${_vtk}" ] || die "vtkAddon: no built VTK (vtk-config.cmake) found — build Slicer/BRAINSTools or set VTK_DIR"
+                 [ -n "${_vtk}" ] || die "vtkAddon: no built VTK (vtk-config.cmake) found — build Slicer (full VTK) or set VTK_DIR"
                  log "vtkAddon: VTK_DIR=${_vtk}"
                  cmake -S "$s" -B "$b" $(common_cmake_args) -DVTK_DIR="${_vtk}" ;;
     IGSIO)       local _vtk _va; _vtk="$(vtk_dir)"; _va="$(vtkaddon_dir)"
-                 [ -n "${_vtk}" ] || die "IGSIO: no built VTK (vtk-config.cmake) found — build Slicer/BRAINSTools or set VTK_DIR"
+                 [ -n "${_vtk}" ] || die "IGSIO: no built VTK (vtk-config.cmake) found — build Slicer (full VTK) or set VTK_DIR"
                  [ -n "${_va}" ] || die "IGSIO: vtkAddon not built — run: build vtkAddon (or set vtkAddon_DIR)"
                  log "IGSIO: ITK_DIR=$(itk_dir)  VTK_DIR=${_vtk}  vtkAddon_DIR=${_va}"
                  cmake -S "$s" -B "$b" $(common_cmake_args) -DITK_DIR="$(itk_dir)" \
                    -DVTK_DIR="${_vtk}" -DvtkAddon_DIR="${_va}" -DIGSIO_USE_3DSlicer=OFF ;;
     PlusLib)     local _vtk _igsio _oi _oio; _vtk="$(vtk_dir)"; _igsio="$(igsio_dir)"
                  _oi="$(openigtlink_dir)"; _oio="$(openigtlinkio_dir)"
-                 [ -n "${_vtk}" ] || die "PlusLib: no built VTK (vtk-config.cmake) found — build Slicer/BRAINSTools or set VTK_DIR"
+                 [ -n "${_vtk}" ] || die "PlusLib: no built VTK (vtk-config.cmake) found — build Slicer (full VTK) or set VTK_DIR"
                  [ -n "${_igsio}" ] || die "PlusLib: IGSIO not built — run: build IGSIO (or set IGSIO_DIR)"
                  [ -n "${_oio}" ] || die "PlusLib: OpenIGTLinkIO not built (igtlioConverter target required) — run: build OpenIGTLinkIO"
                  log "PlusLib: ITK_DIR=$(itk_dir)  VTK_DIR=${_vtk}  IGSIO_DIR=${_igsio}  OpenIGTLinkIO_DIR=${_oio}"
@@ -673,12 +667,14 @@ build_one(){ require cmake ninja ccache
   fi
   # After ITK builds, repair the ITKDCMTK export's dangling ijg include paths so
   # downstream DCMTK consumers (elastix, ANTs, ...) configure cleanly.
+  local rc=$?   # the build's real status; ITK post-steps below must not clobber it
   [ "$name" = ITK ] && _fix_dcmtk_ijg_symlinks
-  [ "$name" = ITK ] && [ "${ITK_USE_INSTALL:-0}" = 1 ] && install_itk; }
+  [ "$name" = ITK ] && [ "${ITK_USE_INSTALL:-0}" = 1 ] && install_itk
+  return "${rc}"; }
 
-# Install ITK so downstreams consume the install tree (whose export defines the
-# vcl static-import target). Works around a stale install rule for the generated
-# itk_jpeg_mangle.h by copying it where the rule expects.
+# Install ITK so downstreams can consume the install tree (ITK_USE_INSTALL=1).
+# Works around a stale install rule for the generated itk_jpeg_mangle.h by
+# copying it where the rule expects.
 install_itk(){
   local gen="${ITK_BUILD}/Modules/ThirdParty/JPEG/src/itkjpeg-turbo/itk_jpeg_mangle.h"
   local src="${FOREST}/ITK/Modules/ThirdParty/JPEG/src/itkjpeg-turbo/itk_jpeg_mangle.h"
@@ -711,10 +707,9 @@ case "${1:-checkout}" in
   build)     shift; build_one "${1:?build <name>}" ;;
   build-all) for n in "${BUILD_ORDER[@]}"; do [ -d "${FOREST}/$n" ] && build_one "$n"; done ;;
   remotes)   cmd_remotes ;;
-  sync-vnl)  cmd_sync_vnl ;;
   repoint-itk) cmd_repoint_itk ;;
   list)      cmd_list ;;
   status)    cmd_status ;;
   vkfft-backend) vkfft_backend ;;
-  *) die "unknown command '$1' (checkout|configure|build|build-all|remotes|sync-vnl|list|status|vkfft-backend)" ;;
+  *) die "unknown command '$1' (checkout|configure|build|build-all|remotes|repoint-itk|list|status|vkfft-backend)" ;;
 esac

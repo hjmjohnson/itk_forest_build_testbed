@@ -1,10 +1,10 @@
 # Forest catalog
 
 Every "tree" the testbed builds, its upstream GitHub repository, and the
-**floating upstream branch** the testbed tracks (the moving target a vnl/vcl
+**floating upstream branch** the testbed tracks (the moving target an ITK
 change must not break). The testbed checks each out into a local
-`<name>-vxl-master` worktree branched from the floating branch below; switch a
-tree to a fixed tag by editing its row in `bin/setup-vxl-downstream-testbed.sh`.
+`<name>-itk-downstream` worktree branched from the floating branch below; switch
+a tree to a fixed tag by editing its row in `bin/setup-itk-downstream-testbed.sh`.
 
 ## Consumers (built against the local ITK via `USE_SYSTEM_ITK`)
 
@@ -50,5 +50,5 @@ ExtensionsIndex above.
 | WebAssemblyInterface (ITK-Wasm) | https://github.com/InsightSoftwareConsortium/ITK-Wasm | `main` | ✔ |
 
 The authoritative source is the `CONSUMERS` / `REMOTES` / `SLICER_EXTENSIONS`
-arrays in [`bin/setup-vxl-downstream-testbed.sh`](bin/setup-vxl-downstream-testbed.sh);
+arrays in [`bin/setup-itk-downstream-testbed.sh`](bin/setup-itk-downstream-testbed.sh);
 this table mirrors them. If they diverge, the script wins — update this file.

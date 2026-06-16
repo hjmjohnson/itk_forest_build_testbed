@@ -15,15 +15,8 @@
   },
 
   "SRC_ROOT": {
-    "doc": "Directory holding canonical source repos and the vxl checkout (for worktree reuse).",
+    "doc": "Directory holding canonical source repos (for worktree reuse).",
     "candidates": ["${HOME}/src"],
-    "required": false
-  },
-
-  "VXL_SRC": {
-    "doc": "vxl (ITK fork of VXL) source under test.",
-    "candidates": ["${HOME}/src/vxl"],
-    "verify": "core/vnl",
     "required": false
   },
 
@@ -40,7 +33,7 @@
   },
 
   "CC": {
-    "doc": "C compiler. Empty => auto (Homebrew LLVM if present, else system/pixi).",
+    "doc": "C compiler. Empty => the conda/pixi toolchain (Homebrew compilers are refused).",
     "value": "",
     "required": false
   },

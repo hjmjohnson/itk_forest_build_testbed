@@ -23,8 +23,7 @@ QT6_DIR=/opt/Qt/6.10/macos pixi run build-Slicer   # one-off override
 |---|---|---|
 | `QT6_DIR` | `SLICER_QT_PREFIX` | Qt6 prefix for the Slicer SuperBuild (must contain `lib/cmake/Qt6`). **Required** for Slicer. |
 | `BUILD_FOREST_ROOT` | `FOREST` | Artifact dir. Default `build_forest`; relative → repo root, absolute → as-is. |
-| `SRC_ROOT` | `SRC_ROOT` | Canonical source repos + vxl (for worktree reuse). |
-| `VXL_SRC` | `VXL_SRC` | vxl source under test. |
+| `SRC_ROOT` | `SRC_ROOT` | Canonical source repos (for worktree reuse). |
 | `CCACHE_DIR` | `CCACHE_DIR` | ccache cache dir. |
 | `JOBS` | `JOBS` | Parallel jobs; empty → auto-detect. |
 | `CC` / `CXX` | `CC` / `CXX` | Compilers; empty → auto. |
@@ -51,4 +50,4 @@ python3 bin/config.py --check                # exit 1 if a required key is unres
 ```
 
 To add a knob: add it to `config.json.in`, run `pixi run config`, and consume
-`$KEY` in `bin/setup-vxl-downstream-testbed.sh` (it's already sourced).
+`$KEY` in `bin/setup-itk-downstream-testbed.sh` (it's already sourced).

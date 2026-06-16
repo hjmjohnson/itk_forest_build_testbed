@@ -2,7 +2,7 @@
 
 Slicer's SuperBuild builds VTK/CTK against a **real Qt6** and builds its **own
 ITK 6** (the testbed's headless ITK has `Module_ITKVtkGlue=OFF`, so it cannot
-satisfy `Slicer_USE_SYSTEM_ITK`). `bin/setup-vxl-downstream-testbed.sh` handles
+satisfy `Slicer_USE_SYSTEM_ITK`). `bin/setup-itk-downstream-testbed.sh` handles
 three macOS gotchas; all are in the `Slicer)` case + the env block near the top.
 
 ## 1. Qt resolution — drop Homebrew qt@6, pin ~/Qt
@@ -28,20 +28,19 @@ bundled CPython, which then detects gettext but fails to link `-lintl`. All real
 deps are passed explicitly via `-D`, so the script `unset`s
 `CFLAGS CPPFLAGS CXXFLAGS LDFLAGS CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH`.
 
-## 3. ccache reaches every ExternalProject
+## 3. Compilers — conda toolchain only, never Homebrew
 
-Slicer forwards `-DCMAKE_<LANG>_COMPILER` to every EP but **not** a ccache
-*launcher*, so a `CMAKE_<LANG>_COMPILER_LAUNCHER=ccache` flag would skip ccache
-for VTK/ITK/Python/Slicer. Instead the script points `CMAKE_<LANG>_COMPILER` at
-ccache's **libexec wrapper** (`$(brew --prefix ccache)/libexec/clang++`), which
-execs the real Apple clang from PATH — so ccache wraps every EP. (Apple clang,
-not the pixi/conda clang, whose `darwin20` target fails the CPython `_ssl` link.)
+The Slicer configure passes the conda `CC`/`CXX` and
+`CMAKE_<LANG>_COMPILER_LAUNCHER=ccache`. Homebrew compilers are refused at
+startup (they are built with a different compiler and ABI-mismatch the
+conda-forge stack); conda-forge runtime libs like fftw/qt are fine. Override
+the compilers for the Slicer step only with `SLICER_CC` / `SLICER_CXX`.
 
 ## ITK branch Slicer builds
 
 `Slicer_ITK_GIT_REPOSITORY` / `Slicer_ITK_GIT_TAG` select the ITK that Slicer's
-SuperBuild builds — a `slicer-v6.0.0-*` branch on `hjmjohnson/ITK` carrying the
-vendored vnl. Override via `SLICER_ITK_GIT_REPOSITORY` / `SLICER_ITK_GIT_TAG`.
+SuperBuild builds — a `slicer-v6.0.0-*` branch on `hjmjohnson/ITK`. Override via
+`SLICER_ITK_GIT_REPOSITORY` / `SLICER_ITK_GIT_TAG`.
 
 ## Known quirk
 
@@ -49,7 +48,7 @@ vendored vnl. Override via `SLICER_ITK_GIT_REPOSITORY` / `SLICER_ITK_GIT_TAG`.
 step. Invoke the engine directly when needed:
 
 ```bash
-pixi run bash ./bin/setup-vxl-downstream-testbed.sh build Slicer
+pixi run bash ./bin/setup-itk-downstream-testbed.sh build Slicer
 ```
 
 ## SlicerExtensions
