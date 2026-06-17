@@ -215,6 +215,7 @@ CONSUMERS=(
   "elastix|https://github.com/SuperElastix/elastix.git|elastix-itk-downstream"
   "MITK|https://github.com/MITK/MITK.git|mitk-itk-downstream"
   "c3d|https://github.com/pyushkevich/c3d.git|c3d-itk-downstream"
+  "Plastimatch|https://gitlab.com/plastimatch/plastimatch.git|plastimatch-itk-downstream"
   "SimpleITK|https://github.com/SimpleITK/SimpleITK.git|simpleitk-itk-downstream"
   "OpenIGTLink|https://github.com/openigtlink/OpenIGTLink.git|openigtlink-itk-downstream"
   "OpenIGTLinkIO|https://github.com/IGSIO/OpenIGTLinkIO.git|openigtlinkio-itk-downstream"
@@ -302,6 +303,23 @@ _repo_base(){
 # gets its own branch (a branch lives in one worktree only), suffixed per
 # scenario forest; consumers carry their patch-branch name, remotes get one
 # synthesized. New branches start at the clone's default branch.
+# Plastimatch is built from a maintained ITKv6-support branch on a fork (carries
+# the ITKv6 + portability fixes), NOT upstream master. Override via env.
+PLM_FORK_REMOTE="${PLM_FORK_REMOTE:-hjmjohnson}"
+PLM_FORK_URL="${PLM_FORK_URL:-git@gitlab.com:hjmjohnson/plastimatch.git}"
+PLM_FORK_REF="${PLM_FORK_REF:-itkv6-support}"
+
+# Ensure the Plastimatch fork remote exists in the central clone and the
+# ITKv6-support ref is fetched; returns the base ref the worktree should use.
+_ensure_plastimatch_fork(){
+  local repo="${REPOS}/Plastimatch"
+  [ -d "${repo}/.git" ] || return 0
+  git -C "${repo}" remote get-url "${PLM_FORK_REMOTE}" >/dev/null 2>&1 \
+    || git -C "${repo}" remote add "${PLM_FORK_REMOTE}" "${PLM_FORK_URL}"
+  git -C "${repo}" fetch "${PLM_FORK_REMOTE}" "${PLM_FORK_REF}" --quiet \
+    || warn "Plastimatch: fetch ${PLM_FORK_REMOTE}/${PLM_FORK_REF} failed (using cached)"
+}
+
 checkout_one(){
   local name="$1" url="$2" branch="$3" dest="${FOREST}/$1"
   if [ -e "${dest}/.git" ]; then log "${name}: present (skip)"; return 0; fi
@@ -310,7 +328,13 @@ checkout_one(){
   git -C "${repo}" worktree prune   # clear stale regs from removed/disposed forests
   [ -z "${branch}" ] && branch="${name}-itk-downstream"
   branch="${branch}${FOREST_REFERENCE_SUFFIX:+-${FOREST_REFERENCE_SUFFIX}}"
-  if git -C "${repo}" show-ref --verify --quiet "refs/heads/${branch}"; then
+  if [ "${name}" = Plastimatch ]; then
+    # Plastimatch always (re)bases on the fork's ITKv6-support tip (-B forces
+    # the branch to the fork ref even if a stale local branch exists).
+    _ensure_plastimatch_fork
+    log "Plastimatch: worktree (${branch} -> ${PLM_FORK_REMOTE}/${PLM_FORK_REF})"
+    git -C "${repo}" worktree add -B "${branch}" "${dest}" "${PLM_FORK_REMOTE}/${PLM_FORK_REF}"
+  elif git -C "${repo}" show-ref --verify --quiet "refs/heads/${branch}"; then
     log "${name}: worktree (existing branch ${branch})"
     git -C "${repo}" worktree add "${dest}" "${branch}"
   else
@@ -399,6 +423,73 @@ _patch_igsio_iostream(){
     perl -i -pe 'if (!$ins && /^#include/) { $_ = "#include <iostream>\n".$_; $ins=1 }' "${f}" \
       && log "patched IGSIO iostream: ${f#"${FOREST}/"}"
   done < <(grep -rlE 'std::(cout|cerr|endl)' "${d}" --include='*.cxx' --include='*.h' --include='*.hxx' 2>/dev/null)
+}
+
+# Plastimatch bundles dlib-19.1, whose unicode.h only defines unichar_traits for
+# GCC <4.4 and otherwise uses std::basic_string<uint32>; modern libc++ has no
+# char_traits<unsigned int>, so force the bundled traits path on all compilers.
+_patch_plastimatch_dlib_unicode(){
+  local f="${FOREST}/Plastimatch/libs/dlib-19.1/dlib/unicode/unicode.h"
+  [ -f "${f}" ] || return 0
+  grep -q "itk_forest_build_testbed" "${f}" && return 0
+  perl -i -pe 's{^#if defined\(__GNUC__\) && __GNUC__ < 4 && __GNUC_MINOR__ < 4}{#if 1 // itk_forest_build_testbed: always use dlib unichar_traits (no char_traits<uint32> in libc++)}' "${f}" \
+    && log "patched Plastimatch dlib unicode.h (unichar_traits)"
+}
+
+# Plastimatch's bundled demons_itk_insight includes vcl_legacy_aliases.h, removed
+# from modern VXL. Drop a minimal shim (the bundled dir is on the include path)
+# providing the vcl_* math aliases the bundled code uses.
+_patch_plastimatch_vcl_aliases(){
+  local d="${FOREST}/Plastimatch/libs/demons_itk_insight"
+  [ -d "${d}" ] || return 0
+  local f="${d}/vcl_legacy_aliases.h"
+  grep -q "vnl_math_sqr" "${f}" 2>/dev/null && return 0
+  cat > "${f}" <<'EOF'
+// Shim (itk_forest_build_testbed): vcl_legacy_aliases.h and the free vnl_math_*
+// functions were removed from modern VXL; map the legacy tokens the bundled
+// demons code uses to their std:: / vnl_math:: replacements.
+// Self-contained (no vnl/ include) so it is safe to force-include into every
+// TU, including low-level libs without ITK/VNL on their include path.
+#ifndef vcl_legacy_aliases_shim_h
+#define vcl_legacy_aliases_shim_h
+#include <cmath>
+#include <algorithm>
+#define vcl_abs std::abs
+#define vcl_ceil std::ceil
+#define vcl_fabs std::fabs
+#define vcl_log std::log
+#define vcl_pow std::pow
+#define vcl_sqrt std::sqrt
+#define vnl_math_abs std::abs
+#define vnl_math_min std::min
+#define vnl_math_sqr(x) ((x) * (x))
+#endif
+EOF
+  log "added Plastimatch vcl_legacy_aliases.h shim"
+}
+
+# Register Plastimatch's bundled RANSAC sphere-estimator unit test (which drives
+# vnl_levenberg_marquardt via GeometricLeastSquaresEstimate) with ctest; upstream
+# never add_subdirectory's libs/ransac/Testing, so the test ships unbuilt.
+_patch_plastimatch_ransac_test(){
+  local cml="${FOREST}/Plastimatch/Testing/CMakeLists.txt"
+  [ -f "${cml}" ] || return 0
+  # Modern ITK's itkNewMacro expansion ends in a static_assert needing a ';';
+  # the bundled header omits it (only surfaced now that the test compiles it).
+  local hdr="${FOREST}/Plastimatch/libs/ransac/SphereParametersEstimator.h"
+  [ -f "${hdr}" ] && perl -i -pe 's/^(\s*itkNewMacro\(\s*Self\s*\))\s*$/$1;/' "${hdr}"
+  grep -qi "itk_forest_build_testbed: RANSAC" "${cml}" && return 0
+  cat >> "${cml}" <<'EOF'
+
+# itk_forest_build_testbed: RANSAC sphere-estimator unit test (vnl_levenberg_marquardt)
+add_executable (ransac_sphere_estimator_test
+  ${PLM_SOURCE_DIR}/libs/ransac/Testing/SphereParametersEstimatorTest.cxx)
+target_include_directories (ransac_sphere_estimator_test PRIVATE
+  ${PLM_SOURCE_DIR}/libs/ransac ${PLM_SOURCE_DIR}/libs/ransac/Common)
+target_link_libraries (ransac_sphere_estimator_test ${ITK_LIBRARIES})
+add_test (NAME ransac-sphere-estimator COMMAND ransac_sphere_estimator_test)
+EOF
+  log "registered Plastimatch RANSAC sphere-estimator ctest"
 }
 
 _patch_ants_missing_includes(){
@@ -605,6 +696,15 @@ configure_one(){
     MITK)        warn "MITK SuperBuild is long";   cmake -S "$s" -B "$b" $(common_cmake_args) -DMITK_USE_SYSTEM_ITK=ON -DITK_DIR="$(itk_dir)" ;;
     elastix)     cmake -S "$s" -B "$b" $(common_cmake_args) -DITK_DIR="$(itk_dir)" ;;
     c3d)         cmake -S "$s" -B "$b" $(common_cmake_args) -DITK_DIR="$(itk_dir)" ;;
+    Plastimatch) # ITK is built with the ITKDCMTK module, so find_package(ITK)
+                 # pulls DCMTK transitively; point at ITK's bundled DCMTK build.
+                 cmake -S "$s" -B "$b" $(common_cmake_args) -DITK_DIR="$(itk_dir)" \
+                   -DCMAKE_CXX_FLAGS="-include ${FOREST}/Plastimatch/libs/demons_itk_insight/vcl_legacy_aliases.h -D_LIBCPP_ENABLE_CXX17_REMOVED_UNARY_BINARY_FUNCTION" \
+                   -DDCMTK_DIR="${ITK_BUILD}/Modules/ThirdParty/DCMTK/ITKDCMTK_ExtProject-build" \
+                   -DPLM_CONFIG_ENABLE_SUPERBUILD=OFF \
+                   -DPLM_CONFIG_ENABLE_CUDA=OFF -DPLM_CONFIG_ENABLE_OPENCL=OFF \
+                   -DPLM_CONFIG_ENABLE_DCMTK=OFF -DPLM_CONFIG_ENABLE_QT=OFF \
+                   -DPLM_CONFIG_ENABLE_SSE2="${PLM_ENABLE_SSE2:-OFF}" ;;
     SimpleITK)   warn "SimpleITK SuperBuild (C++ only; WRAP_DEFAULT=OFF)"
                  cmake -S "${s}/SuperBuild" -B "$b" $(common_cmake_args) \
                    -DUSE_SYSTEM_ITK=ON -DITK_DIR="$(itk_dir)" \
@@ -670,6 +770,9 @@ _hide_conda_jpeg_shadow_headers(){
 build_one(){ require cmake ninja ccache
   _hide_conda_jpeg_shadow_headers
   local name="$1" b="${FOREST}/${1}-build"; [ "$name" = ITK ] && b="${ITK_BUILD}"
+  # Plastimatch's force-include shim must exist before configure (CMake's
+  # compiler checks use CMAKE_CXX_FLAGS, which references it).
+  [ "$name" = Plastimatch ] && { _patch_plastimatch_vcl_aliases; _patch_plastimatch_ransac_test; }
   # A complete configure leaves build.ninja; a half-failed one leaves only
   # CMakeCache.txt. Require build.ninja so a broken tree is reconfigured.
   [ -f "${b}/build.ninja" ] || configure_one "$name"
@@ -679,6 +782,7 @@ build_one(){ require cmake ninja ccache
   [ "$name" = ITK ] && _stub_remote_examples
   [ "$name" = ANTs ] && _patch_ants_missing_includes
   [ "$name" = IGSIO ] && _patch_igsio_iostream
+  [ "$name" = Plastimatch ] && { _patch_plastimatch_dlib_unicode; _patch_plastimatch_vcl_aliases; }
   log "build ${name} (-j${JOBS})"
   if [ "$name" = BRAINSTools ]; then
     # BRAINSTools' SuperBuild clones ANTs during the build; first pass fetches

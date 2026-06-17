@@ -61,6 +61,10 @@ description = "Regenerate node-local config.sh from config.json.in"
 cmd = "bash ./bin/setup-itk-downstream-testbed.sh checkout"
 description = "Clone/worktree every consumer + remote module"
 
+[tasks.checkout-extensions]
+cmd = "bash ./bin/checkout-slicer-extensions.sh"
+description = "Deep-clone + worktree every Slicer extension source (for code search) into SlicerExtensions-src/"
+
 [tasks.status]
 cmd = "bash ./bin/setup-itk-downstream-testbed.sh status"
 description = "ccache stats + checked-out projects"
@@ -100,6 +104,11 @@ depends-on = ["build-ITK"]
 [tasks.build-c3d]
 cmd = "bash ./bin/setup-itk-downstream-testbed.sh build c3d"
 depends-on = ["build-ITK"]
+
+[tasks.build-Plastimatch]
+cmd = "bash ./bin/setup-itk-downstream-testbed.sh build Plastimatch"
+depends-on = ["build-ITK"]
+description = "Plastimatch (radiotherapy registration) against system ITK; CUDA/DCMTK/QT off"
 
 [tasks.build-MITK]
 cmd = "bash ./bin/setup-itk-downstream-testbed.sh build MITK"

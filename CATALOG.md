@@ -18,6 +18,7 @@ a tree to a fixed tag by editing its row in `bin/setup-itk-downstream-testbed.sh
 | elastix | https://github.com/SuperElastix/elastix | `main` |
 | MITK | https://github.com/MITK/MITK | `master` |
 | c3d | https://github.com/pyushkevich/c3d | `master` |
+| Plastimatch | https://gitlab.com/plastimatch/plastimatch | `hjmjohnson/itkv6-support` (fork; ITKv6 fixes) |
 | SimpleITK | https://github.com/SimpleITK/SimpleITK | `master` |
 
 Curated Slicer extensions (built against the inner Slicer): **BoneTextureExtension**,
