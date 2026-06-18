@@ -226,8 +226,16 @@ CONSUMERS=(
 # Curated, ITK-exercising subset of Slicer extensions built against the
 # locally built Slicer (Slicer_DIR). Each name is a <name>.json descriptor in
 # the ExtensionsIndex checkout. Add more here to widen coverage.
-SLICER_EXTENSIONS=(BoneTextureExtension AnomalousFiltersExtension SlicerElastix
-                   SlicerRT SlicerIGSIO SlicerANTs)
+# Override the set with SLICER_EXTENSIONS_OVERRIDE (space-separated names) or
+# SLICER_EXTENSIONS_FILE (one name per line) to widen coverage.
+if [ -n "${SLICER_EXTENSIONS_FILE:-}" ] && [ -f "${SLICER_EXTENSIONS_FILE}" ]; then
+  SLICER_EXTENSIONS=(); while read -r _e; do [ -n "$_e" ] && SLICER_EXTENSIONS+=("$_e"); done < "${SLICER_EXTENSIONS_FILE}"; unset _e
+elif [ -n "${SLICER_EXTENSIONS_OVERRIDE:-}" ]; then
+  read -ra SLICER_EXTENSIONS <<< "${SLICER_EXTENSIONS_OVERRIDE}"
+else
+  SLICER_EXTENSIONS=(BoneTextureExtension AnomalousFiltersExtension SlicerElastix
+                     SlicerRT SlicerIGSIO SlicerANTs)
+fi
 # --- ITK remote modules, built EXTERNALLY against system ITK.  name | git URL | heavy?
 REMOTES=(
   "BioCell|https://github.com/InsightSoftwareConsortium/ITKBioCell.git|0"
