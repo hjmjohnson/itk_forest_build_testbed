@@ -1,0 +1,242 @@
+# versions.toml — source of truth for the forest build component versions.
+#
+# The build engine (bin/setup-itk-downstream-testbed.sh, via bin/config.py)
+# reads this file to learn each component's git URL, worktree branch, and the
+# default ref to build. Edit versions here, not in the engine shell code.
+#
+# Precedence (unchanged): environment variable > this file > built-in fallback.
+# e.g. `ITK_REF=pr/6250 pixi run repoint-itk` still overrides components.ITK.ref.
+#
+# Each [components.<Name>] entry:
+#   url     git remote to clone into forest_git_repos/<Name> (required)
+#   ref     default ref the worktree is built at (branch/tag/SHA); default "origin/main"
+#   branch  worktree patch-branch name; default "<name>-itk-downstream" (consumers)
+#   kind    "consumer" (default) or "remote" (ITK remote module built externally)
+#   heavy   remotes only: true => CUDA/Java/wasm, skipped unless HEAVY=1
+
+# ----------------------------------------------------------------------------
+# Main consumers
+# ----------------------------------------------------------------------------
+[components.ITK]
+url    = "https://github.com/InsightSoftwareConsortium/ITK.git"
+ref    = "origin/main"            # the ref under test; ITK_REF env var overrides
+branch = "itk-downstream"
+
+[components.ANTs]
+url    = "https://github.com/ANTsX/ANTs.git"
+ref    = "origin/main"
+branch = "ants-itk-downstream"
+
+[components.BRAINSTools]
+url    = "https://github.com/BRAINSia/BRAINSTools.git"
+ref    = "origin/main"
+branch = "braintools-itk-downstream"
+
+[components.Slicer]
+url    = "https://github.com/Slicer/Slicer.git"
+ref    = "origin/main"
+branch = "slicer-itk-downstream"
+
+[components.SlicerExtensions]
+url    = "https://github.com/Slicer/ExtensionsIndex.git"
+ref    = "origin/main"
+branch = ""                        # tracks default branch, no patch branch
+
+[components.elastix]
+url    = "https://github.com/SuperElastix/elastix.git"
+ref    = "origin/main"
+branch = "elastix-itk-downstream"
+
+[components.MITK]
+url    = "https://github.com/MITK/MITK.git"
+ref    = "origin/main"
+branch = "mitk-itk-downstream"
+
+[components.c3d]
+url    = "https://github.com/pyushkevich/c3d.git"
+ref    = "origin/main"
+branch = "c3d-itk-downstream"
+
+[components.Plastimatch]
+url    = "https://gitlab.com/plastimatch/plastimatch.git"
+ref    = "origin/main"
+branch = "plastimatch-itk-downstream"   # checkout is special-cased to subbuild.Plastimatch fork
+
+[components.SimpleITK]
+url    = "https://github.com/SimpleITK/SimpleITK.git"
+ref    = "origin/main"
+branch = "simpleitk-itk-downstream"
+
+[components.OpenIGTLink]
+url    = "https://github.com/openigtlink/OpenIGTLink.git"
+ref    = "origin/main"
+branch = "openigtlink-itk-downstream"
+
+[components.OpenIGTLinkIO]
+url    = "https://github.com/IGSIO/OpenIGTLinkIO.git"
+ref    = "origin/main"
+branch = "openigtlinkio-itk-downstream"
+
+[components.vtkAddon]
+url    = "https://github.com/Slicer/vtkAddon.git"
+ref    = "origin/main"
+branch = "vtkaddon-itk-downstream"
+
+[components.IGSIO]
+url    = "https://github.com/IGSIO/IGSIO.git"
+ref    = "origin/main"
+branch = "igsio-itk-downstream"
+
+[components.PlusLib]
+url    = "https://github.com/PlusToolkit/PlusLib.git"
+ref    = "origin/main"
+branch = "pluslib-itk-downstream"
+
+# ----------------------------------------------------------------------------
+# ITK remote modules — built externally against the system ITK under test
+# ----------------------------------------------------------------------------
+[components.BioCell]
+url   = "https://github.com/InsightSoftwareConsortium/ITKBioCell.git"
+ref   = "origin/main"
+kind  = "remote"
+heavy = false
+
+[components.Cleaver]
+url   = "https://github.com/SCIInstitute/ITKCleaver.git"
+ref   = "origin/main"
+kind  = "remote"
+heavy = false
+
+[components.CudaCommon]
+url   = "https://github.com/RTKConsortium/ITKCudaCommon.git"
+ref   = "origin/main"
+kind  = "remote"
+heavy = true
+
+[components.HASI]
+url   = "https://github.com/KitwareMedical/HASI.git"
+ref   = "origin/main"
+kind  = "remote"
+heavy = false
+
+[components.IOOpenSlide]
+url   = "https://github.com/InsightSoftwareConsortium/ITKIOOpenSlide.git"
+ref   = "origin/main"
+kind  = "remote"
+heavy = true
+
+[components.LesionSizingToolkit]
+url   = "https://github.com/InsightSoftwareConsortium/LesionSizingToolkit.git"
+ref   = "origin/main"
+kind  = "remote"
+heavy = false
+
+[components.PerformanceBenchmarking]
+url   = "https://github.com/InsightSoftwareConsortium/ITKPerformanceBenchmarking.git"
+ref   = "origin/main"
+kind  = "remote"
+heavy = false
+
+[components.RTK]
+url   = "https://github.com/RTKConsortium/RTK.git"
+ref   = "origin/main"
+kind  = "remote"
+heavy = false
+
+[components.SCIFIO]
+url   = "https://github.com/scifio/scifio-imageio.git"
+ref   = "origin/main"
+kind  = "remote"
+heavy = true
+
+[components.Shape]
+url   = "https://github.com/SlicerSALT/ITKShape.git"
+ref   = "origin/main"
+kind  = "remote"
+heavy = false
+
+[components.SimpleITKFilters]
+url   = "https://github.com/InsightSoftwareConsortium/ITKSimpleITKFilters.git"
+ref   = "origin/main"
+kind  = "remote"
+heavy = false
+
+[components.SkullStrip]
+url   = "https://github.com/InsightSoftwareConsortium/ITKSkullStrip.git"
+ref   = "origin/main"
+kind  = "remote"
+heavy = false
+
+[components.SphinxExamples]
+url   = "https://github.com/InsightSoftwareConsortium/ITKSphinxExamples.git"
+ref   = "origin/main"
+kind  = "remote"
+heavy = false
+
+[components.TractographyTRX]
+url   = "https://github.com/tee-ar-ex/ITKTractographyTRX.git"
+ref   = "origin/main"
+kind  = "remote"
+heavy = false
+
+[components.TubeTK]
+url   = "https://github.com/InsightSoftwareConsortium/ITKTubeTK.git"
+ref   = "origin/main"
+kind  = "remote"
+heavy = false
+
+[components.Ultrasound]
+url   = "https://github.com/KitwareMedical/ITKUltrasound.git"
+ref   = "origin/main"
+kind  = "remote"
+heavy = false
+
+[components.VkFFTBackend]
+url   = "https://github.com/InsightSoftwareConsortium/ITKVkFFTBackend.git"
+ref   = "origin/main"
+kind  = "remote"
+heavy = false
+
+[components.WebAssemblyInterface]
+url   = "https://github.com/InsightSoftwareConsortium/ITK-Wasm.git"
+ref   = "origin/main"
+kind  = "remote"
+heavy = true
+
+# ----------------------------------------------------------------------------
+# SuperBuild-internal dependency pins the engine passes as -D... overrides.
+# These select sources cloned by a consumer's own SuperBuild, not forest trees.
+# ----------------------------------------------------------------------------
+[subbuild.Slicer]
+# Slicer always builds its own vendored ITK branch; never the system ITK.
+ITK_GIT_REPOSITORY = "https://github.com/hjmjohnson/ITK"
+ITK_GIT_TAG        = "slicer-v6.0.0-2026-06-11-57ff6c6"
+
+[subbuild.BRAINSTools]
+# Consumed via the overridable BRAINSTools_ANTs_GIT_* vars (BRAINSia/BRAINSTools#605).
+ANTs_GIT_REPOSITORY = "https://github.com/ANTsX/ANTs.git"
+ANTs_GIT_TAG        = "d2fbf8bd525f0b9f907b9c6ebd35ab26a4d8927a"
+
+[subbuild.Plastimatch]
+# Plastimatch builds from a maintained ITKv6-support fork branch.
+fork_remote = "hjmjohnson"
+fork_url    = "git@gitlab.com:hjmjohnson/plastimatch.git"
+fork_ref    = "itkv6-support"
+
+# ----------------------------------------------------------------------------
+# Toolchain knobs that gate version-sensitive consumers
+# ----------------------------------------------------------------------------
+[toolchain]
+slicer_qt_version = "6.9.1"        # Qt version the Slicer SuperBuild requires
+
+# ----------------------------------------------------------------------------
+# Per-scenario consumer overrides — applied ONLY when FOREST_REFERENCE_SUFFIX
+# equals the scenario key. Lets one build scenario point a consumer at a fork's
+# demo-<suffix> staging branch (assembled by the gh-demo-branch skill) instead
+# of the upstream default, without affecting other forests. Shape:
+#   [scenarios.<FOREST_REFERENCE_SUFFIX>.<ComponentName>]
+#   url = "<fork git url>" ; branch = "demo-<suffix>"
+# ----------------------------------------------------------------------------
+[scenarios.itkv6_main.elastix]
+url    = "https://github.com/hjmjohnson/elastix.git"
+branch = "demo-itkv6_main"        # PR #1452 MatrixExponential fix on latest main

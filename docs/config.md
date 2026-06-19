@@ -51,3 +51,54 @@ python3 bin/config.py --check                # exit 1 if a required key is unres
 
 To add a knob: add it to `config.json.in`, run `pixi run config`, and consume
 `$KEY` in `bin/setup-itk-downstream-testbed.sh` (it's already sourced).
+
+## `versions.toml` — the build-version source of truth (tracked, portable)
+
+`config.sh` above is *node-local* (paths, compilers). **What** to build — every
+component's git URL, default ref, and worktree branch, plus SuperBuild
+dependency pins and the Slicer Qt version — lives in the tracked, human-readable
+`versions.toml` at the repo root. Edit versions here, not in the engine shell.
+
+```toml
+[components.ITK]
+url    = "https://github.com/InsightSoftwareConsortium/ITK.git"
+ref    = "origin/main"            # ITK_REF env var overrides this one
+branch = "itk-downstream"
+
+[components.BioCell]              # ITK remote module
+url   = "https://github.com/InsightSoftwareConsortium/ITKBioCell.git"
+kind  = "remote"
+heavy = false
+
+[subbuild.BRAINSTools]           # passed as -DBRAINSTools_ANTs_GIT_* overrides
+ANTs_GIT_REPOSITORY = "https://github.com/ANTsX/ANTs.git"
+ANTs_GIT_TAG        = "d2fbf8bd525f0b9f907b9c6ebd35ab26a4d8927a"
+
+[toolchain]
+slicer_qt_version = "6.9.1"
+```
+
+Precedence is unchanged: **env var > versions.toml > built-in fallback**. The
+engine reads it through `bin/config.py`:
+
+```bash
+python3 bin/config.py consumers              # name|url|branch rows (engine arrays)
+python3 bin/config.py remotes                # name|url|heavy rows
+python3 bin/config.py get subbuild.Slicer.ITK_GIT_TAG
+python3 bin/config.py manifest <FOREST>      # write <FOREST>/manifest.toml
+```
+
+### `manifest.toml` — what a forest actually has
+
+Every `checkout`/`build`/`repoint-itk` (re)writes `<FOREST>/manifest.toml`: the
+repo, requested ref, branch, and **resolved git SHA** of each component present
+in that forest — a human-readable record of exactly what was built. Regenerate
+on demand: `bash bin/setup-itk-downstream-testbed.sh manifest`.
+
+### Cross-forest ccache (`BUILD_FOREST_ROOT`)
+
+`CCACHE_BASEDIR` defaults to the per-forest root (`$FOREST`), so each compile
+rewrites its forest-absolute paths to forest-relative before hashing. Two
+forests at **any** two `BUILD_FOREST_ROOT` locations (siblings, or unrelated
+absolute paths) therefore share compiled objects: the second forest is ~100%
+cache hits and only recompiles the TUs its ITK ref actually changed.

@@ -77,7 +77,7 @@ artifact_ok(){
   local n="$1" b="${TB}/${1}-build"
   [ "$n" = ITK ] && b="${TB}/ITK-build"
   case "$n" in
-    ITK)       [ -f "${b}/lib/libITKCommon-6.0.a" ] ;;
+    ITK)       ls "${b}"/lib/libITKCommon-*.a >/dev/null 2>&1 ;;  # version-agnostic (6.0, 5.4, ...)
     elastix)   [ -x "${b}/bin/elastix" ] ;;
     c3d)       find "${b}" -name 'c?d' -o -name 'libConvert3D*' 2>/dev/null | grep -q . ;;
     RTK)       [ -x "${b}/bin/rtkamsterdamshroud" ] ;;

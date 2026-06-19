@@ -16,31 +16,76 @@ then `pixi run checkout` materializes all source trees (git worktrees from
 `~/src/<project>` when present, shallow clones otherwise) under the
 git-ignored `build_forest/` directory.
 
-## Tutorial (terse)
+## Cheatsheet — copy-paste
+
+### 0. One-time
 
 ```bash
-git clone git@github.com:hjmjohnson/itk_forest_build_testbed.git && cd itk_forest_build_testbed
-pixi run checkout                          # materialize all sources into build_forest/
-pixi run build-ITK                         # build ITK (the root of the forest)
-pixi run build-elastix                     # build one consumer (auto-builds ITK first)
-pixi run bash bin/run-matrix.sh            # full sweep -> PASS/FAIL per consumer
+git clone git@github.com:hjmjohnson/itk_forest_build_testbed.git
+cd itk_forest_build_testbed
+pixi run checkout            # materialize all sources into build_forest/ (+ writes build_forest/manifest.toml)
+```
 
-# Test an ITK PR / branch / tag / SHA:
-ITK_REF=pr/6250 pixi run repoint-itk       # or upstream/main, a tag, or a SHA
-pixi run build-ITK && pixi run build-ANTs
-pixi run bash bin/run-matrix.sh
+### 1. Shell helpers (paste into your shell, from the testbed root)
 
-# A/B scenarios — independent parallel forest, same ccache:
-export FOREST_REFERENCE_SUFFIX=itkv6_main  # -> build_forest-itkv6_main/
-pixi run checkout
-ITK_REF=upstream/main pixi run repoint-itk
-pixi run bash bin/run-matrix.sh            # logs: /tmp/matrix-<name>-itkv6_main.log
+```bash
+export TESTBED="$(pwd)"
+forest(){    pixi run bash "$TESTBED/bin/setup-itk-downstream-testbed.sh" "$@"; }  # engine: checkout|build <X>|remotes|manifest|status|list
+fmatrix(){   pixi run bash "$TESTBED/bin/run-matrix.sh" "$@"; }                    # full build(+test) sweep, scored by artifact
+fbuild(){    pixi run "build-$1"; }                                               # pixi task w/ dependency graph (e.g. fbuild ANTs)
+fitk(){      ITK_REF="${1:-origin/main}" pixi run repoint-itk; }                  # point ITK at PR/branch/tag/SHA, then build it
+fstatus(){   forest status; }                                                     # ccache stats + checked-out trees
+fmani(){     forest manifest; sed -n '1,40p' "$FOREST_DIR/manifest.toml"; }       # (re)write + show this forest's manifest
+fver(){      ${EDITOR:-vi} "$TESTBED/versions.toml"; }                            # edit the version source of truth
+export FOREST_DIR="$TESTBED/build_forest"
+```
 
-pixi run status                            # ccache stats + what's checked out
+### 2. Everyday recipes
+
+```bash
+forest build ITK                  # build the ITK under test (root of the forest)
+fbuild elastix                    # build one consumer (auto-builds ITK first via pixi deps)
+fmatrix                           # full sweep -> PASS/FAIL per target  (RUN_CTEST=0 fmatrix = build-only)
+fstatus                           # ccache hit rate + what's checked out
+forest list                       # every component + build order
+```
+
+### 3. Test an ITK pull request / branch / tag / SHA
+
+```bash
+fitk pr/6250                      # GitHub PR (pull/6250/head). Also: fitk upstream/main | fitk v5.4.0 | fitk <sha>
+fbuild ANTs                       # rebuild consumers (ccache keeps it fast)
+fmatrix                           # prove the whole forest still builds
+```
+
+### 4. Pick versions / pins (edit, don't touch shell code)
+
+```bash
+fver                              # edit versions.toml: component url/ref/branch + SuperBuild pins + Qt version
+forest list                      # confirm the engine sees your edit
+# one-off override without editing the file (env wins over versions.toml):
+ITK_REF=pr/6250 forest build ITK
+BRAINSTools_ANTs_GIT_TAG=<sha> forest build BRAINSTools
+```
+
+### 5. Side-by-side forests with shared ccache
+
+Two forests share compiled objects: the 2nd builds at ~100% cache hits and only
+recompiles what its ITK ref actually changed (see “How it works” → ccache).
+
+```bash
+# Forest B under the testbed (suffixed branches, parallel-safe):
+FOREST_REFERENCE_SUFFIX=prB ITK_REF=pr/6250 pixi run repoint-itk
+FOREST_REFERENCE_SUFFIX=prB fmatrix          # logs: /tmp/matrix-<name>-prB.log
+
+# Forest B at an arbitrary absolute path (still shares ccache):
+BUILD_FOREST_ROOT=/scratch/fb FOREST_REFERENCE_SUFFIX=prB forest checkout ITK
+BUILD_FOREST_ROOT=/scratch/fb FOREST_REFERENCE_SUFFIX=prB forest build ITK
 ```
 
 Matrix logs land in `/tmp/matrix-<target>[-<suffix>].log`; the summary prints
-PASS/FAIL/SKIP per target.
+PASS/FAIL/SKIP per target. Each forest carries a `manifest.toml` (repo + resolved
+SHA per component) at its root.
 
 ## The forest (trees)
 
@@ -64,12 +109,22 @@ change must not break.
 - **One ITK, many consumers.** Consumers point `ITK_DIR` at the local ITK
   build tree; `pixi.toml` `depends-on` encodes the dependency graph, so
   `pixi run build-BRAINSTools` transparently builds ITK → ANTs → BRAINSTools.
-- **ccache everywhere.** All configures pass
+- **Versions in one file.** `versions.toml` (root) is the source of truth for
+  every component's git URL, ref, and worktree branch, plus the SuperBuild
+  dependency pins (Slicer's vendored ITK, BRAINSTools' ANTs, Plastimatch fork)
+  and the Slicer Qt version. The engine reads it via `bin/config.py`; edit the
+  TOML, not the shell. Env vars still override (`ITK_REF=…`, `BRAINSTools_ANTs_GIT_TAG=…`).
+- **Per-forest manifest.** Each forest root gets a human-readable `manifest.toml`
+  recording the repo + *resolved SHA* of every checked-out component — what was
+  actually built. Regenerate any time with `forest manifest`.
+- **ccache everywhere, shared across forests.** All configures pass
   `CMAKE_<LANG>_COMPILER_LAUNCHER=ccache`; Slicer's SuperBuild (which forwards
   compilers but not launchers to its ExternalProjects) gets the ccache
-  masquerade compiler instead. `CCACHE_BASEDIR` + `CCACHE_NOHASHDIR` make
-  cache hits path-independent, so parallel `build_forest-<suffix>` scenario
-  forests only recompile what their branch actually changes.
+  masquerade compiler instead. `CCACHE_BASEDIR=$FOREST` + `CCACHE_NOHASHDIR`
+  rewrite each compile's paths to forest-relative before hashing, so **any two
+  forests — even at unrelated absolute `BUILD_FOREST_ROOT` paths — share objects**;
+  the 2nd forest hits cache for everything its ITK ref didn't change.
+  `-ffile-prefix-map=$FOREST=.` keeps emitted objects byte-reproducible too.
 - **Scenario forests.** `FOREST_REFERENCE_SUFFIX=<tag>` routes checkout,
   builds, and logs into `build_forest-<tag>/` with per-forest worktree
   branches, enabling side-by-side comparison of build characteristics across

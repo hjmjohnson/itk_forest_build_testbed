@@ -38,6 +38,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TESTBED="${TESTBED:-$(dirname "${SCRIPT_DIR}")}"   # repo root = parent of bin/
 
+# Bridge to versions.toml (the build-version source of truth): emit component
+# rows, scalar pins, or (re)write a forest manifest. See bin/config.py.
+cfg(){ python3 "${SCRIPT_DIR}/config.py" "$@"; }
+
 # Node-specific config: source config.sh (git-ignored), generating it from the
 # tracked config.json.in on first run. Each config.sh line is ${KEY:=default},
 # so env vars set before invocation always win (env > config.sh > built-ins).
@@ -63,16 +67,24 @@ case "${BUILD_FOREST_ROOT}" in
   *)  FOREST="${FOREST:-${TESTBED}/${BUILD_FOREST_ROOT}}" ;;
 esac
 export CCACHE_DIR="${CCACHE_DIR:-${HOME}/.ccache}"
-# Path-independent caching across build_forest-<suffix> forests: rewrite
-# testbed-absolute paths to relative before hashing, and don't hash the CWD
-# (safe: Release builds carry no -g CWD-sensitive debug info).
-export CCACHE_BASEDIR="${CCACHE_BASEDIR:-${TESTBED}}"
+# Cross-forest cache sharing for ANY BUILD_FOREST_ROOT (incl. absolute paths
+# outside the testbed): basedir = this forest's root, so each compile rewrites
+# its own forest-absolute paths to forest-relative (../ITK/foo.h) before
+# hashing — identical across forests regardless of where the forest lives.
+# NOHASHDIR drops the CWD. As an exported env var this also covers SuperBuild
+# inner EPs (Slicer/BRAINSTools), which CMAKE flag injection does not reach.
+export CCACHE_BASEDIR="${CCACHE_BASEDIR:-${FOREST}}"
 export CCACHE_NOHASHDIR="${CCACHE_NOHASHDIR:-true}"
+# CMake 4.x hard-rejects projects/ExternalProjects that declare
+# cmake_minimum_required(VERSION <3.5) (e.g. the googletest bundled by
+# ITKCleaver, whose CMake-4 fix PR #77 was abandoned upstream). The env var —
+# unlike a top-level -D — propagates into nested EP configures that fail.
+export CMAKE_POLICY_VERSION_MINIMUM="${CMAKE_POLICY_VERSION_MINIMUM:-3.5}"
 HEAVY="${HEAVY:-0}"
 # ITK ref under test: any branch, tag, SHA, remote ref (e.g. upstream/main), or
 # GitHub PR shorthand (pr/NNNN -> pull/NNNN/head). `repoint-itk` moves the ITK
 # worktree here; the rest of the forest then rebuilds against it.
-ITK_REF="${ITK_REF:-origin/main}"
+ITK_REF="${ITK_REF:-$(cfg get components.ITK.ref)}"
 
 if command -v nproc >/dev/null 2>&1; then JOBS="${JOBS:-$(nproc)}"
 elif command -v sysctl >/dev/null 2>&1; then JOBS="${JOBS:-$(sysctl -n hw.ncpu)}"
@@ -109,7 +121,7 @@ esac
 # found from Homebrew while Qt6 itself comes from ~/Qt, which fails Qt6 package
 # configuration. Prefer ~/Qt/<ver>/macos and drop Homebrew qt@6 from PATH so Qt6
 # and its host-tools resolve consistently for both configure and build.
-SLICER_QT_VERSION="${SLICER_QT_VERSION:-6.9.1}"
+SLICER_QT_VERSION="${SLICER_QT_VERSION:-$(cfg get toolchain.slicer_qt_version)}"
 # Official Qt installer platform subdir: macos on Darwin, gcc_64 on Linux.
 case "$(uname -s)" in Darwin) _QT_PLAT="${QT_PLATFORM_SUBDIR:-macos}" ;; *) _QT_PLAT="${QT_PLATFORM_SUBDIR:-gcc_64}" ;; esac
 # Prefer the node config's QT6_DIR; fall back to the version-derived path.
@@ -205,24 +217,8 @@ igsio_dir(){
   [ -f "${d}/IGSIOConfig.cmake" ] && { echo "$d"; return; }
   find "${FOREST}/IGSIO-build" -maxdepth 2 -name IGSIOConfig.cmake 2>/dev/null | head -1 | xargs -r dirname; }
 
-# --- main consumers:  name | git URL | worktree branch
-CONSUMERS=(
-  "ITK|https://github.com/InsightSoftwareConsortium/ITK.git|itk-downstream"
-  "ANTs|https://github.com/ANTsX/ANTs.git|ants-itk-downstream"
-  "BRAINSTools|https://github.com/BRAINSia/BRAINSTools.git|braintools-itk-downstream"
-  "Slicer|https://github.com/Slicer/Slicer.git|slicer-itk-downstream"
-  "SlicerExtensions|https://github.com/Slicer/ExtensionsIndex.git|"
-  "elastix|https://github.com/SuperElastix/elastix.git|elastix-itk-downstream"
-  "MITK|https://github.com/MITK/MITK.git|mitk-itk-downstream"
-  "c3d|https://github.com/pyushkevich/c3d.git|c3d-itk-downstream"
-  "Plastimatch|https://gitlab.com/plastimatch/plastimatch.git|plastimatch-itk-downstream"
-  "SimpleITK|https://github.com/SimpleITK/SimpleITK.git|simpleitk-itk-downstream"
-  "OpenIGTLink|https://github.com/openigtlink/OpenIGTLink.git|openigtlink-itk-downstream"
-  "OpenIGTLinkIO|https://github.com/IGSIO/OpenIGTLinkIO.git|openigtlinkio-itk-downstream"
-  "vtkAddon|https://github.com/Slicer/vtkAddon.git|vtkaddon-itk-downstream"
-  "IGSIO|https://github.com/IGSIO/IGSIO.git|igsio-itk-downstream"
-  "PlusLib|https://github.com/PlusToolkit/PlusLib.git|pluslib-itk-downstream"
-)
+# --- main consumers (name | git URL | worktree branch) — from versions.toml
+mapfile -t CONSUMERS < <(cfg consumers)
 # Curated, ITK-exercising subset of Slicer extensions built against the
 # locally built Slicer (Slicer_DIR). Each name is a <name>.json descriptor in
 # the ExtensionsIndex checkout. Add more here to widen coverage.
@@ -236,27 +232,9 @@ else
   SLICER_EXTENSIONS=(BoneTextureExtension AnomalousFiltersExtension SlicerElastix
                      SlicerRT SlicerIGSIO SlicerANTs)
 fi
-# --- ITK remote modules, built EXTERNALLY against system ITK.  name | git URL | heavy?
-REMOTES=(
-  "BioCell|https://github.com/InsightSoftwareConsortium/ITKBioCell.git|0"
-  "Cleaver|https://github.com/SCIInstitute/ITKCleaver.git|0"
-  "CudaCommon|https://github.com/RTKConsortium/ITKCudaCommon.git|1"
-  "HASI|https://github.com/KitwareMedical/HASI.git|0"
-  "IOOpenSlide|https://github.com/InsightSoftwareConsortium/ITKIOOpenSlide.git|1"
-  "LesionSizingToolkit|https://github.com/InsightSoftwareConsortium/LesionSizingToolkit.git|0"
-  "PerformanceBenchmarking|https://github.com/InsightSoftwareConsortium/ITKPerformanceBenchmarking.git|0"
-  "RTK|https://github.com/RTKConsortium/RTK.git|0"
-  "SCIFIO|https://github.com/scifio/scifio-imageio.git|1"
-  "Shape|https://github.com/SlicerSALT/ITKShape.git|0"
-  "SimpleITKFilters|https://github.com/InsightSoftwareConsortium/ITKSimpleITKFilters.git|0"
-  "SkullStrip|https://github.com/InsightSoftwareConsortium/ITKSkullStrip.git|0"
-  "SphinxExamples|https://github.com/InsightSoftwareConsortium/ITKSphinxExamples.git|0"
-  "TractographyTRX|https://github.com/tee-ar-ex/ITKTractographyTRX.git|0"
-  "TubeTK|https://github.com/InsightSoftwareConsortium/ITKTubeTK.git|0"
-  "Ultrasound|https://github.com/KitwareMedical/ITKUltrasound.git|0"
-  "VkFFTBackend|https://github.com/InsightSoftwareConsortium/ITKVkFFTBackend.git|0"
-  "WebAssemblyInterface|https://github.com/InsightSoftwareConsortium/ITK-Wasm.git|1"
-)
+# --- ITK remote modules, built EXTERNALLY against system ITK (name | URL | heavy?)
+#     from versions.toml (kind = "remote")
+mapfile -t REMOTES < <(cfg remotes)
 BUILD_ORDER=(ITK ANTs BRAINSTools Slicer SlicerExtensions elastix c3d MITK SimpleITK)
 
 log(){ printf '\033[1;34m==>\033[0m %s\n' "$*"; }
@@ -276,10 +254,25 @@ common_cmake_args(){
   # CMAKE_IGNORE_PREFIX_PATH=/opt/homebrew keeps every find_package/find_library
   # off the Homebrew tree (its libs ABI-mismatch the conda-forge stack); the
   # conda-forge equivalents (fftw, ...) are found under ${CONDA_PREFIX}.
+  # -ffile-prefix-map=${FOREST}=. canonicalizes embedded __FILE__/debug paths to
+  # forest-relative so objects are byte-identical across forests (reproducible +
+  # cross-forest ccache reuse). _INIT seeds the flags without clobbering
+  # project-set CMAKE_<LANG>_FLAGS.
   printf '%s ' -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON \
     -DCMAKE_C_COMPILER="${CC}" -DCMAKE_CXX_COMPILER="${CXX}" \
     -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+    "-DCMAKE_C_FLAGS_INIT=-ffile-prefix-map=${FOREST}=." \
+    "-DCMAKE_CXX_FLAGS_INIT=-ffile-prefix-map=${FOREST}=." \
     -DCMAKE_IGNORE_PREFIX_PATH=/opt/homebrew
+}
+
+# Reuse the forest's already-built standalone ANTs (consumed via
+# find_package(ANTS)) so BRAINSTools doesn't rebuild its own. Emits the flags
+# only when that ANTs config exists; a no-op otherwise and on BRAINSTools mains
+# without USE_SYSTEM_ANTs (BRAINSia/BRAINSTools#606).
+ants_system_args(){
+  local c="${FOREST}/ANTs-build/ANTS-build"
+  [ -f "${c}/ANTSConfig.cmake" ] && printf '%s ' -DUSE_SYSTEM_ANTs=ON "-DANTS_DIR=${c}"
 }
 
 # Full clone of one repo into the central forest_git_repos store (fetched if it
@@ -313,9 +306,9 @@ _repo_base(){
 # synthesized. New branches start at the clone's default branch.
 # Plastimatch is built from a maintained ITKv6-support branch on a fork (carries
 # the ITKv6 + portability fixes), NOT upstream master. Override via env.
-PLM_FORK_REMOTE="${PLM_FORK_REMOTE:-hjmjohnson}"
-PLM_FORK_URL="${PLM_FORK_URL:-git@gitlab.com:hjmjohnson/plastimatch.git}"
-PLM_FORK_REF="${PLM_FORK_REF:-itkv6-support}"
+PLM_FORK_REMOTE="${PLM_FORK_REMOTE:-$(cfg get subbuild.Plastimatch.fork_remote)}"
+PLM_FORK_URL="${PLM_FORK_URL:-$(cfg get subbuild.Plastimatch.fork_url)}"
+PLM_FORK_REF="${PLM_FORK_REF:-$(cfg get subbuild.Plastimatch.fork_ref)}"
 
 # Ensure the Plastimatch fork remote exists in the central clone and the
 # ITKv6-support ref is fetched; returns the base ref the worktree should use.
@@ -334,6 +327,21 @@ checkout_one(){
   ensure_repo "${name}" "${url}" || { warn "${name}: clone failed"; return 1; }
   local repo="${REPOS}/${name}"
   git -C "${repo}" worktree prune   # clear stale regs from removed/disposed forests
+  # Per-scenario fork/demo-branch override: when this forest's suffix has a
+  # versions.toml [scenarios.<suffix>.<name>] entry, build the component from the
+  # fork's demo-<suffix> staging branch (assembled by the gh-demo-branch skill)
+  # instead of the upstream default. Only affects the matching forest.
+  if [ -n "${FOREST_REFERENCE_SUFFIX:-}" ]; then
+    local _ov; _ov="$(cfg scenario "${FOREST_REFERENCE_SUFFIX}" "${name}" 2>/dev/null)"
+    if [ -n "${_ov}" ]; then
+      local ov_url ov_branch; IFS='|' read -r ov_url ov_branch <<<"${_ov}"
+      log "${name}: scenario ${FOREST_REFERENCE_SUFFIX} -> ${ov_url} @ ${ov_branch}"
+      git -C "${repo}" fetch --force "${ov_url}" "${ov_branch}:refs/demo/${name}-${ov_branch}" \
+        || { warn "${name}: fetch demo branch ${ov_branch} from ${ov_url} failed"; return 1; }
+      git -C "${repo}" worktree add -B "${ov_branch}" "${dest}" "refs/demo/${name}-${ov_branch}"
+      return 0
+    fi
+  fi
   [ -z "${branch}" ] && branch="${name}-itk-downstream"
   branch="${branch}${FOREST_REFERENCE_SUFFIX:+-${FOREST_REFERENCE_SUFFIX}}"
   if [ "${name}" = Plastimatch ]; then
@@ -363,7 +371,8 @@ cmd_checkout(){ require git; mkdir -p "${FOREST}"
       checkout_one "$n" "$url" "" || warn "$n: checkout failed (skip)"
     else checkout_one "$n" "$url" "$br" || warn "$n: checkout failed (skip)"; fi
   done
-  log "checkout dir: ${FOREST}"; }
+  log "checkout dir: ${FOREST}"
+  cfg manifest "${FOREST}" 2>/dev/null || warn "manifest write skipped"; }
 
 cmd_repoint_itk(){ require git
   local itk="${FOREST}/ITK"
@@ -608,6 +617,21 @@ configure_one(){
             -DFFTW_INCLUDE_PATH="${CONDA_PREFIX}/include"
             -DFFTW_LIB_SEARCHPATH="${CONDA_PREFIX}/lib")
     else warn "fftw not found in env; building ITK without FFTW (Ultrasound will fail)"; fi
+    # ITK major version gate: the v6 module/examples/brainweb wiring below does
+    # not apply to ITK v5 (e.g. release-5.4) — its remote-module examples call
+    # find_package(ITK COMPONENTS ITKImageIO) (no such v5 module) and
+    # BUILD_TESTING+BRAINWEB wire an ITKData target v5 never creates. Configure a
+    # minimal default-module build instead.
+    local _itk_major
+    _itk_major="$(grep -oE 'ITK_VERSION_MAJOR[^0-9]*[0-9]+' "${s}/CMake/itkVersion.cmake" 2>/dev/null | grep -oE '[0-9]+$' | head -1)"
+    if [ "${_itk_major:-6}" -lt 6 ]; then
+      log "ITK v${_itk_major} (pre-6): minimal default-module configure (no v6 remotes/examples/testing)"
+      _overlay_vnl_headers
+      cmake -S "$s" -B "${ITK_BUILD}" $(common_cmake_args) \
+        -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF -DITK_BUILD_DEFAULT_MODULES=ON \
+        "${fftw[@]}"
+      return
+    fi
     # Enable modules ingested into ITK main that downstreams need as
     # COMPILE_DEPENDS (e.g. ITKUltrasound). No fetching — these live in main.
     # Modules downstreams need compiled into ITK: Ultrasound's COMPILE_DEPENDS
@@ -659,6 +683,9 @@ configure_one(){
     ANTs)        cmake -S "$s" -B "$b" $(common_cmake_args) -DUSE_SYSTEM_ITK=ON -DITK_DIR="$(itk_dir)" \
                    -DUSE_VTK=OFF -DUSE_TractographyTRX=OFF ;;
     BRAINSTools) cmake -S "$s" -B "$b" $(common_cmake_args) -DUSE_SYSTEM_ITK=ON -DITK_DIR="$(itk_dir)" \
+                   $(ants_system_args) \
+                   -DBRAINSTools_ANTs_GIT_REPOSITORY="${BRAINSTools_ANTs_GIT_REPOSITORY:-$(cfg get subbuild.BRAINSTools.ANTs_GIT_REPOSITORY)}" \
+                   -DBRAINSTools_ANTs_GIT_TAG="${BRAINSTools_ANTs_GIT_TAG:-$(cfg get subbuild.BRAINSTools.ANTs_GIT_TAG)}" \
                    -DOpenGL_GL_PREFERENCE=GLVND -DUSE_VTK=OFF -DBRAINSTools_BUILD_DICOM_SUPPORT=OFF ;;
     Slicer)      warn "Slicer SuperBuild is long (builds VTK/CTK + own ITK 6; Qt6 from ${SLICER_QT_PREFIX})"
                  # Policy: Slicer NEVER uses the system ITK; it always builds a
@@ -673,11 +700,12 @@ configure_one(){
                  cmake -S "$s" -B "$b" $(common_cmake_args) \
                    -DCMAKE_C_COMPILER="${SLICER_CC:-${CC}}" \
                    -DCMAKE_CXX_COMPILER="${SLICER_CXX:-${CXX}}" \
-                   -DSlicer_ITK_GIT_REPOSITORY="${SLICER_ITK_GIT_REPOSITORY:-https://github.com/hjmjohnson/ITK}" \
-                   -DSlicer_ITK_GIT_TAG="${SLICER_ITK_GIT_TAG:-slicer-v6.0.0-2026-06-11-57ff6c6}" \
+                   -DSlicer_ITK_GIT_REPOSITORY="${SLICER_ITK_GIT_REPOSITORY:-$(cfg get subbuild.Slicer.ITK_GIT_REPOSITORY)}" \
+                   -DSlicer_ITK_GIT_TAG="${SLICER_ITK_GIT_TAG:-$(cfg get subbuild.Slicer.ITK_GIT_TAG)}" \
                    -DSlicer_REQUIRED_QT_VERSION="${SLICER_QT_VERSION}" \
                    -DQt6_DIR="${SLICER_QT_PREFIX}/lib/cmake/Qt6" \
                    -DCMAKE_PREFIX_PATH="${SLICER_QT_PREFIX}" \
+                   -DOpenGL_GL_PREFERENCE=GLVND \
                    -DSlicer_BUILD_WEBENGINE_SUPPORT=OFF \
                    -DSlicer_USE_SYSTEM_CTKAPPLAUNCHER=OFF \
                    -DSlicer_USE_SYSTEM_sqlite=OFF \
@@ -707,7 +735,7 @@ configure_one(){
     Plastimatch) # ITK is built with the ITKDCMTK module, so find_package(ITK)
                  # pulls DCMTK transitively; point at ITK's bundled DCMTK build.
                  cmake -S "$s" -B "$b" $(common_cmake_args) -DITK_DIR="$(itk_dir)" \
-                   -DCMAKE_CXX_FLAGS="-include ${FOREST}/Plastimatch/libs/demons_itk_insight/vcl_legacy_aliases.h -D_LIBCPP_ENABLE_CXX17_REMOVED_UNARY_BINARY_FUNCTION" \
+                   -DCMAKE_CXX_FLAGS="-ffile-prefix-map=${FOREST}=. -include ${FOREST}/Plastimatch/libs/demons_itk_insight/vcl_legacy_aliases.h -D_LIBCPP_ENABLE_CXX17_REMOVED_UNARY_BINARY_FUNCTION" \
                    -DDCMTK_DIR="${ITK_BUILD}/Modules/ThirdParty/DCMTK/ITKDCMTK_ExtProject-build" \
                    -DPLM_CONFIG_ENABLE_SUPERBUILD=OFF \
                    -DPLM_CONFIG_ENABLE_CUDA=OFF -DPLM_CONFIG_ENABLE_OPENCL=OFF \
@@ -778,6 +806,13 @@ _hide_conda_jpeg_shadow_headers(){
 build_one(){ require cmake ninja ccache
   _hide_conda_jpeg_shadow_headers
   local name="$1" b="${FOREST}/${1}-build"; [ "$name" = ITK ] && b="${ITK_BUILD}"
+  # Slicer's bundled TBB (tbbbind) and other EPs include env-provided headers
+  # (hwloc.h, ...) that the conda compiler only finds via CPATH (no -I is added
+  # otherwise). The conflicting jpeg headers are already hidden above.
+  case "$name" in
+    Slicer|SlicerExtensions)
+      export CPATH="${PIXI_PROJECT_ROOT:-${TESTBED}}/.pixi/envs/default/include${CPATH:+:${CPATH}}" ;;
+  esac
   # Plastimatch's force-include shim must exist before configure (CMake's
   # compiler checks use CMAKE_CXX_FLAGS, which references it).
   [ "$name" = Plastimatch ] && { _patch_plastimatch_vcl_aliases; _patch_plastimatch_ransac_test; }
@@ -851,12 +886,14 @@ cmd_list(){ echo "# consumers (build order: ${BUILD_ORDER[*]})"
 case "${1:-checkout}" in
   checkout)  shift; cmd_checkout "$@" ;;
   configure) shift; configure_one "${1:?configure <name>}" ;;
-  build)     shift; build_one "${1:?build <name>}" ;;
-  build-all) for n in "${BUILD_ORDER[@]}"; do [ -d "${FOREST}/$n" ] && build_one "$n"; done ;;
-  remotes)   cmd_remotes ;;
-  repoint-itk) cmd_repoint_itk ;;
+  build)     shift; build_one "${1:?build <name>}"; cfg manifest "${FOREST}" 2>/dev/null || true ;;
+  build-all) for n in "${BUILD_ORDER[@]}"; do [ -d "${FOREST}/$n" ] && build_one "$n"; done
+             cfg manifest "${FOREST}" 2>/dev/null || true ;;
+  remotes)   cmd_remotes; cfg manifest "${FOREST}" 2>/dev/null || true ;;
+  repoint-itk) cmd_repoint_itk; cfg manifest "${FOREST}" 2>/dev/null || true ;;
+  manifest)  cfg manifest "${FOREST}" ;;
   list)      cmd_list ;;
   status)    cmd_status ;;
   vkfft-backend) vkfft_backend ;;
-  *) die "unknown command '$1' (checkout|configure|build|build-all|remotes|repoint-itk|list|status|vkfft-backend)" ;;
+  *) die "unknown command '$1' (checkout|configure|build|build-all|remotes|repoint-itk|manifest|list|status|vkfft-backend)" ;;
 esac
