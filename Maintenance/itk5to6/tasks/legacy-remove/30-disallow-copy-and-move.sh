@@ -2,6 +2,7 @@
 set -uo pipefail
 source "$(cd "$(dirname "$0")/../../lib" && pwd)/migrate_common.sh"
 TASK_NAME="disallow-copy-and-move"; TASK_LEVEL="legacy-remove"
+MC_FILE_GLOB='*.h *.hxx *.hpp *.txx *.cxx *.cpp *.cc *.c'
 GREP_PATTERN='ITK_DISALLOW_COPY_AND_ASSIGN'
 SED_EXPRS=('s/ITK_DISALLOW_COPY_AND_ASSIGN/ITK_DISALLOW_COPY_AND_MOVE/g')
 read -r -d '' COMMIT_MSG <<'EOF' || true

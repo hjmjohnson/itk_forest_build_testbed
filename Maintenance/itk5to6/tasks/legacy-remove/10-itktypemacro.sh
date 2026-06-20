@@ -2,6 +2,7 @@
 set -uo pipefail
 source "$(cd "$(dirname "$0")/../../lib" && pwd)/migrate_common.sh"
 TASK_NAME="itktypemacro"; TASK_LEVEL="legacy-remove"
+MC_FILE_GLOB='*.h *.hxx *.hpp *.txx *.cxx *.cpp *.cc *.c'
 GREP_PATTERN='itkTypeMacro *\('
 RESIDUAL_PATTERN='itkTypeMacro *\('
 SED_EXPRS=('s/itkTypeMacro *(\(.*\),.*) *;/itkOverrideGetNameOfClassMacro(\1);/g')

@@ -1,0 +1,19 @@
+# Snippet for provisioning the exact ITKv6 clang-format (19.1.7) via pixi.
+# Either merge these stanzas into an existing pixi.toml / pyproject.toml
+# [tool.pixi.*] tables, or drop this file in a directory as `pixi.toml` and run:
+#
+#   pixi run clang-format --version      # -> clang-format version 19.1.7
+#
+# align-clang-format.sh will auto-detect and use `pixi run clang-format` when a
+# pixi manifest exposing clang-format 19.1.7 is reachable from the target repo.
+
+[project]
+name = "itkv6-clang-format"
+channels = ["conda-forge"]
+platforms = ["linux-64", "osx-64", "osx-arm64", "win-64"]
+
+[dependencies]
+clang-format = "19.1.7.*"
+
+[tasks]
+clang-format = "clang-format"

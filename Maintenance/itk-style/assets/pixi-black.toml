@@ -1,0 +1,19 @@
+# Snippet for provisioning the exact ITKv6 black (24.2.0) via pixi.
+# Either merge these stanzas into an existing pixi.toml / pyproject.toml
+# [tool.pixi.*] tables, or drop this file in a directory as `pixi.toml` and run:
+#
+#   pixi run black --version      # -> black, 24.2.0
+#
+# align-black.sh will auto-detect and use `pixi run black` when a pixi manifest
+# exposing black 24.2.0 is reachable from the target repo.
+
+[project]
+name = "itkv6-black"
+channels = ["conda-forge"]
+platforms = ["linux-64", "osx-64", "osx-arm64", "win-64"]
+
+[dependencies]
+black = "24.2.0.*"
+
+[tasks]
+black = "black"

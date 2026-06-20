@@ -1,0 +1,16 @@
+# ITKv6 black pre-commit hook (black 24.2.0).
+# Merge this `repos:` entry into the consumer project's .pre-commit-config.yaml.
+# pre-commit auto-provisions the pinned black version, so no local black install
+# is required once this hook is wired up.
+#
+#   pip install pre-commit         # or: pixi add pre-commit
+#   pre-commit install             # install the git hook
+#   pre-commit run black --all-files
+#
+repos:
+  - repo: https://github.com/psf/black
+    rev: 24.2.0
+    hooks:
+      - id: black
+        args: ['--target-version', 'py310']
+        exclude: ".*build.*|\\/ThirdParty\\/|\\/Data\\/"

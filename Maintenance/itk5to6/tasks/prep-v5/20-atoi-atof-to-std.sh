@@ -2,8 +2,15 @@
 set -uo pipefail
 source "$(cd "$(dirname "$0")/../../lib" && pwd)/migrate_common.sh"
 TASK_NAME="atoi-atof-to-std"; TASK_LEVEL="prep-v5"
+MC_FILE_GLOB='*.h *.hxx *.hpp *.txx *.cxx *.cpp *.cc *.c'
 GREP_PATTERN='\b(atoi|atof) *\('
-SED_EXPRS=('s/\batoi *(/std::stoi(/g' 's/\batof *(/std::stod(/g')
+# Comment/string-aware (Python re) so doc comments and string literals that
+# mention atoi/atof are never rewritten. Residual occurrences (e.g. in
+# comments) are surfaced below for manual review.
+# (?<![\w:]) avoids matching inside identifiers or other namespaces; optional
+# std:: is consumed so an already-qualified std::atoi becomes std::stoi (not
+# std::std::stoi).
+MC_SUBST=('(?<![\w:])(?:std::)?atoi(\s*)\(' 'std::stoi\1(' '(?<![\w:])(?:std::)?atof(\s*)\(' 'std::stod\1(')
 RESIDUAL_PATTERN='\b(atoi|atof) *\('
 COMMIT_MSG="ENH: Replace atoi/atof with std::stoi/std::stod
 

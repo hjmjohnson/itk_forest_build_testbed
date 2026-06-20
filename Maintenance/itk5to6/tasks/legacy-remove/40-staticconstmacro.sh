@@ -2,6 +2,7 @@
 set -uo pipefail
 source "$(cd "$(dirname "$0")/../../lib" && pwd)/migrate_common.sh"
 TASK_NAME="staticconstmacro"; TASK_LEVEL="legacy-remove"
+MC_FILE_GLOB='*.h *.hxx *.hpp *.txx *.cxx *.cpp *.cc *.c'
 GREP_PATTERN='itkStaticConstMacro'
 RESIDUAL_PATTERN='itkStaticConstMacro *\('
 SED_EXPRS=('s/itkStaticConstMacro *( *\([^,]*\),[ \_s]*\([^,]*\),[ \_s]*\([^)]*\)) */static constexpr \2 \1 = \3/g')

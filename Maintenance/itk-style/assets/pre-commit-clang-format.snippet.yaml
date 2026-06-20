@@ -1,0 +1,17 @@
+# ITKv6 clang-format pre-commit hook (clang-format 19.1.7 exactly).
+# Merge this `repos:` entry into the consumer project's .pre-commit-config.yaml.
+# pre-commit auto-provisions the pinned clang-format version, so no local
+# clang-format install is required once this hook is wired up.
+#
+#   pip install pre-commit         # or: pixi add pre-commit
+#   pre-commit install             # install the git hook
+#   pre-commit run clang-format --all-files
+#
+repos:
+  - repo: https://github.com/pre-commit/mirrors-clang-format
+    rev: v19.1.7
+    hooks:
+      - id: clang-format
+        args: ['--style=file']
+        files: '\.(c|cc|h|cxx|hxx)$'
+        exclude: "\\/ThirdParty\\/|\\/Data\\/|pocketfft_hdronly\\.h"

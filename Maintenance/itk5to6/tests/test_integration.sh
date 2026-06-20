@@ -16,6 +16,10 @@ old_api();
 #endif
 EOF
 git add big.cxx >/dev/null; git commit -q -m init
+# This test verifies end-to-end transform correctness across the whole pipeline,
+# not the one-commit-per-task discipline (covered by test_driver/test_prep_v5),
+# so it intentionally chains tasks without committing between them.
+export MC_ALLOW_DIRTY=1
 for lvl in prep-v5 mandatory legacy-remove future-legacy-remove; do
   bash "$DRV" level "$lvl" "$repo" >/dev/null 2>&1 || true
 done

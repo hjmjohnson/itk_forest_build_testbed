@@ -52,7 +52,7 @@ _VER_RE = re.compile(
     r"(?:\s*&&\s*ITK_VERSION_MINOR\s*(>=|>|<=|<|==|!=)\s*(\d+))?\s*$"
 )
 _DEFINED_RE = re.compile(r"^\s*defined\s*\(\s*(ITK\w*)\s*\)\s*$")
-_HAS_INCLUDE_RE = re.compile(r"^\s*__has_include\s*\(<([^>]+)>\)\s*$")
+_HAS_INCLUDE_RE = re.compile(r'^\s*__has_include\s*\(\s*(?:<([^>]+)>|"([^"]+)")\s*\)\s*$')
 
 
 def _cmp(op: str, lhs: int, rhs: int) -> bool:
@@ -80,7 +80,7 @@ def resolve_condition(cond: str, floor_major: int, floor_minor: int,
 
     m = _HAS_INCLUDE_RE.match(cond)
     if m:
-        header = m.group(1)
+        header = m.group(1) or m.group(2)
         if header in hmap:
             first = hmap[header]
             floor = (floor_major, floor_minor)
