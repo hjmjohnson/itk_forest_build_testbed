@@ -16,6 +16,7 @@
 !/docs/
 !/skills/
 !/Maintenance/
+!/utilities/
 
 # Node-local generated config (config.json.in -> config.sh via bin/config.py).
 # Already excluded by /*, but listed explicitly so intent is clear; never track.

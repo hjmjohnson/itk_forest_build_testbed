@@ -1,0 +1,105 @@
+1	antsRegistrationTest_AffineScaleMasks	1.36
+1	antsRegistrationTest_AffineScaleNoMasks	1.49
+1	antsRegistrationTest_AffineRotationMasks	1.49
+1	antsRegistrationTest_AffineRotationNoMasks	1.47
+1	antsRegistrationTest_AffineTranslationMasks	0.24
+1	antsRegistrationTest_AffineTranslationNoMasks	0.25
+1	antsRegistrationTest_RigidAnisotropicMasks	3.30
+1	antsRegistrationTest_RigidRotationHeadMasks	1.67
+1	antsRegistrationTest_RigidRotationMasks	1.42
+1	antsRegistrationTest_RigidRotationNoMasks	1.62
+11/35 Test  #11: antsRegistrationTest_MSEAffineRotationMasks .................***Failed    0.22 sec
+1	antsRegistrationTest_RigidRotGeomNoMasks	2.43
+1	antsRegistrationTest_RigidRotaRotaRotNoMasks	3.85
+1	antsRegistrationTest_RigidRotaRotaRotNoMasks_Float	2.03
+15/35 Test  #15: antsRegistrationTest_SimilarityRotationMasks ................***Failed    1.01 sec
+1	antsRegistrationTest_CCSimilarityRotationMasks	3.25
+1	antsRegistrationTest_MSESimilarityRotationMasks	0.14
+1	antsRegistrationTest_MSESimilarityRotationMasks_Float	0.14
+1	antsRegistrationTest_ScaleTranslationRescaleHeadMasks	1.19
+1	antsRegistrationTest_ScaleRotationRescaleHeadMasks	1.20
+1	antsRegistrationTest_ScaleRotationRescaleHeadMasks_Float	0.90
+1	antsRegistrationTest_SyNScaleNoMasks	1.70
+1	antsRegistrationTest_SyNScaleNoMasks_Float	1.47
+1	antsRegistrationTest_initialize_transforms_per_stage	0.56
+25/35 Test  #25: antsRegistrationTest_initializePerStage_ComparisonTesting ...***Not Run   0.00 sec
+1	ANTS_ROT_GSYN	11.74
+1	ANTS_ROT_GSYN_WARP	0.59
+1	ANTS_ROT_GSYN_INVERSEWARP	0.65
+1	ANTS_ROT_EXP	6.45
+1	ANTS_ROT_EXP_WARP	0.56
+1	ANTS_ROT_EXP_WARP2	0.38
+1	ANTS_ROT_EXP_INVERSEWARP	0.65
+1	ANTS_ROT_EXP_INVERSEWARP2	0.37
+34/35 Test #169: ANTS_SYN_WITH_TIME ..........................................***Failed   12.57 sec
+35/35 Test #170: ANTS_SYN_WITH_TIME_WARP .....................................***Failed    0.05 sec
+2	antsRegistrationTest_AffineScaleMasks	1.39
+2	antsRegistrationTest_AffineScaleNoMasks	1.51
+2	antsRegistrationTest_AffineRotationMasks	1.35
+2	antsRegistrationTest_AffineRotationNoMasks	1.46
+2	antsRegistrationTest_AffineTranslationMasks	0.23
+2	antsRegistrationTest_AffineTranslationNoMasks	0.25
+2	antsRegistrationTest_RigidAnisotropicMasks	3.11
+2	antsRegistrationTest_RigidRotationHeadMasks	1.64
+2	antsRegistrationTest_RigidRotationMasks	1.45
+2	antsRegistrationTest_RigidRotationNoMasks	1.61
+11/35 Test  #11: antsRegistrationTest_MSEAffineRotationMasks .................***Failed    0.25 sec
+2	antsRegistrationTest_RigidRotGeomNoMasks	2.66
+2	antsRegistrationTest_RigidRotaRotaRotNoMasks	3.77
+2	antsRegistrationTest_RigidRotaRotaRotNoMasks_Float	1.97
+15/35 Test  #15: antsRegistrationTest_SimilarityRotationMasks ................***Failed    0.99 sec
+2	antsRegistrationTest_CCSimilarityRotationMasks	3.29
+2	antsRegistrationTest_MSESimilarityRotationMasks	0.15
+2	antsRegistrationTest_MSESimilarityRotationMasks_Float	0.14
+2	antsRegistrationTest_ScaleTranslationRescaleHeadMasks	1.19
+2	antsRegistrationTest_ScaleRotationRescaleHeadMasks	1.18
+2	antsRegistrationTest_ScaleRotationRescaleHeadMasks_Float	0.89
+2	antsRegistrationTest_SyNScaleNoMasks	1.70
+2	antsRegistrationTest_SyNScaleNoMasks_Float	1.47
+2	antsRegistrationTest_initialize_transforms_per_stage	0.54
+25/35 Test  #25: antsRegistrationTest_initializePerStage_ComparisonTesting ...***Not Run   0.00 sec
+2	ANTS_ROT_GSYN	15.55
+2	ANTS_ROT_GSYN_WARP	0.57
+2	ANTS_ROT_GSYN_INVERSEWARP	0.66
+2	ANTS_ROT_EXP	8.29
+2	ANTS_ROT_EXP_WARP	0.57
+2	ANTS_ROT_EXP_WARP2	0.39
+2	ANTS_ROT_EXP_INVERSEWARP	0.65
+2	ANTS_ROT_EXP_INVERSEWARP2	0.37
+34/35 Test #169: ANTS_SYN_WITH_TIME ..........................................***Failed   12.51 sec
+35/35 Test #170: ANTS_SYN_WITH_TIME_WARP .....................................***Failed    0.05 sec
+3	antsRegistrationTest_AffineScaleMasks	1.32
+3	antsRegistrationTest_AffineScaleNoMasks	1.49
+3	antsRegistrationTest_AffineRotationMasks	1.33
+3	antsRegistrationTest_AffineRotationNoMasks	1.44
+3	antsRegistrationTest_AffineTranslationMasks	0.24
+3	antsRegistrationTest_AffineTranslationNoMasks	0.25
+3	antsRegistrationTest_RigidAnisotropicMasks	3.26
+3	antsRegistrationTest_RigidRotationHeadMasks	1.54
+3	antsRegistrationTest_RigidRotationMasks	1.34
+3	antsRegistrationTest_RigidRotationNoMasks	1.52
+11/35 Test  #11: antsRegistrationTest_MSEAffineRotationMasks .................***Failed    0.23 sec
+3	antsRegistrationTest_RigidRotGeomNoMasks	2.84
+3	antsRegistrationTest_RigidRotaRotaRotNoMasks	3.73
+3	antsRegistrationTest_RigidRotaRotaRotNoMasks_Float	1.76
+3	antsRegistrationTest_SimilarityRotationMasks	0.92
+3	antsRegistrationTest_CCSimilarityRotationMasks	3.26
+3	antsRegistrationTest_MSESimilarityRotationMasks	0.16
+3	antsRegistrationTest_MSESimilarityRotationMasks_Float	0.15
+3	antsRegistrationTest_ScaleTranslationRescaleHeadMasks	1.21
+3	antsRegistrationTest_ScaleRotationRescaleHeadMasks	1.19
+3	antsRegistrationTest_ScaleRotationRescaleHeadMasks_Float	0.89
+3	antsRegistrationTest_SyNScaleNoMasks	1.73
+3	antsRegistrationTest_SyNScaleNoMasks_Float	1.47
+3	antsRegistrationTest_initialize_transforms_per_stage	0.56
+25/35 Test  #25: antsRegistrationTest_initializePerStage_ComparisonTesting ...***Not Run   0.00 sec
+3	ANTS_ROT_GSYN	14.42
+3	ANTS_ROT_GSYN_WARP	0.59
+3	ANTS_ROT_GSYN_INVERSEWARP	0.65
+3	ANTS_ROT_EXP	7.45
+3	ANTS_ROT_EXP_WARP	0.55
+3	ANTS_ROT_EXP_WARP2	0.38
+3	ANTS_ROT_EXP_INVERSEWARP	0.66
+3	ANTS_ROT_EXP_INVERSEWARP2	0.38
+34/35 Test #169: ANTS_SYN_WITH_TIME ..........................................***Failed   12.53 sec
+35/35 Test #170: ANTS_SYN_WITH_TIME_WARP .....................................***Failed    0.05 sec

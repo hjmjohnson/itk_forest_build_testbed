@@ -1,0 +1,8 @@
+label=bfit_pr6487
+build=/home/johnsonhj/src/itk_forest_build_testbed/build_forest-pr6487/BRAINSTools-build/BRAINSTools-Release-EPRelease-build
+regex=BRAINSFitTest
+repeats=3
+host=cortex.ecn.uiowa.edu
+nproc=48
+niceness=0
+loadavg=3.24 3.87 4.56

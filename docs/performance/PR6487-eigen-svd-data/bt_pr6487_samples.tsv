@@ -1,0 +1,100 @@
+1	BRAINSEyeDetectorTest_T1	5.99
+1	BRAINSAlignMSPTest_T1	15.25
+1	BRAINSTrimForegroundInDirectionTest_T1	0.63
+1	insertMidACPCpointTest	0.15
+1	chk_insertMidACPCpointTest	0.16
+1	GTRACTTest_gtractAverageBvalues	0.91
+1	GTRACTTest_gtractConcatDwi	1.35
+ 8/20 Test #354: GTRACTTest_gtractConcatDwi_Concat_Dicom ...........***Failed    0.16 sec
+ 9/20 Test #355: GTRACTTest_gtractConcatDwi_Concat_multi_Dicom .....***Failed    0.16 sec
+1	GTRACTTest_gtractResampleDWIInPlace	1.27
+1	GTRACTTest_gtractResampleDWIInPlace_Rot15z	1.26
+1	chk_GTRACTTest_gtractResampleDWIInPlace_Rot15z	0.02
+1	GTRACTTest_gtractResampleDWIInPlace_Rot-15z	1.27
+1	chk_GTRACTTest_gtractResampleDWIInPlace_Rot-15z	0.02
+1	GTRACTTest_gtractResampleDWIInPlace_Rot45z	1.27
+1	chk_GTRACTTest_gtractResampleDWIInPlace_Rot45z	0.02
+1	GTRACTTest_gtractResampleDWIInPlace_Rot30x	1.28
+1	chk_GTRACTTest_gtractResampleDWIInPlace_Rot30x	0.01
+1	GTRACTTest_gtractResampleDWIInPlace_Rot30y	1.33
+1	chk_GTRACTTest_gtractResampleDWIInPlace_Rot30y	0.02
+2	BRAINSEyeDetectorTest_T1	5.98
+2	BRAINSAlignMSPTest_T1	15.17
+2	BRAINSTrimForegroundInDirectionTest_T1	0.60
+2	insertMidACPCpointTest	0.16
+2	chk_insertMidACPCpointTest	0.15
+2	GTRACTTest_gtractAverageBvalues	0.86
+2	GTRACTTest_gtractConcatDwi	1.36
+ 8/20 Test #354: GTRACTTest_gtractConcatDwi_Concat_Dicom ...........***Failed    0.17 sec
+ 9/20 Test #355: GTRACTTest_gtractConcatDwi_Concat_multi_Dicom .....***Failed    0.16 sec
+2	GTRACTTest_gtractResampleDWIInPlace	1.27
+2	GTRACTTest_gtractResampleDWIInPlace_Rot15z	1.32
+2	chk_GTRACTTest_gtractResampleDWIInPlace_Rot15z	0.02
+2	GTRACTTest_gtractResampleDWIInPlace_Rot-15z	1.27
+2	chk_GTRACTTest_gtractResampleDWIInPlace_Rot-15z	0.02
+2	GTRACTTest_gtractResampleDWIInPlace_Rot45z	1.28
+2	chk_GTRACTTest_gtractResampleDWIInPlace_Rot45z	0.02
+2	GTRACTTest_gtractResampleDWIInPlace_Rot30x	1.27
+2	chk_GTRACTTest_gtractResampleDWIInPlace_Rot30x	0.02
+2	GTRACTTest_gtractResampleDWIInPlace_Rot30y	1.26
+2	chk_GTRACTTest_gtractResampleDWIInPlace_Rot30y	0.02
+3	BRAINSEyeDetectorTest_T1	6.00
+3	BRAINSAlignMSPTest_T1	15.14
+3	BRAINSTrimForegroundInDirectionTest_T1	0.63
+3	insertMidACPCpointTest	0.16
+3	chk_insertMidACPCpointTest	0.14
+3	GTRACTTest_gtractAverageBvalues	0.89
+3	GTRACTTest_gtractConcatDwi	1.35
+ 8/20 Test #354: GTRACTTest_gtractConcatDwi_Concat_Dicom ...........***Failed    0.16 sec
+ 9/20 Test #355: GTRACTTest_gtractConcatDwi_Concat_multi_Dicom .....***Failed    0.16 sec
+3	GTRACTTest_gtractResampleDWIInPlace	1.28
+3	GTRACTTest_gtractResampleDWIInPlace_Rot15z	1.28
+3	chk_GTRACTTest_gtractResampleDWIInPlace_Rot15z	0.02
+3	GTRACTTest_gtractResampleDWIInPlace_Rot-15z	1.32
+3	chk_GTRACTTest_gtractResampleDWIInPlace_Rot-15z	0.02
+3	GTRACTTest_gtractResampleDWIInPlace_Rot45z	1.26
+3	chk_GTRACTTest_gtractResampleDWIInPlace_Rot45z	0.02
+3	GTRACTTest_gtractResampleDWIInPlace_Rot30x	1.26
+3	chk_GTRACTTest_gtractResampleDWIInPlace_Rot30x	0.02
+3	GTRACTTest_gtractResampleDWIInPlace_Rot30y	1.29
+3	chk_GTRACTTest_gtractResampleDWIInPlace_Rot30y	0.02
+4	BRAINSEyeDetectorTest_T1	5.94
+4	BRAINSAlignMSPTest_T1	15.22
+4	BRAINSTrimForegroundInDirectionTest_T1	0.61
+4	insertMidACPCpointTest	0.16
+4	chk_insertMidACPCpointTest	0.20
+4	GTRACTTest_gtractAverageBvalues	0.85
+4	GTRACTTest_gtractConcatDwi	1.38
+ 8/20 Test #354: GTRACTTest_gtractConcatDwi_Concat_Dicom ...........***Failed    0.17 sec
+ 9/20 Test #355: GTRACTTest_gtractConcatDwi_Concat_multi_Dicom .....***Failed    0.15 sec
+4	GTRACTTest_gtractResampleDWIInPlace	1.25
+4	GTRACTTest_gtractResampleDWIInPlace_Rot15z	1.27
+4	chk_GTRACTTest_gtractResampleDWIInPlace_Rot15z	0.02
+4	GTRACTTest_gtractResampleDWIInPlace_Rot-15z	1.29
+4	chk_GTRACTTest_gtractResampleDWIInPlace_Rot-15z	0.02
+4	GTRACTTest_gtractResampleDWIInPlace_Rot45z	1.25
+4	chk_GTRACTTest_gtractResampleDWIInPlace_Rot45z	0.02
+4	GTRACTTest_gtractResampleDWIInPlace_Rot30x	1.26
+4	chk_GTRACTTest_gtractResampleDWIInPlace_Rot30x	0.02
+4	GTRACTTest_gtractResampleDWIInPlace_Rot30y	1.25
+4	chk_GTRACTTest_gtractResampleDWIInPlace_Rot30y	0.02
+5	BRAINSEyeDetectorTest_T1	6.02
+5	BRAINSAlignMSPTest_T1	15.38
+5	BRAINSTrimForegroundInDirectionTest_T1	0.73
+5	insertMidACPCpointTest	0.22
+5	chk_insertMidACPCpointTest	0.20
+5	GTRACTTest_gtractAverageBvalues	1.21
+5	GTRACTTest_gtractConcatDwi	1.48
+ 8/20 Test #354: GTRACTTest_gtractConcatDwi_Concat_Dicom ...........***Failed    0.23 sec
+ 9/20 Test #355: GTRACTTest_gtractConcatDwi_Concat_multi_Dicom .....***Failed    0.23 sec
+5	GTRACTTest_gtractResampleDWIInPlace	1.28
+5	GTRACTTest_gtractResampleDWIInPlace_Rot15z	1.56
+5	chk_GTRACTTest_gtractResampleDWIInPlace_Rot15z	0.02
+5	GTRACTTest_gtractResampleDWIInPlace_Rot-15z	1.70
+5	chk_GTRACTTest_gtractResampleDWIInPlace_Rot-15z	0.02
+5	GTRACTTest_gtractResampleDWIInPlace_Rot45z	1.30
+5	chk_GTRACTTest_gtractResampleDWIInPlace_Rot45z	0.02
+5	GTRACTTest_gtractResampleDWIInPlace_Rot30x	1.25
+5	chk_GTRACTTest_gtractResampleDWIInPlace_Rot30x	0.02
+5	GTRACTTest_gtractResampleDWIInPlace_Rot30y	1.29
+5	chk_GTRACTTest_gtractResampleDWIInPlace_Rot30y	0.02

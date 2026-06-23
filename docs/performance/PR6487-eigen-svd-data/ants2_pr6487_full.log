@@ -1,0 +1,101 @@
+Test project /home/johnsonhj/src/itk_forest_build_testbed/build_forest-pr6487/ANTs-build/ANTS-build
+      Start   1: antsRegistrationTest_AffineScaleMasks
+ 1/35 Test   #1: antsRegistrationTest_AffineScaleMasks .......................   Passed    1.47 sec
+      Start   2: antsRegistrationTest_AffineScaleNoMasks
+ 2/35 Test   #2: antsRegistrationTest_AffineScaleNoMasks .....................   Passed    1.57 sec
+      Start   3: antsRegistrationTest_AffineRotationMasks
+ 3/35 Test   #3: antsRegistrationTest_AffineRotationMasks ....................   Passed    1.36 sec
+      Start   4: antsRegistrationTest_AffineRotationNoMasks
+ 4/35 Test   #4: antsRegistrationTest_AffineRotationNoMasks ..................   Passed    1.61 sec
+      Start   5: antsRegistrationTest_AffineTranslationMasks
+ 5/35 Test   #5: antsRegistrationTest_AffineTranslationMasks .................   Passed    0.24 sec
+      Start   6: antsRegistrationTest_AffineTranslationNoMasks
+ 6/35 Test   #6: antsRegistrationTest_AffineTranslationNoMasks ...............   Passed    0.23 sec
+      Start   7: antsRegistrationTest_RigidAnisotropicMasks
+ 7/35 Test   #7: antsRegistrationTest_RigidAnisotropicMasks ..................   Passed    3.23 sec
+      Start   8: antsRegistrationTest_RigidRotationHeadMasks
+ 8/35 Test   #8: antsRegistrationTest_RigidRotationHeadMasks .................   Passed    1.69 sec
+      Start   9: antsRegistrationTest_RigidRotationMasks
+ 9/35 Test   #9: antsRegistrationTest_RigidRotationMasks .....................   Passed    1.53 sec
+      Start  10: antsRegistrationTest_RigidRotationNoMasks
+10/35 Test  #10: antsRegistrationTest_RigidRotationNoMasks ...................   Passed    1.75 sec
+      Start  11: antsRegistrationTest_MSEAffineRotationMasks
+11/35 Test  #11: antsRegistrationTest_MSEAffineRotationMasks .................   Passed    0.22 sec
+      Start  12: antsRegistrationTest_RigidRotGeomNoMasks
+12/35 Test  #12: antsRegistrationTest_RigidRotGeomNoMasks ....................   Passed    2.99 sec
+      Start  13: antsRegistrationTest_RigidRotaRotaRotNoMasks
+13/35 Test  #13: antsRegistrationTest_RigidRotaRotaRotNoMasks ................   Passed    4.03 sec
+      Start  14: antsRegistrationTest_RigidRotaRotaRotNoMasks_Float
+14/35 Test  #14: antsRegistrationTest_RigidRotaRotaRotNoMasks_Float ..........   Passed    2.12 sec
+      Start  15: antsRegistrationTest_SimilarityRotationMasks
+15/35 Test  #15: antsRegistrationTest_SimilarityRotationMasks ................***Failed    1.04 sec
+      Start  16: antsRegistrationTest_CCSimilarityRotationMasks
+16/35 Test  #16: antsRegistrationTest_CCSimilarityRotationMasks ..............   Passed    3.32 sec
+      Start  17: antsRegistrationTest_MSESimilarityRotationMasks
+17/35 Test  #17: antsRegistrationTest_MSESimilarityRotationMasks .............   Passed    0.14 sec
+      Start  18: antsRegistrationTest_MSESimilarityRotationMasks_Float
+18/35 Test  #18: antsRegistrationTest_MSESimilarityRotationMasks_Float .......   Passed    0.14 sec
+      Start  19: antsRegistrationTest_ScaleTranslationRescaleHeadMasks
+19/35 Test  #19: antsRegistrationTest_ScaleTranslationRescaleHeadMasks .......   Passed    1.15 sec
+      Start  20: antsRegistrationTest_ScaleRotationRescaleHeadMasks
+20/35 Test  #20: antsRegistrationTest_ScaleRotationRescaleHeadMasks ..........   Passed    1.20 sec
+      Start  21: antsRegistrationTest_ScaleRotationRescaleHeadMasks_Float
+21/35 Test  #21: antsRegistrationTest_ScaleRotationRescaleHeadMasks_Float ....   Passed    0.87 sec
+      Start  22: antsRegistrationTest_SyNScaleNoMasks
+22/35 Test  #22: antsRegistrationTest_SyNScaleNoMasks ........................   Passed    1.69 sec
+      Start  23: antsRegistrationTest_SyNScaleNoMasks_Float
+23/35 Test  #23: antsRegistrationTest_SyNScaleNoMasks_Float ..................   Passed    1.47 sec
+      Start  24: antsRegistrationTest_initialize_transforms_per_stage
+24/35 Test  #24: antsRegistrationTest_initialize_transforms_per_stage ........   Passed    0.55 sec
+      Start  25: antsRegistrationTest_initializePerStage_ComparisonTesting
+Could not find executable compareTwoTransformsTestDriver
+Looked in the following places:
+compareTwoTransformsTestDriver
+compareTwoTransformsTestDriver
+Release/compareTwoTransformsTestDriver
+Release/compareTwoTransformsTestDriver
+Debug/compareTwoTransformsTestDriver
+Debug/compareTwoTransformsTestDriver
+MinSizeRel/compareTwoTransformsTestDriver
+MinSizeRel/compareTwoTransformsTestDriver
+RelWithDebInfo/compareTwoTransformsTestDriver
+RelWithDebInfo/compareTwoTransformsTestDriver
+Deployment/compareTwoTransformsTestDriver
+Deployment/compareTwoTransformsTestDriver
+Development/compareTwoTransformsTestDriver
+Development/compareTwoTransformsTestDriver
+Unable to find executable: compareTwoTransformsTestDriver
+25/35 Test  #25: antsRegistrationTest_initializePerStage_ComparisonTesting ...***Not Run   0.00 sec
+      Start 161: ANTS_ROT_GSYN
+26/35 Test #161: ANTS_ROT_GSYN ...............................................   Passed   16.01 sec
+      Start 162: ANTS_ROT_GSYN_WARP
+27/35 Test #162: ANTS_ROT_GSYN_WARP ..........................................   Passed    0.56 sec
+      Start 163: ANTS_ROT_GSYN_INVERSEWARP
+28/35 Test #163: ANTS_ROT_GSYN_INVERSEWARP ...................................   Passed    0.67 sec
+      Start 164: ANTS_ROT_EXP
+29/35 Test #164: ANTS_ROT_EXP ................................................   Passed    7.90 sec
+      Start 165: ANTS_ROT_EXP_WARP
+30/35 Test #165: ANTS_ROT_EXP_WARP ...........................................   Passed    0.54 sec
+      Start 166: ANTS_ROT_EXP_WARP2
+31/35 Test #166: ANTS_ROT_EXP_WARP2 ..........................................   Passed    0.37 sec
+      Start 167: ANTS_ROT_EXP_INVERSEWARP
+32/35 Test #167: ANTS_ROT_EXP_INVERSEWARP ....................................   Passed    0.65 sec
+      Start 168: ANTS_ROT_EXP_INVERSEWARP2
+33/35 Test #168: ANTS_ROT_EXP_INVERSEWARP2 ...................................   Passed    0.38 sec
+      Start 169: ANTS_SYN_WITH_TIME
+34/35 Test #169: ANTS_SYN_WITH_TIME ..........................................***Failed   12.48 sec
+      Start 170: ANTS_SYN_WITH_TIME_WARP
+35/35 Test #170: ANTS_SYN_WITH_TIME_WARP .....................................***Failed    0.05 sec
+
+89% tests passed, 4 tests failed out of 35
+
+Total Test time (real) =  75.34 sec
+
+The following tests FAILED:
+	 15 - antsRegistrationTest_SimilarityRotationMasks (Failed)
+	 25 - antsRegistrationTest_initializePerStage_ComparisonTesting (Not Run)
+	169 - ANTS_SYN_WITH_TIME (Failed)
+	170 - ANTS_SYN_WITH_TIME_WARP (Failed)
+Errors while running CTest
+Output from these tests are in: /home/johnsonhj/src/itk_forest_build_testbed/build_forest-pr6487/ANTs-build/ANTS-build/Testing/Temporary/LastTest.log
+Use "--rerun-failed --output-on-failure" to re-run the failed cases verbosely.

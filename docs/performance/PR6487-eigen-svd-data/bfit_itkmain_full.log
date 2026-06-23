@@ -1,0 +1,79 @@
+Test project /home/johnsonhj/src/itk_forest_build_testbed/build_forest-itkv6_main/BRAINSTools-build/BRAINSTools-Release-EPRelease-build
+      Start 189: BRAINSFitTest_AffineRotationMasks
+ 1/37 Test #189: BRAINSFitTest_AffineRotationMasks ............................   Passed    0.93 sec
+      Start 190: BRAINSFitTest_AffineRotationNoMasks
+ 2/37 Test #190: BRAINSFitTest_AffineRotationNoMasks ..........................   Passed    1.85 sec
+      Start 191: BRAINSFitTest_AffineScaleMasks
+ 3/37 Test #191: BRAINSFitTest_AffineScaleMasks ...............................   Passed    1.26 sec
+      Start 192: BRAINSFitTest_AffineScaleNoMasks
+ 4/37 Test #192: BRAINSFitTest_AffineScaleNoMasks .............................   Passed    1.87 sec
+      Start 193: BRAINSFitTest_AffineTranslationMasks
+ 5/37 Test #193: BRAINSFitTest_AffineTranslationMasks .........................   Passed    0.27 sec
+      Start 194: BRAINSFitTest_AffineTranslationNoMasks
+ 6/37 Test #194: BRAINSFitTest_AffineTranslationNoMasks .......................   Passed    0.25 sec
+      Start 195: BRAINSFitTest_BSplineAnteScaleRotationRescaleHeadMasks
+ 7/37 Test #195: BRAINSFitTest_BSplineAnteScaleRotationRescaleHeadMasks .......   Passed    5.85 sec
+      Start 196: BRAINSFitTest_BSplineOnlyRescaleHeadMasks
+ 8/37 Test #196: BRAINSFitTest_BSplineOnlyRescaleHeadMasks ....................   Passed   61.64 sec
+      Start 197: BRAINSFitTest_BSplineScaleRotationRescaleHeadMasks
+ 9/37 Test #197: BRAINSFitTest_BSplineScaleRotationRescaleHeadMasks ...........   Passed    3.67 sec
+      Start 198: BRAINSFitTest_BSplineScaleRotationHistogramHeadMasks
+10/37 Test #198: BRAINSFitTest_BSplineScaleRotationHistogramHeadMasks .........   Passed    3.21 sec
+      Start 199: BRAINSFitTest_RigidAnisotropicMasks
+11/37 Test #199: BRAINSFitTest_RigidAnisotropicMasks ..........................   Passed    1.22 sec
+      Start 200: BRAINSFitTest_RigidMedianRotationNoMasks
+12/37 Test #200: BRAINSFitTest_RigidMedianRotationNoMasks .....................   Passed    0.98 sec
+      Start 201: BRAINSFitTest_RigidRotGeomNoMasks
+13/37 Test #201: BRAINSFitTest_RigidRotGeomNoMasks ............................   Passed    1.57 sec
+      Start 202: BRAINSFitTest_RigidRotaRotaRotNoMasks
+14/37 Test #202: BRAINSFitTest_RigidRotaRotaRotNoMasks ........................   Passed    1.99 sec
+      Start 203: BRAINSFitTest_RigidRotationHeadMasks
+15/37 Test #203: BRAINSFitTest_RigidRotationHeadMasks .........................   Passed    0.97 sec
+      Start 204: BRAINSFitTest_RigidRotationMasks
+16/37 Test #204: BRAINSFitTest_RigidRotationMasks .............................   Passed    5.67 sec
+      Start 205: BRAINSFitTest_RigidRotationNoMasksRiginInPlaceInterp
+17/37 Test #205: BRAINSFitTest_RigidRotationNoMasksRiginInPlaceInterp .........   Passed    0.75 sec
+      Start 206: BRAINSFitTest_ScaleRotationRescaleHeadMasksNoInit
+18/37 Test #206: BRAINSFitTest_ScaleRotationRescaleHeadMasksNoInit ............   Passed    2.81 sec
+      Start 207: BRAINSFitTest_ScaleSkewVersorRotationMasks
+19/37 Test #207: BRAINSFitTest_ScaleSkewVersorRotationMasks ...................   Passed    0.98 sec
+      Start 208: BRAINSFitTest_ScaleSkewVersorRotationNoMasks
+20/37 Test #208: BRAINSFitTest_ScaleSkewVersorRotationNoMasks .................   Passed    1.30 sec
+      Start 209: BRAINSFitTest_ScaleSkewVersorScaleMasks
+21/37 Test #209: BRAINSFitTest_ScaleSkewVersorScaleMasks ......................   Passed    0.86 sec
+      Start 210: BRAINSFitTest_ScaleSkewVersorScaleNoMasks
+22/37 Test #210: BRAINSFitTest_ScaleSkewVersorScaleNoMasks ....................   Passed    0.69 sec
+      Start 211: BRAINSFitTest_ScaleTranslationRescaleHeadMasksInit
+23/37 Test #211: BRAINSFitTest_ScaleTranslationRescaleHeadMasksInit ...........   Passed    1.77 sec
+      Start 212: BRAINSFitTest_ScaleVersorRotationMasks
+24/37 Test #212: BRAINSFitTest_ScaleVersorRotationMasks .......................   Passed    0.54 sec
+      Start 213: BRAINSFitTest_ScaleVersorRotationNoMasks
+25/37 Test #213: BRAINSFitTest_ScaleVersorRotationNoMasks .....................   Passed    0.94 sec
+      Start 214: BRAINSFitTest_ScaleVersorScaleMasks
+26/37 Test #214: BRAINSFitTest_ScaleVersorScaleMasks ..........................   Passed    0.66 sec
+      Start 215: BRAINSFitTest_ScaleVersorScaleNoMasks
+27/37 Test #215: BRAINSFitTest_ScaleVersorScaleNoMasks ........................   Passed    0.62 sec
+      Start 216: BRAINSFitTest_BSplineScaleRotationHeadMasksUShort
+28/37 Test #216: BRAINSFitTest_BSplineScaleRotationHeadMasksUShort ............   Passed    3.83 sec
+      Start 217: BRAINSFitTest_BSplineScaleRotationHistogramHeadMasksUShort
+29/37 Test #217: BRAINSFitTest_BSplineScaleRotationHistogramHeadMasksUShort ...   Passed    3.18 sec
+      Start 218: BRAINSFitTest_NCMetricBrainToItself
+30/37 Test #218: BRAINSFitTest_NCMetricBrainToItself ..........................   Passed    0.19 sec
+      Start 219: BRAINSFitTest_NCAffineRotationMasks
+31/37 Test #219: BRAINSFitTest_NCAffineRotationMasks ..........................   Passed    0.50 sec
+      Start 220: BRAINSFitTest_NCScaleSkewVersorRotationMasks
+32/37 Test #220: BRAINSFitTest_NCScaleSkewVersorRotationMasks .................   Passed    0.38 sec
+      Start 221: BRAINSFitTest_MSEMetricBrainToItself
+33/37 Test #221: BRAINSFitTest_MSEMetricBrainToItself .........................   Passed    0.18 sec
+      Start 222: BRAINSFitTest_MSEAffineRotationMasks
+34/37 Test #222: BRAINSFitTest_MSEAffineRotationMasks .........................   Passed    0.30 sec
+      Start 223: BRAINSFitTest_MSEScaleSkewVersorRotationMasks
+35/37 Test #223: BRAINSFitTest_MSEScaleSkewVersorRotationMasks ................   Passed    0.28 sec
+      Start 224: BRAINSFitTest_MIHAffineRotationMasks
+36/37 Test #224: BRAINSFitTest_MIHAffineRotationMasks .........................   Passed    1.50 sec
+      Start 225: BRAINSFitTest_MIHScaleSkewVersorRotationMasks
+37/37 Test #225: BRAINSFitTest_MIHScaleSkewVersorRotationMasks ................   Passed    0.40 sec
+
+100% tests passed, 0 tests failed out of 37
+
+Total Test time (real) = 115.94 sec

@@ -26,6 +26,39 @@ This directory is a **kit** (scripts + pixi config + docs), not a checkout —
 `git clone` then `pixi run checkout` materializes the rest under
 `build_forest/`. Remote: `git@github.com:hjmjohnson/itk_forest_build_testbed.git`.
 
+## ⚠ Always name the REPO and the FOREST you are acting on
+
+This workspace contains **many git repos** and **many parallel build
+environments**. A statement of what was done — or will be done — is ambiguous
+and easily misread unless it explicitly names *both* coordinates. State them up
+front in every plan, summary, commit/PR description, and report.
+
+**1. Which repo?** There are two distinct classes — never conflate them:
+
+- **The kit repo** = *this* directory (`hjmjohnson/itk_forest_build_testbed`).
+  Tracks only scripts, pixi config, `docs/`, `utilities/`. Commits/PRs here are
+  about the *testbed itself*.
+- **Consumer SOURCE repos** checked out *into* a forest — each its own upstream
+  project: ITK→`InsightSoftwareConsortium/ITK`, ANTs→`ANTsX/ANTs`,
+  BRAINSTools→`BRAINSia/BRAINSTools` (or the `hjmjohnson` fork), Slicer, elastix,
+  … (see `CATALOG.md`). PRs here go *upstream*. **Testbed artifacts (analysis,
+  reports, perf data, the harness) live ONLY in the kit repo and must never be
+  committed into a consumer worktree or attached to a consumer's PR.**
+
+**2. Which forest (sub-environment)?** Each forest is a self-contained build
+tree selected by `BUILD_FOREST_ROOT` / `FOREST_REFERENCE_SUFFIX`
+(`FOREST_REFERENCE_SUFFIX=foo` ⇒ `build_forest-foo`). Forests present include
+`build_forest` (default), `build_forest-itkv6_main`, `build_forest-pr6487`,
+`build_forest-ITK-main`, `build_forest-ITK-release-5-4`. **The same source repo
+exists in each forest as a separate worktree on a separate per-forest branch
+(`itk-downstream-<suffix>`, etc.) at a possibly different SHA.** "I built ITK"
+is meaningless; "I built ITK `pr/6487` in `build_forest-pr6487`" is actionable.
+
+Convention: prefix any consequential statement/command with the coordinates,
+e.g. `Repo: ANTsX/ANTs (d2fbf8bd) | Forest: build_forest-pr6487` — and run
+forest-scoped commands with the suffix explicit:
+`FOREST_REFERENCE_SUFFIX=pr6487 pixi run build-ANTs`.
+
 ## Doc routing — read the one that matches the task
 
 | If you are about to… | Read |
@@ -51,6 +84,10 @@ pixi run bash bin/run-matrix.sh   # full sweep, scored by artifact
 
 ## Non-negotiables
 
+- **State the repo and forest for every action** (see the ⚠ section above).
+  Before committing, building, or reporting, name which repo (kit vs which
+  consumer) and which forest/sub-environment. Most misinterpretations here trace
+  to an unstated coordinate.
 - **Latest `upstream/main` first; on failure, update before debugging.** Every
   source repo (ITK, ANTs, BRAINSTools, SlicerExecutionModel, …) defaults to its
   `origin/main` / `upstream/main` tip unless a specific commit is requested. On

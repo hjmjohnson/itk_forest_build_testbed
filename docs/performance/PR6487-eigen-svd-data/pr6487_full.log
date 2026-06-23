@@ -1,0 +1,391 @@
+Test project /home/johnsonhj/src/itk_forest_build_testbed/build_forest-pr6487/ANTs-build/ANTS-build
+        Start   1: antsRegistrationTest_AffineScaleMasks
+  1/170 Test   #1: antsRegistrationTest_AffineScaleMasks ...........................   Passed    1.44 sec
+        Start   2: antsRegistrationTest_AffineScaleNoMasks
+  2/170 Test   #2: antsRegistrationTest_AffineScaleNoMasks .........................   Passed    1.63 sec
+        Start   3: antsRegistrationTest_AffineRotationMasks
+  3/170 Test   #3: antsRegistrationTest_AffineRotationMasks ........................   Passed    1.48 sec
+        Start   4: antsRegistrationTest_AffineRotationNoMasks
+  4/170 Test   #4: antsRegistrationTest_AffineRotationNoMasks ......................   Passed    1.59 sec
+        Start   5: antsRegistrationTest_AffineTranslationMasks
+  5/170 Test   #5: antsRegistrationTest_AffineTranslationMasks .....................   Passed    0.21 sec
+        Start   6: antsRegistrationTest_AffineTranslationNoMasks
+  6/170 Test   #6: antsRegistrationTest_AffineTranslationNoMasks ...................   Passed    0.24 sec
+        Start   7: antsRegistrationTest_RigidAnisotropicMasks
+  7/170 Test   #7: antsRegistrationTest_RigidAnisotropicMasks ......................   Passed    3.32 sec
+        Start   8: antsRegistrationTest_RigidRotationHeadMasks
+  8/170 Test   #8: antsRegistrationTest_RigidRotationHeadMasks .....................   Passed    1.60 sec
+        Start   9: antsRegistrationTest_RigidRotationMasks
+  9/170 Test   #9: antsRegistrationTest_RigidRotationMasks .........................   Passed    1.48 sec
+        Start  10: antsRegistrationTest_RigidRotationNoMasks
+ 10/170 Test  #10: antsRegistrationTest_RigidRotationNoMasks .......................   Passed    1.72 sec
+        Start  11: antsRegistrationTest_MSEAffineRotationMasks
+ 11/170 Test  #11: antsRegistrationTest_MSEAffineRotationMasks .....................   Passed    0.25 sec
+        Start  12: antsRegistrationTest_RigidRotGeomNoMasks
+ 12/170 Test  #12: antsRegistrationTest_RigidRotGeomNoMasks ........................   Passed    2.80 sec
+        Start  13: antsRegistrationTest_RigidRotaRotaRotNoMasks
+ 13/170 Test  #13: antsRegistrationTest_RigidRotaRotaRotNoMasks ....................   Passed    3.66 sec
+        Start  14: antsRegistrationTest_RigidRotaRotaRotNoMasks_Float
+ 14/170 Test  #14: antsRegistrationTest_RigidRotaRotaRotNoMasks_Float ..............   Passed    1.93 sec
+        Start  15: antsRegistrationTest_SimilarityRotationMasks
+ 15/170 Test  #15: antsRegistrationTest_SimilarityRotationMasks ....................***Failed    1.09 sec
+        Start  16: antsRegistrationTest_CCSimilarityRotationMasks
+ 16/170 Test  #16: antsRegistrationTest_CCSimilarityRotationMasks ..................   Passed    3.24 sec
+        Start  17: antsRegistrationTest_MSESimilarityRotationMasks
+ 17/170 Test  #17: antsRegistrationTest_MSESimilarityRotationMasks .................   Passed    0.16 sec
+        Start  18: antsRegistrationTest_MSESimilarityRotationMasks_Float
+ 18/170 Test  #18: antsRegistrationTest_MSESimilarityRotationMasks_Float ...........   Passed    0.14 sec
+        Start  19: antsRegistrationTest_ScaleTranslationRescaleHeadMasks
+ 19/170 Test  #19: antsRegistrationTest_ScaleTranslationRescaleHeadMasks ...........   Passed    1.25 sec
+        Start  20: antsRegistrationTest_ScaleRotationRescaleHeadMasks
+ 20/170 Test  #20: antsRegistrationTest_ScaleRotationRescaleHeadMasks ..............   Passed    1.26 sec
+        Start  21: antsRegistrationTest_ScaleRotationRescaleHeadMasks_Float
+ 21/170 Test  #21: antsRegistrationTest_ScaleRotationRescaleHeadMasks_Float ........   Passed    0.90 sec
+        Start  22: antsRegistrationTest_SyNScaleNoMasks
+ 22/170 Test  #22: antsRegistrationTest_SyNScaleNoMasks ............................   Passed    1.81 sec
+        Start  23: antsRegistrationTest_SyNScaleNoMasks_Float
+ 23/170 Test  #23: antsRegistrationTest_SyNScaleNoMasks_Float ......................   Passed    1.50 sec
+        Start  24: antsRegistrationTest_initialize_transforms_per_stage
+ 24/170 Test  #24: antsRegistrationTest_initialize_transforms_per_stage ............   Passed    0.57 sec
+        Start  25: antsRegistrationTest_initializePerStage_ComparisonTesting
+Could not find executable compareTwoTransformsTestDriver
+Looked in the following places:
+compareTwoTransformsTestDriver
+compareTwoTransformsTestDriver
+Release/compareTwoTransformsTestDriver
+Release/compareTwoTransformsTestDriver
+Debug/compareTwoTransformsTestDriver
+Debug/compareTwoTransformsTestDriver
+MinSizeRel/compareTwoTransformsTestDriver
+MinSizeRel/compareTwoTransformsTestDriver
+RelWithDebInfo/compareTwoTransformsTestDriver
+RelWithDebInfo/compareTwoTransformsTestDriver
+Deployment/compareTwoTransformsTestDriver
+Deployment/compareTwoTransformsTestDriver
+Development/compareTwoTransformsTestDriver
+Development/compareTwoTransformsTestDriver
+Unable to find executable: compareTwoTransformsTestDriver
+ 25/170 Test  #25: antsRegistrationTest_initializePerStage_ComparisonTesting .......***Not Run   0.00 sec
+        Start  26: simpleSynRegistrationTesting
+Could not find executable simpleSynRegistrationTestDriver
+Looked in the following places:
+simpleSynRegistrationTestDriver
+simpleSynRegistrationTestDriver
+Release/simpleSynRegistrationTestDriver
+Release/simpleSynRegistrationTestDriver
+Debug/simpleSynRegistrationTestDriver
+Debug/simpleSynRegistrationTestDriver
+MinSizeRel/simpleSynRegistrationTestDriver
+MinSizeRel/simpleSynRegistrationTestDriver
+RelWithDebInfo/simpleSynRegistrationTestDriver
+RelWithDebInfo/simpleSynRegistrationTestDriver
+Deployment/simpleSynRegistrationTestDriver
+Deployment/simpleSynRegistrationTestDriver
+Development/simpleSynRegistrationTestDriver
+Development/simpleSynRegistrationTestDriver
+Unable to find executable: simpleSynRegistrationTestDriver
+ 26/170 Test  #26: simpleSynRegistrationTesting ....................................***Not Run   0.00 sec
+        Start  27: antsApplyTransformsTesting
+ 27/170 Test  #27: antsApplyTransformsTesting ......................................   Passed    0.12 sec
+        Start  28: antsApplyTransformsTestForAntsRegistration
+ 28/170 Test  #28: antsApplyTransformsTestForAntsRegistration ......................   Passed    0.13 sec
+        Start  29: antsApplyTransformsTestForSimpleSynRegistration
+ 29/170 Test  #29: antsApplyTransformsTestForSimpleSynRegistration .................***Failed    0.07 sec
+        Start  30: simpleSynRegistration_Vs_antsRegistration
+ 30/170 Test  #30: simpleSynRegistration_Vs_antsRegistration .......................***Failed    0.05 sec
+        Start  31: ANTS_HELP_LONG
+ 31/170 Test  #31: ANTS_HELP_LONG ..................................................   Passed    0.05 sec
+        Start  32: ANTS_HELP_SHORT
+ 32/170 Test  #32: ANTS_HELP_SHORT .................................................   Passed    0.04 sec
+        Start  33: antsApplyTransforms_HELP_LONG
+ 33/170 Test  #33: antsApplyTransforms_HELP_LONG ...................................   Passed    0.05 sec
+        Start  34: antsApplyTransforms_HELP_SHORT
+ 34/170 Test  #34: antsApplyTransforms_HELP_SHORT ..................................   Passed    0.04 sec
+        Start  35: antsApplyTransformsToPoints_HELP_LONG
+ 35/170 Test  #35: antsApplyTransformsToPoints_HELP_LONG ...........................   Passed    0.04 sec
+        Start  36: antsApplyTransformsToPoints_HELP_SHORT
+ 36/170 Test  #36: antsApplyTransformsToPoints_HELP_SHORT ..........................   Passed    0.04 sec
+        Start  37: ANTSIntegrateVectorField_HELP_LONG
+ 37/170 Test  #37: ANTSIntegrateVectorField_HELP_LONG ..............................   Passed    0.04 sec
+        Start  38: ANTSIntegrateVectorField_HELP_SHORT
+ 38/170 Test  #38: ANTSIntegrateVectorField_HELP_SHORT .............................   Passed    0.04 sec
+        Start  39: ANTSIntegrateVelocityField_HELP_LONG
+ 39/170 Test  #39: ANTSIntegrateVelocityField_HELP_LONG ............................   Passed    0.05 sec
+        Start  40: ANTSIntegrateVelocityField_HELP_SHORT
+ 40/170 Test  #40: ANTSIntegrateVelocityField_HELP_SHORT ...........................   Passed    0.05 sec
+        Start  41: ANTSJacobian_HELP_LONG
+ 41/170 Test  #41: ANTSJacobian_HELP_LONG ..........................................   Passed    0.04 sec
+        Start  42: ANTSJacobian_HELP_SHORT
+ 42/170 Test  #42: ANTSJacobian_HELP_SHORT .........................................   Passed    0.04 sec
+        Start  43: antsMotionCorr_HELP_LONG
+ 43/170 Test  #43: antsMotionCorr_HELP_LONG ........................................   Passed    0.05 sec
+        Start  44: antsMotionCorr_HELP_SHORT
+ 44/170 Test  #44: antsMotionCorr_HELP_SHORT .......................................   Passed    0.05 sec
+        Start  45: antsRegistration_HELP_LONG
+ 45/170 Test  #45: antsRegistration_HELP_LONG ......................................   Passed    0.05 sec
+        Start  46: antsRegistration_HELP_SHORT
+ 46/170 Test  #46: antsRegistration_HELP_SHORT .....................................   Passed    0.05 sec
+        Start  47: ANTSUseDeformationFieldToGetAffineTransform_HELP_LONG
+ 47/170 Test  #47: ANTSUseDeformationFieldToGetAffineTransform_HELP_LONG ...........   Passed    0.03 sec
+        Start  48: ANTSUseDeformationFieldToGetAffineTransform_HELP_SHORT
+ 48/170 Test  #48: ANTSUseDeformationFieldToGetAffineTransform_HELP_SHORT ..........   Passed    0.04 sec
+        Start  49: ANTSUseLandmarkImagesToGetAffineTransform_HELP_LONG
+ 49/170 Test  #49: ANTSUseLandmarkImagesToGetAffineTransform_HELP_LONG .............   Passed    0.05 sec
+        Start  50: ANTSUseLandmarkImagesToGetAffineTransform_HELP_SHORT
+ 50/170 Test  #50: ANTSUseLandmarkImagesToGetAffineTransform_HELP_SHORT ............   Passed    0.05 sec
+        Start  51: ANTSUseLandmarkImagesToGetBSplineDisplacementField_HELP_LONG
+ 51/170 Test  #51: ANTSUseLandmarkImagesToGetBSplineDisplacementField_HELP_LONG ....   Passed    0.04 sec
+        Start  52: ANTSUseLandmarkImagesToGetBSplineDisplacementField_HELP_SHORT
+ 52/170 Test  #52: ANTSUseLandmarkImagesToGetBSplineDisplacementField_HELP_SHORT ...   Passed    0.04 sec
+        Start  53: Atropos_HELP_LONG
+ 53/170 Test  #53: Atropos_HELP_LONG ...............................................   Passed    0.04 sec
+        Start  54: Atropos_HELP_SHORT
+ 54/170 Test  #54: Atropos_HELP_SHORT ..............................................   Passed    0.05 sec
+        Start  55: AverageAffineTransform_HELP_LONG
+ 55/170 Test  #55: AverageAffineTransform_HELP_LONG ................................   Passed    0.04 sec
+        Start  56: AverageAffineTransform_HELP_SHORT
+ 56/170 Test  #56: AverageAffineTransform_HELP_SHORT ...............................   Passed    0.05 sec
+        Start  57: AverageImages_HELP_LONG
+ 57/170 Test  #57: AverageImages_HELP_LONG .........................................   Passed    0.04 sec
+        Start  58: AverageImages_HELP_SHORT
+ 58/170 Test  #58: AverageImages_HELP_SHORT ........................................   Passed    0.04 sec
+        Start  59: AverageTensorImages_HELP_LONG
+ 59/170 Test  #59: AverageTensorImages_HELP_LONG ...................................   Passed    0.04 sec
+        Start  60: AverageTensorImages_HELP_SHORT
+ 60/170 Test  #60: AverageTensorImages_HELP_SHORT ..................................   Passed    0.04 sec
+        Start  61: ClusterImageStatistics_HELP_LONG
+ 61/170 Test  #61: ClusterImageStatistics_HELP_LONG ................................   Passed    0.04 sec
+        Start  62: ClusterImageStatistics_HELP_SHORT
+ 62/170 Test  #62: ClusterImageStatistics_HELP_SHORT ...............................   Passed    0.04 sec
+        Start  63: ComposeMultiTransform_HELP_LONG
+ 63/170 Test  #63: ComposeMultiTransform_HELP_LONG .................................   Passed    0.04 sec
+        Start  64: ComposeMultiTransform_HELP_SHORT
+ 64/170 Test  #64: ComposeMultiTransform_HELP_SHORT ................................   Passed    0.04 sec
+        Start  65: CompositeTransformUtil_HELP_LONG
+ 65/170 Test  #65: CompositeTransformUtil_HELP_LONG ................................   Passed    0.05 sec
+        Start  66: CompositeTransformUtil_HELP_SHORT
+ 66/170 Test  #66: CompositeTransformUtil_HELP_SHORT ...............................   Passed    0.05 sec
+        Start  67: ConvertImagePixelType_HELP_LONG
+ 67/170 Test  #67: ConvertImagePixelType_HELP_LONG .................................   Passed    0.04 sec
+        Start  68: ConvertImagePixelType_HELP_SHORT
+ 68/170 Test  #68: ConvertImagePixelType_HELP_SHORT ................................   Passed    0.05 sec
+        Start  69: ConvertScalarImageToRGB_HELP_LONG
+ 69/170 Test  #69: ConvertScalarImageToRGB_HELP_LONG ...............................   Passed    0.04 sec
+        Start  70: ConvertScalarImageToRGB_HELP_SHORT
+ 70/170 Test  #70: ConvertScalarImageToRGB_HELP_SHORT ..............................   Passed    0.04 sec
+        Start  71: ConvertToJpg_HELP_LONG
+ 71/170 Test  #71: ConvertToJpg_HELP_LONG ..........................................   Passed    0.04 sec
+        Start  72: ConvertToJpg_HELP_SHORT
+ 72/170 Test  #72: ConvertToJpg_HELP_SHORT .........................................   Passed    0.04 sec
+        Start  73: CopyImageHeaderInformation_HELP_LONG
+ 73/170 Test  #73: CopyImageHeaderInformation_HELP_LONG ............................   Passed    0.04 sec
+        Start  74: CopyImageHeaderInformation_HELP_SHORT
+ 74/170 Test  #74: CopyImageHeaderInformation_HELP_SHORT ...........................   Passed    0.04 sec
+        Start  75: CreateDisplacementField_HELP_LONG
+ 75/170 Test  #75: CreateDisplacementField_HELP_LONG ...............................   Passed    0.04 sec
+        Start  76: CreateDisplacementField_HELP_SHORT
+ 76/170 Test  #76: CreateDisplacementField_HELP_SHORT ..............................   Passed    0.04 sec
+        Start  77: CreateDTICohort_HELP_LONG
+ 77/170 Test  #77: CreateDTICohort_HELP_LONG .......................................   Passed    0.05 sec
+        Start  78: CreateDTICohort_HELP_SHORT
+ 78/170 Test  #78: CreateDTICohort_HELP_SHORT ......................................   Passed    0.04 sec
+        Start  79: CreateImage_HELP_LONG
+ 79/170 Test  #79: CreateImage_HELP_LONG ...........................................   Passed    0.05 sec
+        Start  80: CreateImage_HELP_SHORT
+ 80/170 Test  #80: CreateImage_HELP_SHORT ..........................................   Passed    0.04 sec
+        Start  81: CreateWarpedGridImage_HELP_LONG
+ 81/170 Test  #81: CreateWarpedGridImage_HELP_LONG .................................   Passed    0.04 sec
+        Start  82: CreateWarpedGridImage_HELP_SHORT
+ 82/170 Test  #82: CreateWarpedGridImage_HELP_SHORT ................................   Passed    0.03 sec
+        Start  83: ExtractRegionFromImage_HELP_LONG
+ 83/170 Test  #83: ExtractRegionFromImage_HELP_LONG ................................   Passed    0.04 sec
+        Start  84: ExtractRegionFromImage_HELP_SHORT
+ 84/170 Test  #84: ExtractRegionFromImage_HELP_SHORT ...............................   Passed    0.04 sec
+        Start  85: ExtractRegionFromImageByMask_HELP_LONG
+ 85/170 Test  #85: ExtractRegionFromImageByMask_HELP_LONG ..........................   Passed    0.04 sec
+        Start  86: ExtractRegionFromImageByMask_HELP_SHORT
+ 86/170 Test  #86: ExtractRegionFromImageByMask_HELP_SHORT .........................   Passed    0.04 sec
+        Start  87: ExtractSliceFromImage_HELP_LONG
+ 87/170 Test  #87: ExtractSliceFromImage_HELP_LONG .................................   Passed    0.04 sec
+        Start  88: ExtractSliceFromImage_HELP_SHORT
+ 88/170 Test  #88: ExtractSliceFromImage_HELP_SHORT ................................   Passed    0.03 sec
+        Start  89: ImageCompare_HELP_LONG
+ 89/170 Test  #89: ImageCompare_HELP_LONG ..........................................   Passed    0.04 sec
+        Start  90: ImageCompare_HELP_SHORT
+ 90/170 Test  #90: ImageCompare_HELP_SHORT .........................................   Passed    0.03 sec
+        Start  91: ImageMath_HELP_LONG
+ 91/170 Test  #91: ImageMath_HELP_LONG .............................................   Passed    0.05 sec
+        Start  92: ImageMath_HELP_SHORT
+ 92/170 Test  #92: ImageMath_HELP_SHORT ............................................   Passed    0.05 sec
+        Start  93: ImageSetStatistics_HELP_LONG
+ 93/170 Test  #93: ImageSetStatistics_HELP_LONG ....................................   Passed    0.04 sec
+        Start  94: ImageSetStatistics_HELP_SHORT
+ 94/170 Test  #94: ImageSetStatistics_HELP_SHORT ...................................   Passed    0.04 sec
+        Start  95: KellyKapowski_HELP_LONG
+ 95/170 Test  #95: KellyKapowski_HELP_LONG .........................................   Passed    0.04 sec
+        Start  96: KellyKapowski_HELP_SHORT
+ 96/170 Test  #96: KellyKapowski_HELP_SHORT ........................................   Passed    0.04 sec
+        Start  97: KellySlater_HELP_LONG
+ 97/170 Test  #97: KellySlater_HELP_LONG ...........................................   Passed    0.04 sec
+        Start  98: KellySlater_HELP_SHORT
+ 98/170 Test  #98: KellySlater_HELP_SHORT ..........................................   Passed    0.03 sec
+        Start  99: LabelClustersUniquely_HELP_LONG
+ 99/170 Test  #99: LabelClustersUniquely_HELP_LONG .................................   Passed    0.04 sec
+        Start 100: LabelClustersUniquely_HELP_SHORT
+100/170 Test #100: LabelClustersUniquely_HELP_SHORT ................................   Passed    0.04 sec
+        Start 101: LabelGeometryMeasures_HELP_LONG
+101/170 Test #101: LabelGeometryMeasures_HELP_LONG .................................   Passed    0.04 sec
+        Start 102: LabelGeometryMeasures_HELP_SHORT
+102/170 Test #102: LabelGeometryMeasures_HELP_SHORT ................................   Passed    0.05 sec
+        Start 103: LabelOverlapMeasures_HELP_LONG
+103/170 Test #103: LabelOverlapMeasures_HELP_LONG ..................................   Passed    0.05 sec
+        Start 104: LabelOverlapMeasures_HELP_SHORT
+104/170 Test #104: LabelOverlapMeasures_HELP_SHORT .................................   Passed    0.04 sec
+        Start 105: LaplacianThickness_HELP_LONG
+105/170 Test #105: LaplacianThickness_HELP_LONG ....................................   Passed    0.04 sec
+        Start 106: LaplacianThickness_HELP_SHORT
+106/170 Test #106: LaplacianThickness_HELP_SHORT ...................................   Passed    0.04 sec
+        Start 107: MeasureImageSimilarity_HELP_LONG
+107/170 Test #107: MeasureImageSimilarity_HELP_LONG ................................   Passed    0.04 sec
+        Start 108: MeasureImageSimilarity_HELP_SHORT
+108/170 Test #108: MeasureImageSimilarity_HELP_SHORT ...............................   Passed    0.03 sec
+        Start 109: MeasureMinMaxMean_HELP_LONG
+109/170 Test #109: MeasureMinMaxMean_HELP_LONG .....................................   Passed    0.04 sec
+        Start 110: MeasureMinMaxMean_HELP_SHORT
+110/170 Test #110: MeasureMinMaxMean_HELP_SHORT ....................................   Passed    0.04 sec
+        Start 111: MemoryTest_HELP_LONG
+111/170 Test #111: MemoryTest_HELP_LONG ............................................   Passed    0.05 sec
+        Start 112: MemoryTest_HELP_SHORT
+112/170 Test #112: MemoryTest_HELP_SHORT ...........................................   Passed    0.04 sec
+        Start 113: MultiplyImages_HELP_LONG
+113/170 Test #113: MultiplyImages_HELP_LONG ........................................   Passed    0.04 sec
+        Start 114: MultiplyImages_HELP_SHORT
+114/170 Test #114: MultiplyImages_HELP_SHORT .......................................   Passed    0.04 sec
+        Start 115: N3BiasFieldCorrection_HELP_LONG
+115/170 Test #115: N3BiasFieldCorrection_HELP_LONG .................................   Passed    0.04 sec
+        Start 116: N3BiasFieldCorrection_HELP_SHORT
+116/170 Test #116: N3BiasFieldCorrection_HELP_SHORT ................................   Passed    0.04 sec
+        Start 117: N4BiasFieldCorrection_HELP_LONG
+117/170 Test #117: N4BiasFieldCorrection_HELP_LONG .................................   Passed    0.04 sec
+        Start 118: N4BiasFieldCorrection_HELP_SHORT
+118/170 Test #118: N4BiasFieldCorrection_HELP_SHORT ................................   Passed    0.04 sec
+        Start 119: PasteImageIntoImage_HELP_LONG
+119/170 Test #119: PasteImageIntoImage_HELP_LONG ...................................   Passed    0.04 sec
+        Start 120: PasteImageIntoImage_HELP_SHORT
+120/170 Test #120: PasteImageIntoImage_HELP_SHORT ..................................   Passed    0.04 sec
+        Start 121: PermuteFlipImageOrientationAxes_HELP_LONG
+121/170 Test #121: PermuteFlipImageOrientationAxes_HELP_LONG .......................   Passed    0.04 sec
+        Start 122: PermuteFlipImageOrientationAxes_HELP_SHORT
+122/170 Test #122: PermuteFlipImageOrientationAxes_HELP_SHORT ......................   Passed    0.04 sec
+        Start 123: PrintHeader_HELP_LONG
+123/170 Test #123: PrintHeader_HELP_LONG ...........................................   Passed    0.04 sec
+        Start 124: PrintHeader_HELP_SHORT
+124/170 Test #124: PrintHeader_HELP_SHORT ..........................................   Passed    0.04 sec
+        Start 125: RebaseTensorImage_HELP_LONG
+125/170 Test #125: RebaseTensorImage_HELP_LONG .....................................   Passed    0.04 sec
+        Start 126: RebaseTensorImage_HELP_SHORT
+126/170 Test #126: RebaseTensorImage_HELP_SHORT ....................................   Passed    0.04 sec
+        Start 127: ReorientTensorImage_HELP_LONG
+127/170 Test #127: ReorientTensorImage_HELP_LONG ...................................   Passed    0.04 sec
+        Start 128: ReorientTensorImage_HELP_SHORT
+128/170 Test #128: ReorientTensorImage_HELP_SHORT ..................................   Passed    0.04 sec
+        Start 129: ResampleImage_HELP_LONG
+129/170 Test #129: ResampleImage_HELP_LONG .........................................   Passed    0.04 sec
+        Start 130: ResampleImage_HELP_SHORT
+130/170 Test #130: ResampleImage_HELP_SHORT ........................................   Passed    0.04 sec
+        Start 131: ResampleImageBySpacing_HELP_LONG
+131/170 Test #131: ResampleImageBySpacing_HELP_LONG ................................   Passed    0.04 sec
+        Start 132: ResampleImageBySpacing_HELP_SHORT
+132/170 Test #132: ResampleImageBySpacing_HELP_SHORT ...............................   Passed    0.04 sec
+        Start 133: ResetDirection_HELP_LONG
+133/170 Test #133: ResetDirection_HELP_LONG ........................................   Passed    0.04 sec
+        Start 134: ResetDirection_HELP_SHORT
+134/170 Test #134: ResetDirection_HELP_SHORT .......................................   Passed    0.04 sec
+        Start 135: sccan_HELP_LONG
+135/170 Test #135: sccan_HELP_LONG .................................................   Passed    0.04 sec
+        Start 136: sccan_HELP_SHORT
+136/170 Test #136: sccan_HELP_SHORT ................................................   Passed    0.04 sec
+        Start 137: SetDirectionByMatrix_HELP_LONG
+137/170 Test #137: SetDirectionByMatrix_HELP_LONG ..................................   Passed    0.04 sec
+        Start 138: SetDirectionByMatrix_HELP_SHORT
+138/170 Test #138: SetDirectionByMatrix_HELP_SHORT .................................   Passed    0.04 sec
+        Start 139: SetOrigin_HELP_LONG
+139/170 Test #139: SetOrigin_HELP_LONG .............................................   Passed    0.04 sec
+        Start 140: SetOrigin_HELP_SHORT
+140/170 Test #140: SetOrigin_HELP_SHORT ............................................   Passed    0.04 sec
+        Start 141: SetSpacing_HELP_LONG
+141/170 Test #141: SetSpacing_HELP_LONG ............................................   Passed    0.04 sec
+        Start 142: SetSpacing_HELP_SHORT
+142/170 Test #142: SetSpacing_HELP_SHORT ...........................................   Passed    0.04 sec
+        Start 143: SmoothImage_HELP_LONG
+143/170 Test #143: SmoothImage_HELP_LONG ...........................................   Passed    0.04 sec
+        Start 144: SmoothImage_HELP_SHORT
+144/170 Test #144: SmoothImage_HELP_SHORT ..........................................   Passed    0.04 sec
+        Start 145: StackSlices_HELP_LONG
+145/170 Test #145: StackSlices_HELP_LONG ...........................................   Passed    0.04 sec
+        Start 146: StackSlices_HELP_SHORT
+146/170 Test #146: StackSlices_HELP_SHORT ..........................................   Passed    0.04 sec
+        Start 147: SurfaceBasedSmoothing_HELP_LONG
+147/170 Test #147: SurfaceBasedSmoothing_HELP_LONG .................................   Passed    0.04 sec
+        Start 148: SurfaceBasedSmoothing_HELP_SHORT
+148/170 Test #148: SurfaceBasedSmoothing_HELP_SHORT ................................   Passed    0.04 sec
+        Start 149: SurfaceCurvature_HELP_LONG
+149/170 Test #149: SurfaceCurvature_HELP_LONG ......................................   Passed    0.04 sec
+        Start 150: SurfaceCurvature_HELP_SHORT
+150/170 Test #150: SurfaceCurvature_HELP_SHORT .....................................   Passed    0.04 sec
+        Start 151: ThresholdImage_HELP_LONG
+151/170 Test #151: ThresholdImage_HELP_LONG ........................................   Passed    0.04 sec
+        Start 152: ThresholdImage_HELP_SHORT
+152/170 Test #152: ThresholdImage_HELP_SHORT .......................................   Passed    0.04 sec
+        Start 153: TileImages_HELP_LONG
+153/170 Test #153: TileImages_HELP_LONG ............................................   Passed    0.05 sec
+        Start 154: TileImages_HELP_SHORT
+154/170 Test #154: TileImages_HELP_SHORT ...........................................   Passed    0.04 sec
+        Start 155: WarpImageMultiTransform_HELP_LONG
+155/170 Test #155: WarpImageMultiTransform_HELP_LONG ...............................   Passed    0.05 sec
+        Start 156: WarpImageMultiTransform_HELP_SHORT
+156/170 Test #156: WarpImageMultiTransform_HELP_SHORT ..............................   Passed    0.05 sec
+        Start 157: WarpTensorImageMultiTransform_HELP_LONG
+157/170 Test #157: WarpTensorImageMultiTransform_HELP_LONG .........................   Passed    0.04 sec
+        Start 158: WarpTensorImageMultiTransform_HELP_SHORT
+158/170 Test #158: WarpTensorImageMultiTransform_HELP_SHORT ........................   Passed    0.04 sec
+        Start 159: WarpTimeSeriesImageMultiTransform_HELP_LONG
+159/170 Test #159: WarpTimeSeriesImageMultiTransform_HELP_LONG .....................   Passed    0.03 sec
+        Start 160: WarpTimeSeriesImageMultiTransform_HELP_SHORT
+160/170 Test #160: WarpTimeSeriesImageMultiTransform_HELP_SHORT ....................   Passed    0.04 sec
+        Start 161: ANTS_ROT_GSYN
+161/170 Test #161: ANTS_ROT_GSYN ...................................................   Passed   16.77 sec
+        Start 162: ANTS_ROT_GSYN_WARP
+162/170 Test #162: ANTS_ROT_GSYN_WARP ..............................................   Passed    0.56 sec
+        Start 163: ANTS_ROT_GSYN_INVERSEWARP
+163/170 Test #163: ANTS_ROT_GSYN_INVERSEWARP .......................................   Passed    0.67 sec
+        Start 164: ANTS_ROT_EXP
+164/170 Test #164: ANTS_ROT_EXP ....................................................   Passed    8.96 sec
+        Start 165: ANTS_ROT_EXP_WARP
+165/170 Test #165: ANTS_ROT_EXP_WARP ...............................................   Passed    0.55 sec
+        Start 166: ANTS_ROT_EXP_WARP2
+166/170 Test #166: ANTS_ROT_EXP_WARP2 ..............................................   Passed    0.37 sec
+        Start 167: ANTS_ROT_EXP_INVERSEWARP
+167/170 Test #167: ANTS_ROT_EXP_INVERSEWARP ........................................   Passed    0.64 sec
+        Start 168: ANTS_ROT_EXP_INVERSEWARP2
+168/170 Test #168: ANTS_ROT_EXP_INVERSEWARP2 .......................................   Passed    0.36 sec
+        Start 169: ANTS_SYN_WITH_TIME
+169/170 Test #169: ANTS_SYN_WITH_TIME ..............................................***Failed   12.40 sec
+        Start 170: ANTS_SYN_WITH_TIME_WARP
+170/170 Test #170: ANTS_SYN_WITH_TIME_WARP .........................................***Failed    0.05 sec
+
+96% tests passed, 7 tests failed out of 170
+
+Total Test time (real) =  82.72 sec
+
+The following tests FAILED:
+	 15 - antsRegistrationTest_SimilarityRotationMasks (Failed)
+	 25 - antsRegistrationTest_initializePerStage_ComparisonTesting (Not Run)
+	 26 - simpleSynRegistrationTesting (Not Run)
+	 29 - antsApplyTransformsTestForSimpleSynRegistration (Failed)
+	 30 - simpleSynRegistration_Vs_antsRegistration (Failed)
+	169 - ANTS_SYN_WITH_TIME (Failed)
+	170 - ANTS_SYN_WITH_TIME_WARP (Failed)
+Errors while running CTest
+Output from these tests are in: /home/johnsonhj/src/itk_forest_build_testbed/build_forest-pr6487/ANTs-build/ANTS-build/Testing/Temporary/LastTest.log
+Use "--rerun-failed --output-on-failure" to re-run the failed cases verbosely.

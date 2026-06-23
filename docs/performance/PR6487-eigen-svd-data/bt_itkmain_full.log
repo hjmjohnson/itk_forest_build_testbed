@@ -1,0 +1,52 @@
+Test project /home/johnsonhj/src/itk_forest_build_testbed/build_forest-itkv6_main/BRAINSTools-build/BRAINSTools-Release-EPRelease-build
+      Start 323: BRAINSEyeDetectorTest_T1
+ 1/20 Test #323: BRAINSEyeDetectorTest_T1 ..........................   Passed    7.44 sec
+      Start 324: BRAINSAlignMSPTest_T1
+ 2/20 Test #324: BRAINSAlignMSPTest_T1 .............................   Passed   15.58 sec
+      Start 328: BRAINSTrimForegroundInDirectionTest_T1
+ 3/20 Test #328: BRAINSTrimForegroundInDirectionTest_T1 ............   Passed    0.64 sec
+      Start 329: insertMidACPCpointTest
+ 4/20 Test #329: insertMidACPCpointTest ............................   Passed    0.16 sec
+      Start 330: chk_insertMidACPCpointTest
+ 5/20 Test #330: chk_insertMidACPCpointTest ........................   Passed    0.14 sec
+      Start 352: GTRACTTest_gtractAverageBvalues
+ 6/20 Test #352: GTRACTTest_gtractAverageBvalues ...................   Passed    0.88 sec
+      Start 353: GTRACTTest_gtractConcatDwi
+ 7/20 Test #353: GTRACTTest_gtractConcatDwi ........................   Passed    1.40 sec
+      Start 354: GTRACTTest_gtractConcatDwi_Concat_Dicom
+ 8/20 Test #354: GTRACTTest_gtractConcatDwi_Concat_Dicom ...........***Failed    0.22 sec
+      Start 355: GTRACTTest_gtractConcatDwi_Concat_multi_Dicom
+ 9/20 Test #355: GTRACTTest_gtractConcatDwi_Concat_multi_Dicom .....***Failed    0.18 sec
+      Start 356: GTRACTTest_gtractResampleDWIInPlace
+10/20 Test #356: GTRACTTest_gtractResampleDWIInPlace ...............   Passed    1.30 sec
+      Start 357: GTRACTTest_gtractResampleDWIInPlace_Rot15z
+11/20 Test #357: GTRACTTest_gtractResampleDWIInPlace_Rot15z ........   Passed    1.34 sec
+      Start 358: chk_GTRACTTest_gtractResampleDWIInPlace_Rot15z
+12/20 Test #358: chk_GTRACTTest_gtractResampleDWIInPlace_Rot15z ....   Passed    0.02 sec
+      Start 359: GTRACTTest_gtractResampleDWIInPlace_Rot-15z
+13/20 Test #359: GTRACTTest_gtractResampleDWIInPlace_Rot-15z .......   Passed    1.29 sec
+      Start 360: chk_GTRACTTest_gtractResampleDWIInPlace_Rot-15z
+14/20 Test #360: chk_GTRACTTest_gtractResampleDWIInPlace_Rot-15z ...   Passed    0.02 sec
+      Start 361: GTRACTTest_gtractResampleDWIInPlace_Rot45z
+15/20 Test #361: GTRACTTest_gtractResampleDWIInPlace_Rot45z ........   Passed    1.31 sec
+      Start 362: chk_GTRACTTest_gtractResampleDWIInPlace_Rot45z
+16/20 Test #362: chk_GTRACTTest_gtractResampleDWIInPlace_Rot45z ....   Passed    0.02 sec
+      Start 363: GTRACTTest_gtractResampleDWIInPlace_Rot30x
+17/20 Test #363: GTRACTTest_gtractResampleDWIInPlace_Rot30x ........   Passed    1.31 sec
+      Start 364: chk_GTRACTTest_gtractResampleDWIInPlace_Rot30x
+18/20 Test #364: chk_GTRACTTest_gtractResampleDWIInPlace_Rot30x ....   Passed    0.02 sec
+      Start 365: GTRACTTest_gtractResampleDWIInPlace_Rot30y
+19/20 Test #365: GTRACTTest_gtractResampleDWIInPlace_Rot30y ........   Passed    1.31 sec
+      Start 366: chk_GTRACTTest_gtractResampleDWIInPlace_Rot30y
+20/20 Test #366: chk_GTRACTTest_gtractResampleDWIInPlace_Rot30y ....   Passed    0.02 sec
+
+90% tests passed, 2 tests failed out of 20
+
+Total Test time (real) =  34.62 sec
+
+The following tests FAILED:
+	354 - GTRACTTest_gtractConcatDwi_Concat_Dicom (Failed)
+	355 - GTRACTTest_gtractConcatDwi_Concat_multi_Dicom (Failed)
+Errors while running CTest
+Output from these tests are in: /home/johnsonhj/src/itk_forest_build_testbed/build_forest-itkv6_main/BRAINSTools-build/BRAINSTools-Release-EPRelease-build/Testing/Temporary/LastTest.log
+Use "--rerun-failed --output-on-failure" to re-run the failed cases verbosely.
