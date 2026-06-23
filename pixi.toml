@@ -44,6 +44,11 @@ cxx-compiler = ">=1.11.0,<2"  # conda-forge clang 19 (macOS) / gcc 14 (linux)
 c-compiler = ">=1.11.0,<2"
 fftw = ">=3.3.11,<4"  # double + single precision; enables ITK_USE_FFTWD/F for ITKUltrasound
 qt-main = ">=5.15.15,<6"  # Qt5.15 for Slicer SuperBuild (matches Slicer_REQUIRED_QT_VERSION)
+zlib = ">=1.3.2,<2"
+eigen = ">=5.0.1,<6"
+openblas = ">=0.3.28,<1"  # BLAS/LAPACK for BRAINSTools BRAINSSuperResolution (LinAlgSelector)
+libcblas = ">=3.9,<4"  # cblas.h for OpenBLAS consumers
+liblapacke = ">=3.9,<4"  # lapacke.h for OpenBLAS consumers
 
 # ccache tuning for cross-machine, path-independent reuse. CCACHE_DIR is left at
 # the user default (~/.ccache) so it is shared with other local builds.
@@ -51,6 +56,11 @@ qt-main = ">=5.15.15,<6"  # Qt5.15 for Slicer SuperBuild (matches Slicer_REQUIRE
 CCACHE_MAXSIZE = "75G"
 CCACHE_COMPILERCHECK = "content"
 CCACHE_SLOPPINESS = "time_macros,system_headers,pch_defines"
+# CMake ignores CPPFLAGS, so conda's "-isystem $PREFIX/include" never reaches
+# external-project builds (e.g. VTK X11). CPATH/LIBRARY_PATH put the env's
+# include/lib dirs on the compiler+linker search path at invocation time.
+CPATH = "$CONDA_PREFIX/include"
+LIBRARY_PATH = "$CONDA_PREFIX/lib"
 
 # ---- infrastructure tasks -------------------------------------------------
 [tasks.config]

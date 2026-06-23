@@ -195,6 +195,41 @@ vtk_dir(){
   find "${FOREST}/Slicer-build" -maxdepth 3 -name vtk-config.cmake 2>/dev/null \
     | grep -v CMakeFiles | head -1 | xargs -r dirname; }
 
+# Major version of the forest's ITK (from its source itkVersion.cmake). Empty
+# if not checked out yet.
+forest_itk_major(){
+  grep -oE 'ITK_VERSION_MAJOR[^0-9]*[0-9]+' "${FOREST}/ITK/CMake/itkVersion.cmake" 2>/dev/null \
+    | grep -oE '[0-9]+$' | head -1; }
+
+# Hard requirement: ANTs master needs ITK v6+. ANTs dropped ITK5 in PR #1933
+# ("ITK 6", merged 2026-03-15: External_ITKv5.cmake -> External_ITKv6.cmake,
+# find_package(ITK 6 REQUIRED)). The last ITK5 ANTs master was ITK 5.4.3
+# (2025-04-02). Fail fast on an ITK<6 forest rather than deep in the build.
+require_itk6_for_ants(){
+  local m; m="$(forest_itk_major)"
+  [ -z "${m}" ] && return 0
+  [ "${m}" -ge 6 ] && return 0
+  die "ANTs requires ITK v6+, but this forest's ITK is v${m}.
+  ANTs master dropped ITK5 in PR #1933 (merged 2026-03-15). Build ANTs only
+  against an ITKv6 forest (e.g. BUILD_FOREST_ROOT=build_forest-itkv6_main), or
+  pin a pre-2026-03-15 ANTs (<= ITK 5.4.3) via BRAINSTools_ANTs_GIT_TAG /
+  External_ANTs GIT_TAG if an ITK5 build is required."
+}
+
+# A VTK for ITK's ITKVtkGlue bridge. Prefer a rendering VTK (vtk_dir); else
+# reuse the BRAINSTools VTK (its OpenGL2 backend satisfies ITKVtkGlue). Empty
+# when no forest VTK exists yet (fresh forest: ITK builds without VtkGlue, a
+# later ITK pass picks it up once a consumer's VTK is built).
+itk_vtk_dir(){
+  local d
+  # Prefer the dedicated full-rendering+Qt forest VTK (shared by ITK's
+  # ITKVtkGlue and all consumers); then a Slicer/override VTK; then the
+  # headless BRAINSTools VTK as a last resort.
+  for d in "${ITK_VTK_DIR:-}" "${FOREST}/VTK-build" "$(vtk_dir)" \
+           "${FOREST}/BRAINSTools-build/VTK-Release-build"; do
+    [ -n "$d" ] && [ -f "${d}/vtk-config.cmake" ] && { echo "$d"; return; }
+  done; return 0; }
+
 # Built OpenIGTLink / OpenIGTLinkIO (the IGT comms stack PlusLib requires).
 openigtlink_dir(){
   local d="${OpenIGTLink_DIR:-${FOREST}/OpenIGTLink-build}"
@@ -271,8 +306,17 @@ common_cmake_args(){
 # only when that ANTs config exists; a no-op otherwise and on BRAINSTools mains
 # without USE_SYSTEM_ANTs (BRAINSia/BRAINSTools#606).
 ants_system_args(){
+  # BT_NO_SYSTEM_ANTS=1 forces BRAINSTools to build its own ANTs.
+  [ "${BT_NO_SYSTEM_ANTS:-0}" = 1 ] && { printf '%s ' -DUSE_SYSTEM_ANTs=OFF; return 0; }
   local c="${FOREST}/ANTs-build/ANTS-build"
-  [ -f "${c}/ANTSConfig.cmake" ] && printf '%s ' -DUSE_SYSTEM_ANTs=ON "-DANTS_DIR=${c}"
+  [ -f "${c}/ANTSConfig.cmake" ] || return 0
+  # ANTSConfig's set_and_check requires <prefix>/include/ANTs to exist, but the
+  # build-tree export mis-computes <prefix> (BRAINSia/BRAINSTools#606). Create
+  # the dir so find_package(ANTS) succeeds; real headers come from the
+  # ANTS::antsUtilities target's interface includes, not this legacy variable.
+  local pfx; pfx="$(cd "${c}/../../.." && pwd)"
+  mkdir -p "${pfx}/include/ANTs"
+  printf '%s ' -DUSE_SYSTEM_ANTs=ON "-DANTS_DIR=${c}"
 }
 
 # Full clone of one repo into the central forest_git_repos store (fetched if it
@@ -604,10 +648,42 @@ _overlay_vnl_headers(){
     [ -e "${dst}/$(basename "${f}")" ] || { cp "${f}" "${dst}/"; log "overlay vnl/$(basename "${f}")"; }
   done; }
 
+# Build the dedicated full-rendering + Qt6 forest VTK shared by ITK's ITKVtkGlue
+# and all VTK consumers (ANTs, Slicer, ...). Slicer VTK 9.6 source + Slicer-style
+# module set + the same Qt6 Slicer uses (SLICER_QT_PREFIX). Run before ITK so
+# itk_vtk_dir() resolves it. Idempotent: skips configure when build.ninja exists.
+build_forest_vtk(){
+  require cmake ninja ccache git
+  local src="${FOREST}/VTK" b="${FOREST}/VTK-build"
+  local tag="ddd10cf957df01f54eca6546e975e502ea248645" # slicer-v9.6.2-2026-05-15
+  if [ ! -f "${src}/CMakeLists.txt" ]; then
+    local existing="${FOREST}/BRAINSTools-build/VTK"
+    if [ -f "${existing}/CMakeLists.txt" ]; then src="${existing}"
+    else git clone https://github.com/slicer/VTK.git "${src}" \
+         && git -C "${src}" checkout "${tag}"; fi
+  fi
+  [ -d "${SLICER_QT_PREFIX}/lib/cmake/Qt6" ] \
+    || die "Qt6 not found at ${SLICER_QT_PREFIX} (set SLICER_QT_PREFIX/SLICER_QT_VERSION)"
+  if [ ! -f "${b}/build.ninja" ]; then
+    cmake -S "${src}" -B "${b}" $(common_cmake_args) \
+      -DBUILD_SHARED_LIBS=ON -DVTK_BUILD_TESTING=OFF -DVTK_WRAP_PYTHON=OFF \
+      -DVTK_SMP_IMPLEMENTATION_TYPE=Sequential -DVTK_USE_X=ON \
+      -DVTK_GROUP_ENABLE_Qt=YES -DVTK_MODULE_ENABLE_VTK_GUISupportQt=YES \
+      -DVTK_QT_VERSION=6 -DQt6_DIR="${SLICER_QT_PREFIX}/lib/cmake/Qt6" \
+      -DCMAKE_PREFIX_PATH="${SLICER_QT_PREFIX}" \
+      -DVTK_MODULE_ENABLE_VTK_ChartsCore=DONT_WANT \
+      -DVTK_MODULE_ENABLE_VTK_ViewsContext2D=DONT_WANT \
+      -DVTK_GROUP_ENABLE_Parallel=DONT_WANT \
+      -DCMAKE_C_FLAGS="-Wno-error=implicit-function-declaration"
+  fi
+  cmake --build "${b}" -j"${JOBS}"
+}
+
 configure_one(){
   local name="$1" meta; meta="$(row_for "$name")" || die "unknown project: $name"
   local s="${FOREST}/${name}" b="${FOREST}/${name}-build"
   [ -d "$s" ] || die "${name} not checked out (run: pixi run checkout)"
+  [ "$name" = ANTs ] && require_itk6_for_ants
   if [ "$name" = ITK ]; then
     # system FFTW (double+single) so ITKUltrasound and other FFT consumers build.
     # CONDA_PREFIX is set inside the pixi env, which provides the fftw package.
@@ -617,6 +693,9 @@ configure_one(){
             -DFFTW_INCLUDE_PATH="${CONDA_PREFIX}/include"
             -DFFTW_LIB_SEARCHPATH="${CONDA_PREFIX}/lib")
     else warn "fftw not found in env; building ITK without FFTW (Ultrasound will fail)"; fi
+    # TractographyTRX's libzip dep needs zlib dev headers (provided by the
+    # pixi env's zlib package; the conda compiler only searches the env sysroot).
+    local zlib_hint=()
     # ITK major version gate: the v6 module/examples/brainweb wiring below does
     # not apply to ITK v5 (e.g. release-5.4) — its remote-module examples call
     # find_package(ITK COMPONENTS ITKImageIO) (no such v5 module) and
@@ -627,9 +706,13 @@ configure_one(){
     if [ "${_itk_major:-6}" -lt 6 ]; then
       log "ITK v${_itk_major} (pre-6): minimal default-module configure (no v6 remotes/examples/testing)"
       _overlay_vnl_headers
+      # ITK_WITH_DCMTK=1 adds the DCMTK IO module the v5 minimal set omits, so
+      # downstream DICOM consumers (BRAINSTools DWIConvert/GTRACT) can build.
+      local v5_dcmtk=()
+      [ "${ITK_WITH_DCMTK:-0}" = 1 ] && v5_dcmtk=(-DModule_ITKDCMTK=ON -DModule_ITKIODCMTK=ON)
       cmake -S "$s" -B "${ITK_BUILD}" $(common_cmake_args) \
         -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF -DITK_BUILD_DEFAULT_MODULES=ON \
-        "${fftw[@]}"
+        "${fftw[@]}" "${v5_dcmtk[@]}"
       return
     fi
     # Enable modules ingested into ITK main that downstreams need as
@@ -648,6 +731,7 @@ configure_one(){
       -DModule_GrowCut=ON -DModule_HigherOrderAccurateGradient=ON
       -DModule_IOFDF=ON -DModule_IOMeshMZ3=ON -DModule_IOMeshSTL=ON
       -DModule_IOMeshSWC=ON -DModule_IOTransformDCMTK=ON -DModule_ITKDCMTK=ON
+      -DModule_ITKIODCMTK=ON
       -DModule_IsotropicWavelets=ON -DModule_LabelErodeDilate=ON
       -DModule_MGHIO=ON -DModule_MeshNoise=ON -DModule_MeshToPolyData=ON
       -DModule_MinimalPathExtraction=ON -DModule_Montage=ON
@@ -662,13 +746,29 @@ configure_one(){
       -DModule_TextureFeatures=ON -DModule_Thickness3D=ON
       -DModule_TotalVariation=ON -DModule_TwoProjectionRegistration=ON
       -DModule_VariationalRegistration=ON
-      -DModule_ITKReview=ON)
+      -DModule_ITKReview=ON
+      # TractographyTRX OFF: its bundled trx_cpp dep does not wire its Eigen
+      # include (upstream ITKTractographyTRX defect), so it fails to compile.
+      # ANTs's TRX tools stay disabled as a result.
+      -DModule_TractographyTRX=OFF)
+    # Standard build enables ITKVtkGlue so VTK consumers (ANTs antsVol/antsSurf,
+    # …) find itkImageToVTKImageFilter.h. Needs a VTK; gated on one existing.
+    local _itk_vtk; _itk_vtk="$(itk_vtk_dir)"
+    if [ -n "${_itk_vtk}" ]; then
+      mods+=(-DModule_ITKVtkGlue=ON -DVTK_DIR="${_itk_vtk}")
+      # ITK's own test drivers that transitively link the shared VTK's
+      # GUISupportQt fail under the conda toolchain (official Qt expects system
+      # xkbcommon/fontconfig/... the conda linker won't resolve). The ITK
+      # libraries (incl. ITKVtkGlue) and consumers (ANTs) are unaffected, so
+      # skip ITK's test/example executables rather than mix system libs in.
+      mods+=(-DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF -DITK_USE_BRAINWEB_DATA=OFF)
+    fi
     # ITK_BUILD_ALL_MODULES so downstreams (ANTs/c3d/...) find non-default
     # modules they depend on (e.g. AdaptiveDenoising, MorphologicalContourInterpolation).
     local _itk_cmake=(cmake -S "$s" -B "${ITK_BUILD}" $(common_cmake_args)
       -DBUILD_EXAMPLES=ON -DITK_USE_BRAINWEB_DATA=ON
       -DITK_BUILD_DEFAULT_MODULES=ON -DITK_BUILD_ALL_MODULES=ON
-      "${fftw[@]}" "${mods[@]}")
+      "${fftw[@]}" "${mods[@]}" "${zlib_hint[@]}")
     _overlay_vnl_headers
     # First pass fetches the enabled remote modules (and may fail on one that
     # calls itk_module_examples() without an examples/ dir); stub those, then
@@ -680,13 +780,49 @@ configure_one(){
   fi
   [ -f "${ITK_BUILD}/ITKConfig.cmake" ] || die "ITK not built; run: pixi run ITK"
   case "$name" in
-    ANTs)        cmake -S "$s" -B "$b" $(common_cmake_args) -DUSE_SYSTEM_ITK=ON -DITK_DIR="$(itk_dir)" \
-                   -DUSE_VTK=OFF -DUSE_TractographyTRX=OFF ;;
-    BRAINSTools) cmake -S "$s" -B "$b" $(common_cmake_args) -DUSE_SYSTEM_ITK=ON -DITK_DIR="$(itk_dir)" \
+    ANTs)
+                 # ANTS_MAX_MODULES=1 turns on VTK-dependent tools + TractographyTRX
+                 # + all apps; ANTS_VTK_DIR reuses an existing VTK (support build).
+                 local ants_mods=()
+                 if [ "${ANTS_MAX_MODULES:-0}" = 1 ]; then
+                   # USE_TractographyTRX stays OFF: the ITK TractographyTRX
+                   # module is not cleanly buildable (trx_cpp Eigen wiring).
+                   ants_mods+=(-DUSE_VTK=ON -DUSE_TractographyTRX=OFF -DBUILD_ALL_ANTS_APPS=ON)
+                   if [ -n "${ANTS_VTK_DIR:-}" ]; then
+                     ants_mods+=(-DUSE_SYSTEM_VTK=ON -DVTK_DIR="${ANTS_VTK_DIR}")
+                   else
+                     # ANTs builds its own VTK; its bundled hdf5 uses vasprintf
+                     # without _GNU_SOURCE, which GCC 14 rejects. Forwarded to the
+                     # VTK EP via mark_as_superbuild(CMAKE_C_FLAGS).
+                     ants_mods+=(-DUSE_SYSTEM_VTK=OFF
+                       "-DCMAKE_C_FLAGS=-Wno-error=implicit-function-declaration")
+                   fi
+                 else
+                   ants_mods+=(-DUSE_VTK=OFF -DUSE_TractographyTRX=OFF)
+                 fi
+                 cmake -S "$s" -B "$b" $(common_cmake_args) -DUSE_SYSTEM_ITK=ON -DITK_DIR="$(itk_dir)" \
+                   "${ants_mods[@]}" ;;
+    BRAINSTools)
+                 # BRAINSTOOLS_MAX_MODULES=1 turns on DICOM (DWIConvert/GTRACT) +
+                 # VTK + dashboard tools; default stays lean.
+                 local bt_mods=(-DOpenGL_GL_PREFERENCE=GLVND)
+                 if [ "${BRAINSTOOLS_MAX_MODULES:-0}" = 1 ]; then
+                   bt_mods+=(-DBRAINSTools_REQUIRES_VTK=ON -DBRAINSTools_BUILD_DICOM_SUPPORT=ON
+                            -DUSE_DWIConvert=ON -DUSE_GTRACT=ON -DBUILD_FOR_DASHBOARD=ON)
+                   [ "${BRAINSTOOLS_BUILD_ARCHIVE:-0}" = 1 ] && bt_mods+=(-DBUILD_ARCHIVE=ON)
+                 else
+                   bt_mods+=(-DUSE_VTK=OFF -DBRAINSTools_BUILD_DICOM_SUPPORT=OFF)
+                 fi
+                 # BRAINSTOOLS_NO_ANTS=1 drops ANTs (modern ANTs requires ITK6;
+                 # use for the ITK5 variant where ANTs cannot build).
+                 [ "${BRAINSTOOLS_NO_ANTS:-0}" = 1 ] && bt_mods+=(-DUSE_ANTS=OFF)
+                 # BRAINSTOOLS_EXTRA: space-separated extra -D flags (word-split).
+                 [ -n "${BRAINSTOOLS_EXTRA:-}" ] && bt_mods+=(${BRAINSTOOLS_EXTRA})
+                 cmake -S "$s" -B "$b" $(common_cmake_args) -DUSE_SYSTEM_ITK=ON -DITK_DIR="$(itk_dir)" \
                    $(ants_system_args) \
                    -DBRAINSTools_ANTs_GIT_REPOSITORY="${BRAINSTools_ANTs_GIT_REPOSITORY:-$(cfg get subbuild.BRAINSTools.ANTs_GIT_REPOSITORY)}" \
                    -DBRAINSTools_ANTs_GIT_TAG="${BRAINSTools_ANTs_GIT_TAG:-$(cfg get subbuild.BRAINSTools.ANTs_GIT_TAG)}" \
-                   -DOpenGL_GL_PREFERENCE=GLVND -DUSE_VTK=OFF -DBRAINSTools_BUILD_DICOM_SUPPORT=OFF ;;
+                   "${bt_mods[@]}" ;;
     Slicer)      warn "Slicer SuperBuild is long (builds VTK/CTK + own ITK 6; Qt6 from ${SLICER_QT_PREFIX})"
                  # Policy: Slicer NEVER uses the system ITK; it always builds a
                  # dedicated Slicer-vendored ITK branch (hjmjohnson/ITK @ slicer-itk-*)
@@ -806,6 +942,7 @@ _hide_conda_jpeg_shadow_headers(){
 build_one(){ require cmake ninja ccache
   _hide_conda_jpeg_shadow_headers
   local name="$1" b="${FOREST}/${1}-build"; [ "$name" = ITK ] && b="${ITK_BUILD}"
+  [ "$name" = ANTs ] && require_itk6_for_ants
   # Slicer's bundled TBB (tbbbind) and other EPs include env-provided headers
   # (hwloc.h, ...) that the conda compiler only finds via CPATH (no -I is added
   # otherwise). The conflicting jpeg headers are already hidden above.
@@ -894,6 +1031,7 @@ case "${1:-checkout}" in
   manifest)  cfg manifest "${FOREST}" ;;
   list)      cmd_list ;;
   status)    cmd_status ;;
+  vtk)       build_forest_vtk ;;
   vkfft-backend) vkfft_backend ;;
-  *) die "unknown command '$1' (checkout|configure|build|build-all|remotes|repoint-itk|manifest|list|status|vkfft-backend)" ;;
+  *) die "unknown command '$1' (checkout|configure|build|build-all|remotes|repoint-itk|manifest|list|status|vtk|vkfft-backend)" ;;
 esac
