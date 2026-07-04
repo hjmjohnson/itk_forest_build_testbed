@@ -1,0 +1,18 @@
+{
+  "configurePresets": [
+    {
+      "cacheVariables": {
+        "BUILD_SHARED_LIBS": "OFF",
+        "OpenIGTLink_ENABLE_VIDEOSTREAMING": "OFF",
+        "OpenIGTLink_PROTOCOL_VERSION_3": "ON"
+      },
+      "hidden": true,
+      "inherits": "itk-forest-base",
+      "name": "itk-forest-openigtlink"
+    }
+  ],
+  "include": [
+    "00-base.json"
+  ],
+  "version": 8
+}

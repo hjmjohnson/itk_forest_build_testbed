@@ -1,0 +1,30 @@
+{
+  "configurePresets": [
+    {
+      "cacheVariables": {
+        "ANTS_SUPERBUILD": "OFF",
+        "RUN_LONG_TESTS": "ON",
+        "RUN_SHORT_TESTS": "ON",
+        "USE_SYSTEM_ITK": "ON",
+        "USE_TractographyTRX": "OFF",
+        "USE_VTK": "OFF"
+      },
+      "hidden": true,
+      "inherits": "itk-forest-base",
+      "name": "itk-forest-ants"
+    },
+    {
+      "cacheVariables": {
+        "BUILD_ALL_ANTS_APPS": "ON",
+        "USE_VTK": "ON"
+      },
+      "hidden": true,
+      "inherits": "itk-forest-ants",
+      "name": "itk-forest-ants-max-modules"
+    }
+  ],
+  "include": [
+    "00-base.json"
+  ],
+  "version": 8
+}

@@ -1,0 +1,20 @@
+{
+  "configurePresets": [
+    {
+      "cacheVariables": {
+        "PLM_CONFIG_ENABLE_CUDA": "OFF",
+        "PLM_CONFIG_ENABLE_DCMTK": "OFF",
+        "PLM_CONFIG_ENABLE_OPENCL": "OFF",
+        "PLM_CONFIG_ENABLE_QT": "OFF",
+        "PLM_CONFIG_ENABLE_SUPERBUILD": "OFF"
+      },
+      "hidden": true,
+      "inherits": "itk-forest-base",
+      "name": "itk-forest-plastimatch"
+    }
+  ],
+  "include": [
+    "00-base.json"
+  ],
+  "version": 8
+}

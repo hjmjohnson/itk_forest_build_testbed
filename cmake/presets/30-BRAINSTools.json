@@ -1,0 +1,32 @@
+{
+  "configurePresets": [
+    {
+      "cacheVariables": {
+        "BRAINSTools_BUILD_DICOM_SUPPORT": "OFF",
+        "OpenGL_GL_PREFERENCE": "GLVND",
+        "USE_SYSTEM_ITK": "ON",
+        "USE_VTK": "OFF"
+      },
+      "hidden": true,
+      "inherits": "itk-forest-base",
+      "name": "itk-forest-brainstools"
+    },
+    {
+      "cacheVariables": {
+        "BRAINSTools_BUILD_DICOM_SUPPORT": "ON",
+        "BRAINSTools_REQUIRES_VTK": "ON",
+        "BUILD_FOR_DASHBOARD": "ON",
+        "USE_DWIConvert": "ON",
+        "USE_GTRACT": "ON",
+        "USE_VTK": "ON"
+      },
+      "hidden": true,
+      "inherits": "itk-forest-brainstools",
+      "name": "itk-forest-brainstools-max-modules"
+    }
+  ],
+  "include": [
+    "00-base.json"
+  ],
+  "version": 8
+}

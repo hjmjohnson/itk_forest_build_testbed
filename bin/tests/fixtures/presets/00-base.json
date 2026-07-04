@@ -1,0 +1,7 @@
+{
+  "version": 8,
+  "configurePresets": [
+    { "name": "base", "hidden": true,
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release", "A": "1" } }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "configurePresets": [
+    {
+      "cacheVariables": {
+        "BUILD_EXAMPLES": "OFF",
+        "USE_SYSTEM_ITK": "ON",
+        "WRAP_DEFAULT": "OFF"
+      },
+      "hidden": true,
+      "inherits": "itk-forest-base",
+      "name": "itk-forest-simpleitk"
+    }
+  ],
+  "include": [
+    "00-base.json"
+  ],
+  "version": 8
+}

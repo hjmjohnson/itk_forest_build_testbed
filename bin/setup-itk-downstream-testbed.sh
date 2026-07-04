@@ -37,6 +37,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TESTBED="${TESTBED:-$(dirname "${SCRIPT_DIR}")}"   # repo root = parent of bin/
+KIT_PRESETS="${SCRIPT_DIR%/bin}/cmake/presets"   # SCRIPT_DIR is .../kit/bin
 
 # Bridge to versions.toml (the build-version source of truth): emit component
 # rows, scalar pins, or (re)write a forest manifest. See bin/config.py.
@@ -66,6 +67,8 @@ case "${BUILD_FOREST_ROOT}" in
   /*) FOREST="${FOREST:-${BUILD_FOREST_ROOT}}" ;;
   *)  FOREST="${FOREST:-${TESTBED}/${BUILD_FOREST_ROOT}}" ;;
 esac
+# All logs for a forest live inside that forest (never the kit root).
+forest_log_dir(){ mkdir -p "${FOREST}/logs"; echo "${FOREST}/logs"; }
 export CCACHE_DIR="${CCACHE_DIR:-${HOME}/.ccache}"
 # Cross-forest cache sharing for ANY BUILD_FOREST_ROOT (incl. absolute paths
 # outside the testbed): basedir = this forest's root, so each compile rewrites
@@ -107,6 +110,15 @@ fi
 : "${CC:=$(command -v cc || command -v clang || command -v gcc)}"
 : "${CXX:=$(command -v c++ || command -v clang++ || command -v g++)}"
 export CC CXX
+# Bake ${CONDA_PREFIX}/lib as a link-time rpath into every binary so the conda
+# libc++/libc++abi/libstdc++ resolve at run time without DYLD_/LD_LIBRARY_PATH.
+# Exported via LDFLAGS (which CMake seeds CMAKE_*_LINKER_FLAGS from on every
+# configure) so it reaches SuperBuild inner ExternalProjects too, where a
+# top-level -DCMAKE_BUILD_RPATH does not. Idempotent: skip if already present.
+if [ -n "${CONDA_PREFIX:-}" ]; then
+  case " ${LDFLAGS:-} " in *"-rpath,${CONDA_PREFIX}/lib "*|*"-rpath,${CONDA_PREFIX}/lib") : ;;
+    *) export LDFLAGS="-Wl,-rpath,${CONDA_PREFIX}/lib${LDFLAGS:+ ${LDFLAGS}}" ;; esac
+fi
 # Never the Homebrew toolchain (its packages are built with a different
 # compiler and ABI-mismatch the conda-forge stack). Conda-forge runtime libs
 # (fftw, qt, ...) are fine; only the Homebrew *compilers* are rejected.
@@ -152,8 +164,13 @@ fi
 # deps are passed explicitly via -D flags, so drop these contaminating flags.
 unset CFLAGS CPPFLAGS CXXFLAGS LDFLAGS CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH
 
-ITK_BUILD="${FOREST}/ITK-build"       # ITK build tree
-ITK_INSTALL="${FOREST}/ITK-install"   # installed ITK tree (consumers use this when ITK_USE_INSTALL=1)
+# Forest-level build/install tree locations. Task-2 flips these two bodies to
+# the nested layout; every caller goes through them so the change is one place.
+build_dir(){   echo "${FOREST}/${1}/build"; }
+install_dir(){ echo "${FOREST}/installed/${1}"; }   # install already uses installed/ target
+
+ITK_BUILD="$(build_dir ITK)"       # ITK build tree
+ITK_INSTALL="$(install_dir ITK)"   # installed ITK tree (consumers use this when ITK_USE_INSTALL=1)
 
 # Consumers point ITK_DIR at the ITK build tree; it ships all CMake helper
 # modules the install tree omits. Set ITK_USE_INSTALL=1 to use the install tree.
@@ -209,6 +226,10 @@ require_itk6_for_ants(){
   local m; m="$(forest_itk_major)"
   [ -z "${m}" ] && return 0
   [ "${m}" -ge 6 ] && return 0
+  # Escape hatch for building a pinned pre-2026-03-15 ANTs (last ITK5 mainline
+  # was 9d0ecf098) against an ITK5 forest. Caller must have checked out an
+  # ITK5-compatible ANTs worktree; modern ANTs master will still fail here.
+  [ "${ANTS_ALLOW_ITK5:-0}" = 1 ] && { warn "ANTS_ALLOW_ITK5=1: building ANTs against ITK v${m} (caller pinned an ITK5-compatible ANTs)"; return 0; }
   die "ANTs requires ITK v6+, but this forest's ITK is v${m}.
   ANTs master dropped ITK5 in PR #1933 (merged 2026-03-15). Build ANTs only
   against an ITKv6 forest (e.g. BUILD_FOREST_ROOT=build_forest-itkv6_main), or
@@ -225,32 +246,32 @@ itk_vtk_dir(){
   # Prefer the dedicated full-rendering+Qt forest VTK (shared by ITK's
   # ITKVtkGlue and all consumers); then a Slicer/override VTK; then the
   # headless BRAINSTools VTK as a last resort.
-  for d in "${ITK_VTK_DIR:-}" "${FOREST}/VTK-build" "$(vtk_dir)" \
+  for d in "${ITK_VTK_DIR:-}" "$(build_dir VTK)" "$(vtk_dir)" \
            "${FOREST}/BRAINSTools-build/VTK-Release-build"; do
     [ -n "$d" ] && [ -f "${d}/vtk-config.cmake" ] && { echo "$d"; return; }
   done; return 0; }
 
 # Built OpenIGTLink / OpenIGTLinkIO (the IGT comms stack PlusLib requires).
 openigtlink_dir(){
-  local d="${OpenIGTLink_DIR:-${FOREST}/OpenIGTLink-build}"
+  local d="${OpenIGTLink_DIR:-$(build_dir OpenIGTLink)}"
   [ -f "${d}/OpenIGTLinkConfig.cmake" ] && { echo "$d"; return; }
-  find "${FOREST}/OpenIGTLink-build" -maxdepth 2 -name OpenIGTLinkConfig.cmake 2>/dev/null | head -1 | xargs -r dirname; }
+  find "$(build_dir OpenIGTLink)" -maxdepth 2 -name OpenIGTLinkConfig.cmake 2>/dev/null | head -1 | xargs -r dirname; }
 openigtlinkio_dir(){
-  local d="${OpenIGTLinkIO_DIR:-${FOREST}/OpenIGTLinkIO-build}"
+  local d="${OpenIGTLinkIO_DIR:-$(build_dir OpenIGTLinkIO)}"
   [ -f "${d}/OpenIGTLinkIOConfig.cmake" ] && { echo "$d"; return; }
-  find "${FOREST}/OpenIGTLinkIO-build" -maxdepth 2 -name OpenIGTLinkIOConfig.cmake 2>/dev/null | head -1 | xargs -r dirname; }
+  find "$(build_dir OpenIGTLinkIO)" -maxdepth 2 -name OpenIGTLinkIOConfig.cmake 2>/dev/null | head -1 | xargs -r dirname; }
 
 # An already-built vtkAddon (config file) that IGSIO consumes; override with vtkAddon_DIR.
 vtkaddon_dir(){
-  local d="${vtkAddon_DIR:-${FOREST}/vtkAddon-build}"
+  local d="${vtkAddon_DIR:-$(build_dir vtkAddon)}"
   { [ -f "${d}/vtkAddonConfig.cmake" ] || [ -f "${d}/vtkAddon-config.cmake" ]; } && { echo "$d"; return; }
-  find "${FOREST}/vtkAddon-build" -maxdepth 2 \( -name vtkAddonConfig.cmake -o -name vtkAddon-config.cmake \) 2>/dev/null | head -1 | xargs -r dirname; }
+  find "$(build_dir vtkAddon)" -maxdepth 2 \( -name vtkAddonConfig.cmake -o -name vtkAddon-config.cmake \) 2>/dev/null | head -1 | xargs -r dirname; }
 
 # An already-built IGSIO (IGSIOConfig.cmake) that PlusLib consumes; override with IGSIO_DIR.
 igsio_dir(){
-  local d="${IGSIO_DIR:-${FOREST}/IGSIO-build}"
+  local d="${IGSIO_DIR:-$(build_dir IGSIO)}"
   [ -f "${d}/IGSIOConfig.cmake" ] && { echo "$d"; return; }
-  find "${FOREST}/IGSIO-build" -maxdepth 2 -name IGSIOConfig.cmake 2>/dev/null | head -1 | xargs -r dirname; }
+  find "$(build_dir IGSIO)" -maxdepth 2 -name IGSIOConfig.cmake 2>/dev/null | head -1 | xargs -r dirname; }
 
 # --- main consumers (name | git URL | worktree branch) — from versions.toml
 mapfile -t CONSUMERS < <(cfg consumers)
@@ -293,12 +314,28 @@ common_cmake_args(){
   # forest-relative so objects are byte-identical across forests (reproducible +
   # cross-forest ccache reuse). _INIT seeds the flags without clobbering
   # project-set CMAKE_<LANG>_FLAGS.
+  # CMAKE_BUILD_RPATH=${CONDA_PREFIX}/lib: gtest_discover_tests runs each driver
+  # at build time to enumerate tests; the drivers link conda FFTW, and ninja is
+  # hardened-runtime-signed so it strips DYLD_* from spawned processes (the
+  # DYLD_FALLBACK export alone is insufficient). Baking the conda libdir into the
+  # build rpath lets @rpath/libfftw3*.dylib resolve at discovery and at test time.
   printf '%s ' -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON \
     -DCMAKE_C_COMPILER="${CC}" -DCMAKE_CXX_COMPILER="${CXX}" \
     -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-    "-DCMAKE_C_FLAGS_INIT=-ffile-prefix-map=${FOREST}=." \
-    "-DCMAKE_CXX_FLAGS_INIT=-ffile-prefix-map=${FOREST}=." \
+    "-DCMAKE_C_FLAGS_INIT=-ffile-prefix-map=${s:-${FOREST}}=." \
+    "-DCMAKE_CXX_FLAGS_INIT=-ffile-prefix-map=${s:-${FOREST}}=." \
+    "-DCMAKE_BUILD_RPATH=${CONDA_PREFIX}/lib" \
     -DCMAKE_IGNORE_PREFIX_PATH=/opt/homebrew
+}
+
+# do_overlay NAME PRESET SRC BIN [KEY=VAL ...]
+#   Resolve the kit preset chain into a flattened, self-contained
+#   CMakeUserPresets.json in SRC (no include back to the kit) and a matching
+#   [config.NAME] record in the forest manifest, then configure via cmake.
+do_overlay(){
+  local name="$1" preset="$2" src="$3" bin="$4"; shift 4
+  cfg resolve-overlay "${preset}" "${src}" "${bin}" "${FOREST}" "${name}" "$@"
+  cmake -S "${src}" --preset "forest-${name}-local"
 }
 
 # Reuse the forest's already-built standalone ANTs (consumed via
@@ -308,14 +345,18 @@ common_cmake_args(){
 ants_system_args(){
   # BT_NO_SYSTEM_ANTS=1 forces BRAINSTools to build its own ANTs.
   [ "${BT_NO_SYSTEM_ANTS:-0}" = 1 ] && { printf '%s ' -DUSE_SYSTEM_ANTs=OFF; return 0; }
-  local c="${FOREST}/ANTs-build/ANTS-build"
-  [ -f "${c}/ANTSConfig.cmake" ] || return 0
+  # ANTSConfig.cmake lives directly in the build dir with ANTS_SUPERBUILD=OFF,
+  # or under ANTS-build with the SuperBuild layout.
+  local c="" d
+  for d in "$(build_dir ANTs)" "$(build_dir ANTs)/ANTS-build"; do
+    [ -f "${d}/ANTSConfig.cmake" ] && { c="${d}"; break; }
+  done
+  [ -n "${c}" ] || return 0
   # ANTSConfig's set_and_check requires <prefix>/include/ANTs to exist, but the
   # build-tree export mis-computes <prefix> (BRAINSia/BRAINSTools#606). Create
   # the dir so find_package(ANTS) succeeds; real headers come from the
   # ANTS::antsUtilities target's interface includes, not this legacy variable.
-  local pfx; pfx="$(cd "${c}/../../.." && pwd)"
-  mkdir -p "${pfx}/include/ANTs"
+  mkdir -p "${FOREST}/ANTs/include/ANTs" "${c}/include/ANTs"
   printf '%s ' -DUSE_SYSTEM_ANTs=ON "-DANTS_DIR=${c}"
 }
 
@@ -354,6 +395,13 @@ PLM_FORK_REMOTE="${PLM_FORK_REMOTE:-$(cfg get subbuild.Plastimatch.fork_remote)}
 PLM_FORK_URL="${PLM_FORK_URL:-$(cfg get subbuild.Plastimatch.fork_url)}"
 PLM_FORK_REF="${PLM_FORK_REF:-$(cfg get subbuild.Plastimatch.fork_ref)}"
 
+# ANTs (non-itkv5 forests) builds from a fork integration branch bundling the
+# ITKv6 fix PRs; the skip_suffix forest keeps its own pinned ANTs. Override via env.
+ANTS_FORK_REMOTE="${ANTS_FORK_REMOTE:-$(cfg get subbuild.ANTs.fork_remote)}"
+ANTS_FORK_URL="${ANTS_FORK_URL:-$(cfg get subbuild.ANTs.fork_url)}"
+ANTS_FORK_REF="${ANTS_FORK_REF:-$(cfg get subbuild.ANTs.fork_ref)}"
+ANTS_FORK_SKIP_SUFFIX="${ANTS_FORK_SKIP_SUFFIX:-$(cfg get subbuild.ANTs.skip_suffix)}"
+
 # Ensure the Plastimatch fork remote exists in the central clone and the
 # ITKv6-support ref is fetched; returns the base ref the worktree should use.
 _ensure_plastimatch_fork(){
@@ -363,6 +411,25 @@ _ensure_plastimatch_fork(){
     || git -C "${repo}" remote add "${PLM_FORK_REMOTE}" "${PLM_FORK_URL}"
   git -C "${repo}" fetch "${PLM_FORK_REMOTE}" "${PLM_FORK_REF}" --quiet \
     || warn "Plastimatch: fetch ${PLM_FORK_REMOTE}/${PLM_FORK_REF} failed (using cached)"
+}
+
+# True when this forest should build ANTs from the fork integration branch
+# (fork config present and this forest's suffix is not the skip_suffix).
+_ants_use_fork(){
+  [ -n "${ANTS_FORK_URL}" ] && [ -n "${ANTS_FORK_REF}" ] || return 1
+  [ -n "${ANTS_FORK_SKIP_SUFFIX}" ] && [ "${FOREST_REFERENCE_SUFFIX:-}" = "${ANTS_FORK_SKIP_SUFFIX}" ] && return 1
+  return 0
+}
+
+# Ensure the ANTs fork remote exists in the central clone and the integration
+# ref is fetched, mirroring _ensure_plastimatch_fork.
+_ensure_ants_fork(){
+  local repo="${REPOS}/ANTs"
+  [ -d "${repo}/.git" ] || return 0
+  git -C "${repo}" remote get-url "${ANTS_FORK_REMOTE}" >/dev/null 2>&1 \
+    || git -C "${repo}" remote add "${ANTS_FORK_REMOTE}" "${ANTS_FORK_URL}"
+  git -C "${repo}" fetch "${ANTS_FORK_REMOTE}" "${ANTS_FORK_REF}" --quiet \
+    || warn "ANTs: fetch ${ANTS_FORK_REMOTE}/${ANTS_FORK_REF} failed (using cached)"
 }
 
 checkout_one(){
@@ -394,6 +461,11 @@ checkout_one(){
     _ensure_plastimatch_fork
     log "Plastimatch: worktree (${branch} -> ${PLM_FORK_REMOTE}/${PLM_FORK_REF})"
     git -C "${repo}" worktree add -B "${branch}" "${dest}" "${PLM_FORK_REMOTE}/${PLM_FORK_REF}"
+  elif [ "${name}" = ANTs ] && _ants_use_fork; then
+    # Non-itkv5 forests (re)base ANTs on the fork integration branch tip.
+    _ensure_ants_fork
+    log "ANTs: worktree (${branch} -> ${ANTS_FORK_REMOTE}/${ANTS_FORK_REF})"
+    git -C "${repo}" worktree add -B "${branch}" "${dest}" "${ANTS_FORK_REMOTE}/${ANTS_FORK_REF}"
   elif git -C "${repo}" show-ref --verify --quiet "refs/heads/${branch}"; then
     log "${name}: worktree (existing branch ${branch})"
     git -C "${repo}" worktree add "${dest}" "${branch}"
@@ -654,7 +726,7 @@ _overlay_vnl_headers(){
 # itk_vtk_dir() resolves it. Idempotent: skips configure when build.ninja exists.
 build_forest_vtk(){
   require cmake ninja ccache git
-  local src="${FOREST}/VTK" b="${FOREST}/VTK-build"
+  local src="${FOREST}/VTK" b="$(build_dir VTK)"
   local tag="ddd10cf957df01f54eca6546e975e502ea248645" # slicer-v9.6.2-2026-05-15
   if [ ! -f "${src}/CMakeLists.txt" ]; then
     local existing="${FOREST}/BRAINSTools-build/VTK"
@@ -681,148 +753,78 @@ build_forest_vtk(){
 
 configure_one(){
   local name="$1" meta; meta="$(row_for "$name")" || die "unknown project: $name"
-  local s="${FOREST}/${name}" b="${FOREST}/${name}-build"
+  local s="${FOREST}/${name}" b="$(build_dir "$name")"
   [ -d "$s" ] || die "${name} not checked out (run: pixi run checkout)"
   [ "$name" = ANTs ] && require_itk6_for_ants
   if [ "$name" = ITK ]; then
-    # system FFTW (double+single) so ITKUltrasound and other FFT consumers build.
-    # CONDA_PREFIX is set inside the pixi env, which provides the fftw package.
-    local fftw=()
-    if [ -n "${CONDA_PREFIX:-}" ] && [ -f "${CONDA_PREFIX}/include/fftw3.h" ]; then
-      fftw=(-DITK_USE_FFTWD=ON -DITK_USE_FFTWF=ON -DITK_USE_SYSTEM_FFTW=ON
-            -DFFTW_INCLUDE_PATH="${CONDA_PREFIX}/include"
-            -DFFTW_LIB_SEARCHPATH="${CONDA_PREFIX}/lib")
-    else warn "fftw not found in env; building ITK without FFTW (Ultrasound will fail)"; fi
-    # TractographyTRX's libzip dep needs zlib dev headers (provided by the
-    # pixi env's zlib package; the conda compiler only searches the env sysroot).
-    local zlib_hint=()
-    # ITK major version gate: the v6 module/examples/brainweb wiring below does
-    # not apply to ITK v5 (e.g. release-5.4) — its remote-module examples call
-    # find_package(ITK COMPONENTS ITKImageIO) (no such v5 module) and
-    # BUILD_TESTING+BRAINWEB wire an ITKData target v5 never creates. Configure a
-    # minimal default-module build instead.
     local _itk_major
     _itk_major="$(grep -oE 'ITK_VERSION_MAJOR[^0-9]*[0-9]+' "${s}/CMake/itkVersion.cmake" 2>/dev/null | grep -oE '[0-9]+$' | head -1)"
+    _overlay_vnl_headers
     if [ "${_itk_major:-6}" -lt 6 ]; then
-      log "ITK v${_itk_major} (pre-6): minimal default-module configure (no v6 remotes/examples/testing)"
-      _overlay_vnl_headers
-      # ITK_WITH_DCMTK=1 adds the DCMTK IO module the v5 minimal set omits, so
-      # downstream DICOM consumers (BRAINSTools DWIConvert/GTRACT) can build.
-      local v5_dcmtk=()
-      [ "${ITK_WITH_DCMTK:-0}" = 1 ] && v5_dcmtk=(-DModule_ITKDCMTK=ON -DModule_ITKIODCMTK=ON)
-      cmake -S "$s" -B "${ITK_BUILD}" $(common_cmake_args) \
-        -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF -DITK_BUILD_DEFAULT_MODULES=ON \
-        "${fftw[@]}" "${v5_dcmtk[@]}"
+      # v5 policy (module set, FFTW-on, testing/examples) lives in 10-itk-v5.json.
+      local v5_preset="itk-forest-itk-v5"
+      [ "${ITK_WITH_DCMTK:-0}" = 1 ] && v5_preset="itk-forest-itk-v5-dcmtk"
+      do_overlay ITK "${v5_preset}" "$s" "${ITK_BUILD}"
       return
     fi
-    # Enable modules ingested into ITK main that downstreams need as
-    # COMPILE_DEPENDS (e.g. ITKUltrasound). No fetching — these live in main.
-    # Modules downstreams need compiled into ITK: Ultrasound's COMPILE_DEPENDS
-    # plus ANTs' required set (ITKReview, GenericLabelInterpolator, AdaptiveDenoising,
-    # MGHIO). TractographyTRX is genuinely remote (not ingested) so it is left off.
-    # Superset of ITK's own pixi `configure-ci` module list, plus ANTs' required
-    # set (ITKReview). Keep in sync with ITK pyproject.toml [tasks.configure-ci].
-    local mods=(
-      -DModule_AdaptiveDenoising=ON -DModule_AnisotropicDiffusionLBR=ON
-      -DModule_BoneEnhancement=ON -DModule_BoneMorphometry=ON
-      -DModule_BSplineGradient=ON -DModule_Cuberille=ON
-      -DModule_FastBilateral=ON -DModule_FixedPointInverseDisplacementField=ON
-      -DModule_Fpfh=ON -DModule_GenericLabelInterpolator=ON
-      -DModule_GrowCut=ON -DModule_HigherOrderAccurateGradient=ON
-      -DModule_IOFDF=ON -DModule_IOMeshMZ3=ON -DModule_IOMeshSTL=ON
-      -DModule_IOMeshSWC=ON -DModule_IOTransformDCMTK=ON -DModule_ITKDCMTK=ON
-      -DModule_ITKIODCMTK=ON
-      -DModule_IsotropicWavelets=ON -DModule_LabelErodeDilate=ON
-      -DModule_MGHIO=ON -DModule_MeshNoise=ON -DModule_MeshToPolyData=ON
-      -DModule_MinimalPathExtraction=ON -DModule_Montage=ON
-      -DModule_MorphologicalContourInterpolation=ON
-      -DModule_MultipleImageIterator=ON -DModule_ParabolicMorphology=ON
-      -DModule_PhaseSymmetry=ON -DModule_PolarTransform=ON
-      -DModule_PrincipalComponentsAnalysis=ON -DModule_RANSAC=ON
-      -DModule_RLEImage=ON -DModule_SimpleITKFilters=ON
-      -DModule_SmoothingRecursiveYvvGaussianFilter=ON
-      -DModule_SplitComponents=ON -DModule_Strain=ON
-      -DModule_StructuralSimilarity=ON -DModule_SubdivisionQuadEdgeMeshFilter=ON
-      -DModule_TextureFeatures=ON -DModule_Thickness3D=ON
-      -DModule_TotalVariation=ON -DModule_TwoProjectionRegistration=ON
-      -DModule_VariationalRegistration=ON
-      -DModule_ITKReview=ON
-      # TractographyTRX OFF: its bundled trx_cpp dep does not wire its Eigen
-      # include (upstream ITKTractographyTRX defect), so it fails to compile.
-      # ANTs's TRX tools stay disabled as a result.
-      -DModule_TractographyTRX=OFF)
-    # Standard build enables ITKVtkGlue so VTK consumers (ANTs antsVol/antsSurf,
-    # …) find itkImageToVTKImageFilter.h. Needs a VTK; gated on one existing.
+    # v6 policy (ALL_MODULES + excluded-from-all modules, FFTW-off/pocketFFT,
+    # brainweb/testing/examples) lives in 10-itk-v6.json. VtkGlue is a variant
+    # selected when a VTK exists; VTK_DIR is the only injected value.
+    local itk_preset="itk-forest-itk-v6" itk_kvs=()
     local _itk_vtk; _itk_vtk="$(itk_vtk_dir)"
     if [ -n "${_itk_vtk}" ]; then
-      mods+=(-DModule_ITKVtkGlue=ON -DVTK_DIR="${_itk_vtk}")
-      # ITK's own test drivers that transitively link the shared VTK's
-      # GUISupportQt fail under the conda toolchain (official Qt expects system
-      # xkbcommon/fontconfig/... the conda linker won't resolve). The ITK
-      # libraries (incl. ITKVtkGlue) and consumers (ANTs) are unaffected, so
-      # skip ITK's test/example executables rather than mix system libs in.
-      mods+=(-DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF -DITK_USE_BRAINWEB_DATA=OFF)
+      itk_preset="itk-forest-itk-v6-vtkglue"
+      itk_kvs+=("VTK_DIR=${_itk_vtk}")
     fi
-    # ITK_BUILD_ALL_MODULES so downstreams (ANTs/c3d/...) find non-default
-    # modules they depend on (e.g. AdaptiveDenoising, MorphologicalContourInterpolation).
-    local _itk_cmake=(cmake -S "$s" -B "${ITK_BUILD}" $(common_cmake_args)
-      -DBUILD_EXAMPLES=ON -DITK_USE_BRAINWEB_DATA=ON
-      -DITK_BUILD_DEFAULT_MODULES=ON -DITK_BUILD_ALL_MODULES=ON
-      "${fftw[@]}" "${mods[@]}" "${zlib_hint[@]}")
-    _overlay_vnl_headers
-    # First pass fetches the enabled remote modules (and may fail on one that
-    # calls itk_module_examples() without an examples/ dir); stub those, then
-    # configure for real.
-    "${_itk_cmake[@]}" || true
+    # Two-pass: first configure fetches remote modules (may fail on one whose
+    # examples/ dir is absent); stub those, then reconfigure for real.
+    cfg resolve-overlay "${itk_preset}" "$s" "${ITK_BUILD}" "${FOREST}" ITK "${itk_kvs[@]}"
+    cmake -S "$s" --preset "forest-ITK-local" || true
     _stub_remote_examples
-    "${_itk_cmake[@]}"
+    cmake -S "$s" --preset "forest-ITK-local"
     return
   fi
   [ -f "${ITK_BUILD}/ITKConfig.cmake" ] || die "ITK not built; run: pixi run ITK"
   case "$name" in
     ANTs)
-                 # ANTS_MAX_MODULES=1 turns on VTK-dependent tools + TractographyTRX
-                 # + all apps; ANTS_VTK_DIR reuses an existing VTK (support build).
-                 local ants_mods=()
+                 # Static ANTs settings (ANTS_SUPERBUILD=OFF direct build,
+                 # RUN_LONG/SHORT_TESTS=ON, USE_SYSTEM_ITK=ON, lean USE_VTK=OFF)
+                 # live in cmake/presets/20-ANTs.json; the max-modules bundle
+                 # (USE_VTK/BUILD_ALL_ANTS_APPS) is selected via variant preset
+                 # itk-forest-ants-max-modules. ANTS_VTK_DIR reuses an existing
+                 # VTK (support build) instead of ANTs building its own.
+                 local ants_preset="itk-forest-ants" ants_kvs=("ITK_DIR=$(itk_dir)")
                  if [ "${ANTS_MAX_MODULES:-0}" = 1 ]; then
-                   # USE_TractographyTRX stays OFF: the ITK TractographyTRX
-                   # module is not cleanly buildable (trx_cpp Eigen wiring).
-                   ants_mods+=(-DUSE_VTK=ON -DUSE_TractographyTRX=OFF -DBUILD_ALL_ANTS_APPS=ON)
+                   ants_preset="itk-forest-ants-max-modules"
                    if [ -n "${ANTS_VTK_DIR:-}" ]; then
-                     ants_mods+=(-DUSE_SYSTEM_VTK=ON -DVTK_DIR="${ANTS_VTK_DIR}")
+                     ants_kvs+=("USE_SYSTEM_VTK=ON" "VTK_DIR=${ANTS_VTK_DIR}")
                    else
                      # ANTs builds its own VTK; its bundled hdf5 uses vasprintf
-                     # without _GNU_SOURCE, which GCC 14 rejects. Forwarded to the
-                     # VTK EP via mark_as_superbuild(CMAKE_C_FLAGS).
-                     ants_mods+=(-DUSE_SYSTEM_VTK=OFF
-                       "-DCMAKE_C_FLAGS=-Wno-error=implicit-function-declaration")
+                     # without _GNU_SOURCE, which GCC 14 rejects.
+                     ants_kvs+=("USE_SYSTEM_VTK=OFF" "CMAKE_C_FLAGS=-Wno-error=implicit-function-declaration")
                    fi
-                 else
-                   ants_mods+=(-DUSE_VTK=OFF -DUSE_TractographyTRX=OFF)
                  fi
-                 cmake -S "$s" -B "$b" $(common_cmake_args) -DUSE_SYSTEM_ITK=ON -DITK_DIR="$(itk_dir)" \
-                   "${ants_mods[@]}" ;;
+                 do_overlay ANTs "${ants_preset}" "$s" "$b" "${ants_kvs[@]}" ;;
     BRAINSTools)
-                 # BRAINSTOOLS_MAX_MODULES=1 turns on DICOM (DWIConvert/GTRACT) +
-                 # VTK + dashboard tools; default stays lean.
-                 local bt_mods=(-DOpenGL_GL_PREFERENCE=GLVND)
+                 # Lean defaults (USE_VTK/DICOM OFF, USE_SYSTEM_ITK, GLVND) live in
+                 # 30-BRAINSTools.json; the max-modules bundle is selected via
+                 # variant preset itk-forest-brainstools-max-modules; fork/ANTs
+                 # wiring and orthogonal flags layer here.
+                 local bt_preset="itk-forest-brainstools"
+                 local bt_kvs=("ITK_DIR=$(itk_dir)"
+                   "BRAINSTools_ANTs_GIT_REPOSITORY=${BRAINSTools_ANTs_GIT_REPOSITORY:-$(cfg get subbuild.BRAINSTools.ANTs_GIT_REPOSITORY)}"
+                   "BRAINSTools_ANTs_GIT_TAG=${BRAINSTools_ANTs_GIT_TAG:-$(cfg get subbuild.BRAINSTools.ANTs_GIT_TAG)}")
                  if [ "${BRAINSTOOLS_MAX_MODULES:-0}" = 1 ]; then
-                   bt_mods+=(-DBRAINSTools_REQUIRES_VTK=ON -DBRAINSTools_BUILD_DICOM_SUPPORT=ON
-                            -DUSE_DWIConvert=ON -DUSE_GTRACT=ON -DBUILD_FOR_DASHBOARD=ON)
-                   [ "${BRAINSTOOLS_BUILD_ARCHIVE:-0}" = 1 ] && bt_mods+=(-DBUILD_ARCHIVE=ON)
-                 else
-                   bt_mods+=(-DUSE_VTK=OFF -DBRAINSTools_BUILD_DICOM_SUPPORT=OFF)
+                   bt_preset="itk-forest-brainstools-max-modules"
+                   [ "${BRAINSTOOLS_BUILD_ARCHIVE:-0}" = 1 ] && bt_kvs+=("BUILD_ARCHIVE=ON")
                  fi
-                 # BRAINSTOOLS_NO_ANTS=1 drops ANTs (modern ANTs requires ITK6;
-                 # use for the ITK5 variant where ANTs cannot build).
-                 [ "${BRAINSTOOLS_NO_ANTS:-0}" = 1 ] && bt_mods+=(-DUSE_ANTS=OFF)
-                 # BRAINSTOOLS_EXTRA: space-separated extra -D flags (word-split).
-                 [ -n "${BRAINSTOOLS_EXTRA:-}" ] && bt_mods+=(${BRAINSTOOLS_EXTRA})
-                 cmake -S "$s" -B "$b" $(common_cmake_args) -DUSE_SYSTEM_ITK=ON -DITK_DIR="$(itk_dir)" \
-                   $(ants_system_args) \
-                   -DBRAINSTools_ANTs_GIT_REPOSITORY="${BRAINSTools_ANTs_GIT_REPOSITORY:-$(cfg get subbuild.BRAINSTools.ANTs_GIT_REPOSITORY)}" \
-                   -DBRAINSTools_ANTs_GIT_TAG="${BRAINSTools_ANTs_GIT_TAG:-$(cfg get subbuild.BRAINSTools.ANTs_GIT_TAG)}" \
-                   "${bt_mods[@]}" ;;
+                 # BRAINSTOOLS_NO_ANTS=1 drops ANTs (modern ANTs requires ITK6).
+                 [ "${BRAINSTOOLS_NO_ANTS:-0}" = 1 ] && bt_kvs+=("USE_ANTS=OFF")
+                 # ants_system_args emits -DKEY=VAL; strip -D into overlay KVs.
+                 local _asa; for _asa in $(ants_system_args); do bt_kvs+=("${_asa#-D}"); done
+                 # BRAINSTOOLS_EXTRA: space-separated -DKEY=VAL flags.
+                 local _bte; for _bte in ${BRAINSTOOLS_EXTRA:-}; do bt_kvs+=("${_bte#-D}"); done
+                 do_overlay BRAINSTools "${bt_preset}" "$s" "$b" "${bt_kvs[@]}" ;;
     Slicer)      warn "Slicer SuperBuild is long (builds VTK/CTK + own ITK 6; Qt6 from ${SLICER_QT_PREFIX})"
                  # Policy: Slicer NEVER uses the system ITK; it always builds a
                  # dedicated Slicer-vendored ITK branch (hjmjohnson/ITK @ slicer-itk-*)
@@ -833,20 +835,17 @@ configure_one(){
                  # flag would skip ccache for those EPs. Point the compiler at ccache's
                  # Policy: use the conda toolchain (CC/CXX), never system/Homebrew;
                  # Slicer forwards CMAKE_<LANG>_COMPILER to its VTK/ITK/Python EPs.
-                 cmake -S "$s" -B "$b" $(common_cmake_args) \
-                   -DCMAKE_C_COMPILER="${SLICER_CC:-${CC}}" \
-                   -DCMAKE_CXX_COMPILER="${SLICER_CXX:-${CXX}}" \
-                   -DSlicer_ITK_GIT_REPOSITORY="${SLICER_ITK_GIT_REPOSITORY:-$(cfg get subbuild.Slicer.ITK_GIT_REPOSITORY)}" \
-                   -DSlicer_ITK_GIT_TAG="${SLICER_ITK_GIT_TAG:-$(cfg get subbuild.Slicer.ITK_GIT_TAG)}" \
-                   -DSlicer_REQUIRED_QT_VERSION="${SLICER_QT_VERSION}" \
-                   -DQt6_DIR="${SLICER_QT_PREFIX}/lib/cmake/Qt6" \
-                   -DCMAKE_PREFIX_PATH="${SLICER_QT_PREFIX}" \
-                   -DOpenGL_GL_PREFERENCE=GLVND \
-                   -DSlicer_BUILD_WEBENGINE_SUPPORT=OFF \
-                   -DSlicer_USE_SYSTEM_CTKAPPLAUNCHER=OFF \
-                   -DSlicer_USE_SYSTEM_sqlite=OFF \
-                   -DSlicer_USE_SYSTEM_zlib=OFF \
-                   -DSlicer_USE_SYSTEM_tbb=OFF ;;
+                 # Static Slicer knobs (USE_SYSTEM_* OFF, WEBENGINE OFF, GLVND)
+                 # live in 40-Slicer.json; compilers, Slicer-vendored ITK ref and
+                 # Qt are layered here.
+                 do_overlay Slicer itk-forest-slicer "$s" "$b" \
+                   "CMAKE_C_COMPILER=${SLICER_CC:-${CC}}" \
+                   "CMAKE_CXX_COMPILER=${SLICER_CXX:-${CXX}}" \
+                   "Slicer_ITK_GIT_REPOSITORY=${SLICER_ITK_GIT_REPOSITORY:-$(cfg get subbuild.Slicer.ITK_GIT_REPOSITORY)}" \
+                   "Slicer_ITK_GIT_TAG=${SLICER_ITK_GIT_TAG:-$(cfg get subbuild.Slicer.ITK_GIT_TAG)}" \
+                   "Slicer_REQUIRED_QT_VERSION=${SLICER_QT_VERSION}" \
+                   "Qt6_DIR=${SLICER_QT_PREFIX}/lib/cmake/Qt6" \
+                   "CMAKE_PREFIX_PATH=${SLICER_QT_PREFIX}" ;;
     SlicerExtensions)
                  # Build a curated, ITK-exercising subset of Slicer extensions
                  # against the inner Slicer build (Slicer_DIR), per the
@@ -859,68 +858,67 @@ configure_one(){
                    if [ -f "${s}/${e}.json" ]; then cp "${s}/${e}.json" "${descdir}/"
                    else warn "extension descriptor not found in index: ${e}.json"; fi
                  done
-                 cmake -S "${FOREST}/Slicer/Extensions/CMake" -B "$b" $(common_cmake_args) \
-                   -DSlicer_DIR="${slicer_inner}" \
-                   -DSlicer_EXTENSION_DESCRIPTION_DIR="${descdir}" \
-                   -DQt6_DIR="${SLICER_QT_PREFIX}/lib/cmake/Qt6" \
-                   -DCMAKE_PREFIX_PATH="${SLICER_QT_PREFIX}" \
-                   ;;
-    MITK)        warn "MITK SuperBuild is long";   cmake -S "$s" -B "$b" $(common_cmake_args) -DMITK_USE_SYSTEM_ITK=ON -DITK_DIR="$(itk_dir)" ;;
-    elastix)     cmake -S "$s" -B "$b" $(common_cmake_args) -DITK_DIR="$(itk_dir)" ;;
-    c3d)         cmake -S "$s" -B "$b" $(common_cmake_args) -DITK_DIR="$(itk_dir)" ;;
+                 do_overlay SlicerExtensions itk-forest-base \
+                   "${FOREST}/Slicer/Extensions/CMake" "$b" \
+                   "Slicer_DIR=${slicer_inner}" \
+                   "Slicer_EXTENSION_DESCRIPTION_DIR=${descdir}" \
+                   "Qt6_DIR=${SLICER_QT_PREFIX}/lib/cmake/Qt6" \
+                   "CMAKE_PREFIX_PATH=${SLICER_QT_PREFIX}" ;;
+    MITK)        warn "MITK SuperBuild is long"
+                 do_overlay MITK itk-forest-base "$s" "$b" \
+                   "MITK_USE_SYSTEM_ITK=ON" "ITK_DIR=$(itk_dir)" ;;
+    elastix)     do_overlay elastix itk-forest-base "$s" "$b" "ITK_DIR=$(itk_dir)" ;;
+    c3d)         do_overlay c3d itk-forest-base "$s" "$b" "ITK_DIR=$(itk_dir)" ;;
     Plastimatch) # ITK is built with the ITKDCMTK module, so find_package(ITK)
                  # pulls DCMTK transitively; point at ITK's bundled DCMTK build.
-                 cmake -S "$s" -B "$b" $(common_cmake_args) -DITK_DIR="$(itk_dir)" \
-                   -DCMAKE_CXX_FLAGS="-ffile-prefix-map=${FOREST}=. -include ${FOREST}/Plastimatch/libs/demons_itk_insight/vcl_legacy_aliases.h -D_LIBCPP_ENABLE_CXX17_REMOVED_UNARY_BINARY_FUNCTION" \
-                   -DDCMTK_DIR="${ITK_BUILD}/Modules/ThirdParty/DCMTK/ITKDCMTK_ExtProject-build" \
-                   -DPLM_CONFIG_ENABLE_SUPERBUILD=OFF \
-                   -DPLM_CONFIG_ENABLE_CUDA=OFF -DPLM_CONFIG_ENABLE_OPENCL=OFF \
-                   -DPLM_CONFIG_ENABLE_DCMTK=OFF -DPLM_CONFIG_ENABLE_QT=OFF \
-                   -DPLM_CONFIG_ENABLE_SSE2="${PLM_ENABLE_SSE2:-OFF}" ;;
+                 # PLM_CONFIG_ENABLE_* statics live in 50-Plastimatch.json.
+                 do_overlay Plastimatch itk-forest-plastimatch "$s" "$b" \
+                   "ITK_DIR=$(itk_dir)" \
+                   "CMAKE_CXX_FLAGS=-ffile-prefix-map=${FOREST}=. -include ${FOREST}/Plastimatch/libs/demons_itk_insight/vcl_legacy_aliases.h -D_LIBCPP_ENABLE_CXX17_REMOVED_UNARY_BINARY_FUNCTION" \
+                   "DCMTK_DIR=${ITK_BUILD}/Modules/ThirdParty/DCMTK/ITKDCMTK_ExtProject-build" \
+                   "PLM_CONFIG_ENABLE_SSE2=${PLM_ENABLE_SSE2:-OFF}" ;;
     SimpleITK)   warn "SimpleITK SuperBuild (C++ only; WRAP_DEFAULT=OFF)"
-                 cmake -S "${s}/SuperBuild" -B "$b" $(common_cmake_args) \
-                   -DUSE_SYSTEM_ITK=ON -DITK_DIR="$(itk_dir)" \
-                   -DWRAP_DEFAULT=OFF -DBUILD_EXAMPLES=OFF ;;
-    RTK)         cmake -S "$s" -B "$b" $(common_cmake_args) -DITK_DIR="$(itk_dir)" \
-                   -DRTK_USE_CUDA="${RTK_USE_CUDA:-OFF}" ;;
-    Ultrasound)  cmake -S "$s" -B "$b" $(common_cmake_args) -DITK_DIR="$(itk_dir)" \
-                   -DITKUltrasound_USE_VTK=OFF ;;
+                 do_overlay SimpleITK itk-forest-simpleitk "${s}/SuperBuild" "$b" \
+                   "ITK_DIR=$(itk_dir)" ;;
+    RTK)         do_overlay RTK itk-forest-base "$s" "$b" \
+                   "ITK_DIR=$(itk_dir)" "RTK_USE_CUDA=${RTK_USE_CUDA:-OFF}" ;;
+    Ultrasound)  do_overlay Ultrasound itk-forest-base "$s" "$b" \
+                   "ITK_DIR=$(itk_dir)" "ITKUltrasound_USE_VTK=OFF" ;;
     OpenIGTLink) log "OpenIGTLink (protocol v3, static)"
-                 cmake -S "$s" -B "$b" $(common_cmake_args) -DBUILD_SHARED_LIBS=OFF \
-                   -DOpenIGTLink_PROTOCOL_VERSION_3=ON -DOpenIGTLink_ENABLE_VIDEOSTREAMING=OFF ;;
+                 do_overlay OpenIGTLink itk-forest-openigtlink "$s" "$b" ;;
     OpenIGTLinkIO) local _vtk _oi; _vtk="$(vtk_dir)"; _oi="$(openigtlink_dir)"
                  [ -n "${_vtk}" ] || die "OpenIGTLinkIO: no built VTK — build Slicer (full VTK) or set VTK_DIR"
                  [ -n "${_oi}" ] || die "OpenIGTLinkIO: OpenIGTLink not built — run: build OpenIGTLink"
                  log "OpenIGTLinkIO: VTK_DIR=${_vtk}  OpenIGTLink_DIR=${_oi}"
-                 cmake -S "$s" -B "$b" $(common_cmake_args) -DVTK_DIR="${_vtk}" -DOpenIGTLink_DIR="${_oi}" \
-                   -DIGTLIO_USE_GUI=OFF ;;
+                 do_overlay OpenIGTLinkIO itk-forest-base "$s" "$b" \
+                   "VTK_DIR=${_vtk}" "OpenIGTLink_DIR=${_oi}" "IGTLIO_USE_GUI=OFF" ;;
     vtkAddon)    local _vtk; _vtk="$(vtk_dir)"
                  [ -n "${_vtk}" ] || die "vtkAddon: no built VTK (vtk-config.cmake) found — build Slicer (full VTK) or set VTK_DIR"
                  log "vtkAddon: VTK_DIR=${_vtk}"
-                 cmake -S "$s" -B "$b" $(common_cmake_args) -DVTK_DIR="${_vtk}" ;;
+                 do_overlay vtkAddon itk-forest-base "$s" "$b" "VTK_DIR=${_vtk}" ;;
     IGSIO)       local _vtk _va; _vtk="$(vtk_dir)"; _va="$(vtkaddon_dir)"
                  [ -n "${_vtk}" ] || die "IGSIO: no built VTK (vtk-config.cmake) found — build Slicer (full VTK) or set VTK_DIR"
                  [ -n "${_va}" ] || die "IGSIO: vtkAddon not built — run: build vtkAddon (or set vtkAddon_DIR)"
                  log "IGSIO: ITK_DIR=$(itk_dir)  VTK_DIR=${_vtk}  vtkAddon_DIR=${_va}"
-                 cmake -S "$s" -B "$b" $(common_cmake_args) -DITK_DIR="$(itk_dir)" \
-                   -DVTK_DIR="${_vtk}" -DvtkAddon_DIR="${_va}" -DIGSIO_USE_3DSlicer=OFF ;;
+                 do_overlay IGSIO itk-forest-base "$s" "$b" \
+                   "ITK_DIR=$(itk_dir)" "VTK_DIR=${_vtk}" "vtkAddon_DIR=${_va}" "IGSIO_USE_3DSlicer=OFF" ;;
     PlusLib)     local _vtk _igsio _oi _oio; _vtk="$(vtk_dir)"; _igsio="$(igsio_dir)"
                  _oi="$(openigtlink_dir)"; _oio="$(openigtlinkio_dir)"
                  [ -n "${_vtk}" ] || die "PlusLib: no built VTK (vtk-config.cmake) found — build Slicer (full VTK) or set VTK_DIR"
                  [ -n "${_igsio}" ] || die "PlusLib: IGSIO not built — run: build IGSIO (or set IGSIO_DIR)"
                  [ -n "${_oio}" ] || die "PlusLib: OpenIGTLinkIO not built (igtlioConverter target required) — run: build OpenIGTLinkIO"
                  log "PlusLib: ITK_DIR=$(itk_dir)  VTK_DIR=${_vtk}  IGSIO_DIR=${_igsio}  OpenIGTLinkIO_DIR=${_oio}"
-                 cmake -S "$s" -B "$b" $(common_cmake_args) -DITK_DIR="$(itk_dir)" \
-                   -DVTK_DIR="${_vtk}" -DIGSIO_DIR="${_igsio}" -DPLUS_USE_OpenIGTLink=ON \
-                   -DOpenIGTLink_DIR="${_oi}" -DOpenIGTLinkIO_DIR="${_oio}" ;;
+                 do_overlay PlusLib itk-forest-base "$s" "$b" \
+                   "ITK_DIR=$(itk_dir)" "VTK_DIR=${_vtk}" "IGSIO_DIR=${_igsio}" "PLUS_USE_OpenIGTLink=ON" \
+                   "OpenIGTLink_DIR=${_oi}" "OpenIGTLinkIO_DIR=${_oio}" ;;
     VkFFTBackend)
                  local _vk; _vk="$(vkfft_backend)"
                  [ -n "${_vk}" ] || die "VkFFTBackend: no GPU backend (CUDA/Metal/OpenCL) on this host"
-                 local _cuda=(); [ "${_vk}" = 1 ] && _cuda=(-DCMAKE_CUDA_COMPILER="$(_find_nvcc)")
+                 local _vk_kvs=("ITK_DIR=$(itk_dir)" "VKFFT_BACKEND=${_vk}")
+                 [ "${_vk}" = 1 ] && _vk_kvs+=("CMAKE_CUDA_COMPILER=$(_find_nvcc)")
                  log "VkFFTBackend: VKFFT_BACKEND=${_vk} (1=CUDA 5=Metal 3=OpenCL)"
-                 cmake -S "$s" -B "$b" $(common_cmake_args) -DITK_DIR="$(itk_dir)" \
-                   -DVKFFT_BACKEND="${_vk}" "${_cuda[@]}" ;;
-    *)  cmake -S "$s" -B "$b" $(common_cmake_args) -DITK_DIR="$(itk_dir)" ;;
+                 do_overlay VkFFTBackend itk-forest-base "$s" "$b" "${_vk_kvs[@]}" ;;
+    *)  do_overlay "${name}" itk-forest-base "$s" "$b" "ITK_DIR=$(itk_dir)" ;;
   esac
 }
 
@@ -941,7 +939,7 @@ _hide_conda_jpeg_shadow_headers(){
 
 build_one(){ require cmake ninja ccache
   _hide_conda_jpeg_shadow_headers
-  local name="$1" b="${FOREST}/${1}-build"; [ "$name" = ITK ] && b="${ITK_BUILD}"
+  local name="$1" b="$(build_dir "$1")"; [ "$name" = ITK ] && b="${ITK_BUILD}"
   [ "$name" = ANTs ] && require_itk6_for_ants
   # Slicer's bundled TBB (tbbbind) and other EPs include env-provided headers
   # (hwloc.h, ...) that the conda compiler only finds via CPATH (no -I is added
@@ -964,6 +962,7 @@ build_one(){ require cmake ninja ccache
   [ "$name" = IGSIO ] && _patch_igsio_iostream
   [ "$name" = Plastimatch ] && { _patch_plastimatch_dlib_unicode; _patch_plastimatch_vcl_aliases; }
   log "build ${name} (-j${JOBS})"
+  export CCACHE_BASEDIR="${FOREST}/${name}"
   if [ "$name" = BRAINSTools ]; then
     # BRAINSTools' SuperBuild clones ANTs during the build; first pass fetches
     # (may fail on the ANTs include bug), patch, second pass resumes. The

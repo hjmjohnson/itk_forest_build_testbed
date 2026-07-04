@@ -1,0 +1,16 @@
+{
+  "local": [
+    {
+      "mem": [
+        {
+          "id": "0",
+          "slots": 7
+        }
+      ]
+    }
+  ],
+  "version": {
+    "major": 1,
+    "minor": 0
+  }
+}

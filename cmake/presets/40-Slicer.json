@@ -1,0 +1,21 @@
+{
+  "configurePresets": [
+    {
+      "cacheVariables": {
+        "OpenGL_GL_PREFERENCE": "GLVND",
+        "Slicer_BUILD_WEBENGINE_SUPPORT": "OFF",
+        "Slicer_USE_SYSTEM_CTKAPPLAUNCHER": "OFF",
+        "Slicer_USE_SYSTEM_sqlite": "OFF",
+        "Slicer_USE_SYSTEM_tbb": "OFF",
+        "Slicer_USE_SYSTEM_zlib": "OFF"
+      },
+      "hidden": true,
+      "inherits": "itk-forest-base",
+      "name": "itk-forest-slicer"
+    }
+  ],
+  "include": [
+    "00-base.json"
+  ],
+  "version": 8
+}

@@ -28,6 +28,148 @@ TEMPLATE = os.path.join(ROOT, "config.json.in")
 OUT = os.path.join(ROOT, "config.sh")
 VERSIONS = os.path.join(ROOT, "versions.toml")
 SENTINEL = "__SET_MANUALLY__"
+PRESETS_DIR = os.path.join(ROOT, "cmake", "presets")
+
+
+def _cv_value(v):
+    """cacheVariables value may be a plain string or {'type':..,'value':..}."""
+    return v["value"] if isinstance(v, dict) else str(v)
+
+
+def _load_all_presets(presets_dir):
+    index = {}
+    for path in sorted(glob.glob(os.path.join(presets_dir, "*.json"))):
+        with open(path) as f:
+            doc = json.load(f)
+        for p in doc.get("configurePresets", []):
+            index[p["name"]] = p
+    return index
+
+
+def resolve_preset(name, presets_dir, _index=None):
+    """Flatten a configure preset's cacheVariables across its inherits chain.
+    Base values first; the preset's own values win. Multiple inherits: earlier
+    parent wins (CMake semantics)."""
+    index = _index if _index is not None else _load_all_presets(presets_dir)
+    if name not in index:
+        raise KeyError(f"preset not found: {name}")
+    p = index[name]
+    inherits = p.get("inherits", [])
+    if isinstance(inherits, str):
+        inherits = [inherits]
+    merged = {}
+    for parent in reversed(inherits):            # earlier parent wins
+        merged.update(resolve_preset(parent, presets_dir, index))
+    for k, v in p.get("cacheVariables", {}).items():
+        merged[k] = _cv_value(v)
+    return merged
+
+
+_OVERLAY_TOPLEVEL = ("generator", "installDir", "environment")
+
+
+def resolve_preset_toplevel(name, presets_dir, _index=None):
+    """Flatten the non-cacheVariables top-level fields (generator, installDir,
+    environment) across the inherits chain; child wins, earlier parent wins."""
+    index = _index if _index is not None else _load_all_presets(presets_dir)
+    if name not in index:
+        raise KeyError(f"preset not found: {name}")
+    p = index[name]
+    inherits = p.get("inherits", [])
+    if isinstance(inherits, str):
+        inherits = [inherits]
+    merged = {}
+    for parent in reversed(inherits):
+        merged.update(resolve_preset_toplevel(parent, presets_dir, index))
+    for f in _OVERLAY_TOPLEVEL:
+        if f in p:
+            merged[f] = p[f]
+    return merged
+
+
+def _parse_manifest(path):
+    if not os.path.exists(path):
+        return {}, {}
+    if tomllib is None:
+        sys.exit("config.py: needs Python >=3.11 (tomllib) to read/update manifest.toml")
+    with open(path, "rb") as f:
+        data = tomllib.load(f)
+    return data.get("components", {}), data.get("config", {})
+
+
+def _manifest_header(forest):
+    from datetime import datetime, timezone
+    hdr = [
+        "# manifest.toml — what this forest has checked out AND how it was configured (GENERATED).",
+        f"# forest: {forest}",
+        f"# generated: {datetime.now(timezone.utc).isoformat(timespec='seconds')}",
+        "# SHAs: python3 bin/config.py manifest <forest>;  [config.*]: written at configure time.",
+        "",
+    ]
+    itk_ref_env = os.environ.get("ITK_REF", "")
+    if itk_ref_env:
+        hdr += [f"itk_ref_requested = {_toml_str(itk_ref_env)}  # ITK_REF env at generation", ""]
+    return hdr
+
+
+def _emit_manifest(forest, components, config):
+    out = _manifest_header(forest)
+    for name, spec in components.items():
+        out.append(f"[components.{name}]")
+        for k in ("url", "ref", "branch", "sha", "kind"):
+            if k in spec:
+                out.append(f"{k:<6} = {_toml_str(spec[k])}")
+        out.append("")
+    for name, rec in config.items():
+        out.append(f"[config.{name}]")
+        if "preset" in rec:
+            out.append(f"preset = {_toml_str(rec['preset'])}")
+        for k in sorted(rec):
+            if k != "preset":
+                out.append(f"{k} = {_toml_str(rec[k])}")
+        out.append("")
+    path = os.path.join(forest, "manifest.toml")
+    os.makedirs(forest, exist_ok=True)
+    with open(path, "w") as f:
+        f.write("\n".join(out).rstrip() + "\n")
+    return path
+
+
+def _write_config_record(forest, consumer, preset, cache):
+    forest = os.path.abspath(forest)
+    path = os.path.join(forest, "manifest.toml")
+    components, cfg = _parse_manifest(path)
+    cfg[consumer] = {"preset": preset, **cache}
+    _emit_manifest(forest, components, cfg)
+
+
+def cmd_resolve_overlay(preset, src, binary_dir, forest, consumer, kvs):
+    """Write a flattened, self-contained CMakeUserPresets.json into <src> and a
+    matching [config.<consumer>] record into <forest>/manifest.toml, both from
+    one resolved cacheVariables dict."""
+    cache = resolve_preset(preset, PRESETS_DIR)
+    for kv in kvs:
+        if not kv:
+            continue
+        k, _, v = kv.partition("=")
+        cache[k] = v
+    top = resolve_preset_toplevel(preset, PRESETS_DIR)
+    cfg_preset = {
+        "name": f"forest-{consumer}-local",
+        "binaryDir": binary_dir,
+        "cacheVariables": cache,
+    }
+    cfg_preset.update(top)   # generator, installDir, environment from the chain
+    doc = {
+        "version": 8,
+        "configurePresets": [cfg_preset],
+    }
+    out_path = os.path.join(src, "CMakeUserPresets.json")
+    with open(out_path, "w") as f:
+        f.write(json.dumps(doc, indent=2, sort_keys=True) + "\n")
+    _write_config_record(forest, consumer, preset, cache)
+    print(f"wrote {out_path} (preset {preset}, {len(cache)} cache vars)")
+    return 0
 
 
 def expand(s):
@@ -170,46 +312,46 @@ def _toml_str(v):
 
 
 def cmd_manifest(forest):
-    """Write <forest>/manifest.toml describing the repo + resolved ref of every
-    component worktree that exists under <forest>. Human-readable record of what
-    was actually checked out / built."""
-    from datetime import datetime, timezone
+    """(Re)write <forest>/manifest.toml's [components.*] from live worktrees,
+    preserving any [config.*] records already present."""
     forest = os.path.abspath(forest)
     vers = load_versions()
-    itk_ref_env = os.environ.get("ITK_REF", "")
-    out = [
-        "# manifest.toml — what this forest actually has checked out (GENERATED).",
-        f"# forest: {forest}",
-        f"# generated: {datetime.now(timezone.utc).isoformat(timespec='seconds')}",
-        "# Records resolved git SHAs; regenerate with: python3 bin/config.py manifest <forest>",
-        "",
-    ]
-    if itk_ref_env:
-        out.append(f"itk_ref_requested = {_toml_str(itk_ref_env)}  # ITK_REF env at generation")
-        out.append("")
-    present = 0
+    path = os.path.join(forest, "manifest.toml")
+    _, existing_cfg = _parse_manifest(path)
+    components = {}
     for name, spec in vers.get("components", {}).items():
         d = os.path.join(forest, name)
-        if not os.path.isdir(os.path.join(d, ".git")) and not os.path.exists(os.path.join(d, ".git")):
+        if not (os.path.isdir(os.path.join(d, ".git")) or os.path.exists(os.path.join(d, ".git"))):
             continue
-        present += 1
-        sha = _git(d, "rev-parse", "HEAD")
-        branch = _git(d, "rev-parse", "--abbrev-ref", "HEAD")
-        url = _git(d, "remote", "get-url", "origin") or spec.get("url", "")
-        out += [
-            f"[components.{name}]",
-            f"url    = {_toml_str(url)}",
-            f"ref    = {_toml_str(spec.get('ref', 'origin/main'))}",
-            f"branch = {_toml_str(branch)}",
-            f"sha    = {_toml_str(sha)}",
-            f"kind   = {_toml_str(spec.get('kind', 'consumer'))}",
-            "",
-        ]
-    path = os.path.join(forest, "manifest.toml")
-    os.makedirs(forest, exist_ok=True)
-    with open(path, "w") as f:
-        f.write("\n".join(out).rstrip() + "\n")
-    print(f"wrote {path} ({present} components)")
+        components[name] = {
+            "url": _git(d, "remote", "get-url", "origin") or spec.get("url", ""),
+            "ref": spec.get("ref", "origin/main"),
+            "branch": _git(d, "rev-parse", "--abbrev-ref", "HEAD"),
+            "sha": _git(d, "rev-parse", "HEAD"),
+            "kind": spec.get("kind", "consumer"),
+        }
+    _emit_manifest(forest, components, existing_cfg)
+    print(f"wrote {path} ({len(components)} components, {len(existing_cfg)} config records)")
+    return 0
+
+
+def cmd_compare(forest_a, forest_b):
+    """Diff two forests' manifest.toml: ref/SHA deltas and [config.*] -D deltas."""
+    ca, cfa = _parse_manifest(os.path.join(os.path.abspath(forest_a), "manifest.toml"))
+    cb, cfb = _parse_manifest(os.path.join(os.path.abspath(forest_b), "manifest.toml"))
+    print(f"# compare A={forest_a}  B={forest_b}")
+    print("## refs/SHAs (A != B)")
+    for n in sorted(set(ca) | set(cb)):
+        sa = ca.get(n, {}).get("sha", "-"); sb = cb.get(n, {}).get("sha", "-")
+        if sa != sb:
+            print(f"  {n}: {sa[:12]} != {sb[:12]}")
+    print("## config -D deltas (A != B)")
+    for n in sorted(set(cfa) | set(cfb)):
+        ra, rb = cfa.get(n, {}), cfb.get(n, {})
+        for k in sorted(set(ra) | set(rb)):
+            va, vb = ra.get(k, "<absent>"), rb.get(k, "<absent>")
+            if va != vb:
+                print(f"  {n}.{k}: {va} != {vb}")
     return 0
 
 
@@ -228,6 +370,14 @@ if __name__ == "__main__":
         if len(args) < 3:
             sys.exit("usage: config.py scenario <suffix> <component>")
         sys.exit(cmd_scenario(args[1], args[2]))
+    if cmd == "resolve-overlay":
+        if len(args) < 6:
+            sys.exit("usage: config.py resolve-overlay <preset> <src> <bin> <forest> <consumer> [KEY=VAL ...]")
+        sys.exit(cmd_resolve_overlay(args[1], args[2], args[3], args[4], args[5], args[6:]))
+    if cmd == "compare":
+        if len(args) < 3:
+            sys.exit("usage: config.py compare <forestA> <forestB>")
+        sys.exit(cmd_compare(args[1], args[2]))
     if cmd == "manifest":
         if len(args) < 2:
             sys.exit("usage: config.py manifest <FOREST>")

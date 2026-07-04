@@ -1,0 +1,12 @@
+{
+  "configurePresets": [
+    {
+      "inherits": "itk-forest-base",
+      "name": "smoke"
+    }
+  ],
+  "include": [
+    "../00-base.json"
+  ],
+  "version": 8
+}

@@ -20,6 +20,7 @@ LOG_TAG="${FOREST_REFERENCE_SUFFIX:+-${FOREST_REFERENCE_SUFFIX}}"
 [ -d "${ROOT}/.pixi/envs/default/bin" ] && PATH="${ROOT}/.pixi/envs/default/bin:$PATH"
 ENG="${BIN_DIR}/setup-itk-downstream-testbed.sh"
 TB="${FOREST}"
+LOGDIR="${FOREST}/logs"; mkdir -p "${LOGDIR}"
 SUMMARY=""
 
 # --- ctest layer -----------------------------------------------------------
@@ -57,7 +58,7 @@ run_ctest(){
   local n="$1" d log line failed total inc=()
   d="$(ctest_dir "$n")"
   [ -n "$d" ] || { echo "T:skip:no-harness"; return; }
-  log="/tmp/ctest-${n}${LOG_TAG}.log"
+  log="${LOGDIR}/ctest-${n}${LOG_TAG}.log"
   [ -n "${CTEST_INCLUDE:-}" ] && inc=(-R "${CTEST_INCLUDE}")
   timeout "${CTEST_TARGET_TIMEOUT}" \
     ctest --test-dir "$d" -j"${CTEST_JOBS}" --timeout "${CTEST_TIMEOUT}" \
@@ -100,19 +101,19 @@ artifact_ok(){
 build_target(){
   local n="$1" tstat=""
   echo "==================== BUILD ${n} ===================="
-  bash "${ENG}" build "${n}" >"/tmp/matrix-${n}${LOG_TAG}.log" 2>&1
+  bash "${ENG}" build "${n}" >"${LOGDIR}/matrix-${n}${LOG_TAG}.log" 2>&1
   if artifact_ok "${n}"; then
     echo "RESULT ${n}: build PASS"
     if [ "${RUN_CTEST}" = 1 ]; then
       echo "-------------------- CTEST ${n} --------------------"
       tstat="$(run_ctest "${n}")"
-      echo "RESULT ${n}: ${tstat}  (/tmp/ctest-${n}${LOG_TAG}.log)"
+      echo "RESULT ${n}: ${tstat}  (${LOGDIR}/ctest-${n}${LOG_TAG}.log)"
     fi
     SUMMARY="${SUMMARY}$(printf 'PASS  %-20s %s' "${n}" "${tstat}")"$'\n'
   else
     SUMMARY="${SUMMARY}$(printf 'FAIL  %-20s %s' "${n}" '(build failed)')"$'\n'
-    echo "RESULT ${n}: build FAIL  (/tmp/matrix-${n}${LOG_TAG}.log)"
-    grep -iE 'error:|CMake Error|library not found|No such module|undefined sym' "/tmp/matrix-${n}${LOG_TAG}.log" | head -3
+    echo "RESULT ${n}: build FAIL  (${LOGDIR}/matrix-${n}${LOG_TAG}.log)"
+    grep -iE 'error:|CMake Error|library not found|No such module|undefined sym' "${LOGDIR}/matrix-${n}${LOG_TAG}.log" | head -3
   fi
 }
 

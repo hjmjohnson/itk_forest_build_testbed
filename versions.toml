@@ -223,6 +223,15 @@ fork_remote = "hjmjohnson"
 fork_url    = "git@gitlab.com:hjmjohnson/plastimatch.git"
 fork_ref    = "itkv6-support"
 
+[subbuild.ANTs]
+# Non-itkv5 forests build from a fork integration branch bundling the ITKv6
+# fix PRs (ANTsX/ANTs #1987/#1989/#1990/#1991). The itkv5 forest is exempt and
+# keeps its pinned pre-ITK6 ANTs (9d0ecf098). Drop this once the PRs merge.
+fork_remote  = "hjmjohnson"
+fork_url     = "git@github.com:hjmjohnson/ANTs.git"
+fork_ref     = "integration/itkv6-ants-fixes"
+skip_suffix  = "itkv5"
+
 # ----------------------------------------------------------------------------
 # Toolchain knobs that gate version-sensitive consumers
 # ----------------------------------------------------------------------------

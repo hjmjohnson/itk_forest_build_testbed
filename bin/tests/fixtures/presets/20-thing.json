@@ -1,0 +1,14 @@
+{
+  "version": 8,
+  "include": ["00-base.json"],
+  "configurePresets": [
+    { "name": "thing", "hidden": true, "inherits": "base",
+      "cacheVariables": { "A": "2", "B": "on" } },
+    { "name": "thing-max", "hidden": true, "inherits": "thing",
+      "cacheVariables": { "C": "yes" } },
+    { "name": "p1", "hidden": true, "cacheVariables": { "X": "first" } },
+    { "name": "p2", "hidden": true, "cacheVariables": { "X": "second", "Y": "y2" } },
+    { "name": "multi", "hidden": true, "inherits": ["p1", "p2"],
+      "cacheVariables": { "Z": "z" } }
+  ]
+}

@@ -17,6 +17,10 @@
 !/skills/
 !/Maintenance/
 !/utilities/
+# Committed CMakePresets fragments live here. Generated CMakeUserPresets.json in
+# consumer forests stays ignored (global rule + /build_forest*). Keep smoke build out.
+!/cmake/
+/cmake/presets/.smoke/build/
 
 # Node-local generated config (config.json.in -> config.sh via bin/config.py).
 # Already excluded by /*, but listed explicitly so intent is clear; never track.
