@@ -70,12 +70,23 @@ esac
 # All logs for a forest live inside that forest (never the kit root).
 forest_log_dir(){ mkdir -p "${FOREST}/logs"; echo "${FOREST}/logs"; }
 export CCACHE_DIR="${CCACHE_DIR:-${HOME}/.ccache}"
-# Cross-forest cache sharing for ANY BUILD_FOREST_ROOT (incl. absolute paths
-# outside the testbed): basedir = this forest's root, so each compile rewrites
-# its own forest-absolute paths to forest-relative (../ITK/foo.h) before
-# hashing — identical across forests regardless of where the forest lives.
-# NOHASHDIR drops the CWD. As an exported env var this also covers SuperBuild
-# inner EPs (Slicer/BRAINSTools), which CMAKE flag injection does not reach.
+# ccache basedir policy (HYBRID; the shell is the single authority — presets do
+# not set CCACHE_BASEDIR, because the rule is per-package-CLASS which preset
+# macros cannot express reliably). basedir rewrites absolute paths UNDER it to
+# relative before hashing, so cache is shared across forests wherever a forest
+# lives; NOHASHDIR drops the CWD.
+#   - Forest-wide (${FOREST}) — the default here, and the basedir for CONSUMERS
+#     and SUPERBUILDS: it rewrites every forest-internal path, so a consumer's
+#     sibling refs (#include ${FOREST}/ITK/...) and SuperBuild EP trees
+#     (${FOREST}/<pkg>-build/VTK ...) — both OUTSIDE the package's own source —
+#     still canonicalize and share across forests.
+#   - Per-package (${FOREST}/<pkg>) — applied in build_one ONLY for the
+#     self-contained ROOT builds in CCACHE_PERPKG_ROOTS (ITK): they reference
+#     nothing outside their own source except the stable-path conda env, so a
+#     tighter basedir also shares cache with standalone builds of that package.
+# -ffile-prefix-map stays per-package (${sourceDir}) for every package (set by
+# the preset); ccache canonicalizes that flag under whichever basedir applies.
+CCACHE_PERPKG_ROOTS="${CCACHE_PERPKG_ROOTS:-ITK}"
 export CCACHE_BASEDIR="${CCACHE_BASEDIR:-${FOREST}}"
 export CCACHE_NOHASHDIR="${CCACHE_NOHASHDIR:-true}"
 # CMake 4.x hard-rejects projects/ExternalProjects that declare
@@ -163,6 +174,23 @@ fi
 # bundled CPython, which then detects gettext but fails to link -lintl. All real
 # deps are passed explicitly via -D flags, so drop these contaminating flags.
 unset CFLAGS CPPFLAGS CXXFLAGS LDFLAGS CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH
+
+# The unset above dropped the conda rpath along with the contaminating -I/-L
+# flags. Re-export LDFLAGS with ONLY the rpath (no include/lib leakage), so the
+# conda libc++/fftw resolve at run and build time — including SuperBuild inner
+# ExternalProjects, where a top-level -DCMAKE_BUILD_RPATH does not reach the
+# build-time tools (GenerateCLP, gtest_discover_tests) that ninja spawns.
+[ -n "${CONDA_PREFIX:-}" ] && export LDFLAGS="-Wl,-rpath,${CONDA_PREFIX}/lib"
+
+# Forest toolchain via the CMAKE_TOOLCHAIN_FILE *environment* variable (CMake
+# 3.21+). Unlike a -D cache var or mark_as_superbuild (which SuperBuild inner EPs
+# like Slicer's python-cmake-buildsystem do not consume), an env var is inherited
+# by every EP sub-configure at every nesting level. The toolchain carries
+# CMAKE_IGNORE_PREFIX_PATH=/opt/homebrew (keeps inner EPs off the Homebrew tree —
+# else Slicer's CPython links Homebrew libintl's _libintl_* with no -lintl) and
+# the conda build rpath. A project that sets its own -DCMAKE_TOOLCHAIN_FILE still
+# wins for itself; EPs without one fall back to this env default.
+export CMAKE_TOOLCHAIN_FILE="${TESTBED}/cmake/forest-toolchain.cmake"
 
 # Forest-level build/install tree locations. Task-2 flips these two bodies to
 # the nested layout; every caller goes through them so the change is one place.
@@ -843,6 +871,10 @@ configure_one(){
                    "CMAKE_CXX_COMPILER=${SLICER_CXX:-${CXX}}" \
                    "Slicer_ITK_GIT_REPOSITORY=${SLICER_ITK_GIT_REPOSITORY:-$(cfg get subbuild.Slicer.ITK_GIT_REPOSITORY)}" \
                    "Slicer_ITK_GIT_TAG=${SLICER_ITK_GIT_TAG:-$(cfg get subbuild.Slicer.ITK_GIT_TAG)}" \
+                   `# python EP = python-cmake-buildsystem; pin to the fork branch` \
+                   `# carrying the libintl link fix (upstream PR #450) until merged.` \
+                   "Slicer_python_GIT_REPOSITORY=${SLICER_PYTHON_GIT_REPOSITORY:-https://github.com/hjmjohnson/python-cmake-buildsystem.git}" \
+                   "Slicer_python_GIT_TAG=${SLICER_PYTHON_GIT_TAG:-fix/link-libintl-localemodule-macos}" \
                    "Slicer_REQUIRED_QT_VERSION=${SLICER_QT_VERSION}" \
                    "Qt6_DIR=${SLICER_QT_PREFIX}/lib/cmake/Qt6" \
                    "CMAKE_PREFIX_PATH=${SLICER_QT_PREFIX}" ;;
@@ -874,7 +906,7 @@ configure_one(){
                  # PLM_CONFIG_ENABLE_* statics live in 50-Plastimatch.json.
                  do_overlay Plastimatch itk-forest-plastimatch "$s" "$b" \
                    "ITK_DIR=$(itk_dir)" \
-                   "CMAKE_CXX_FLAGS=-ffile-prefix-map=${FOREST}=. -include ${FOREST}/Plastimatch/libs/demons_itk_insight/vcl_legacy_aliases.h -D_LIBCPP_ENABLE_CXX17_REMOVED_UNARY_BINARY_FUNCTION" \
+                   "CMAKE_CXX_FLAGS=-ffile-prefix-map=${s}=. -include ${s}/libs/demons_itk_insight/vcl_legacy_aliases.h -D_LIBCPP_ENABLE_CXX17_REMOVED_UNARY_BINARY_FUNCTION" \
                    "DCMTK_DIR=${ITK_BUILD}/Modules/ThirdParty/DCMTK/ITKDCMTK_ExtProject-build" \
                    "PLM_CONFIG_ENABLE_SSE2=${PLM_ENABLE_SSE2:-OFF}" ;;
     SimpleITK)   warn "SimpleITK SuperBuild (C++ only; WRAP_DEFAULT=OFF)"
@@ -962,7 +994,13 @@ build_one(){ require cmake ninja ccache
   [ "$name" = IGSIO ] && _patch_igsio_iostream
   [ "$name" = Plastimatch ] && { _patch_plastimatch_dlib_unicode; _patch_plastimatch_vcl_aliases; }
   log "build ${name} (-j${JOBS})"
-  export CCACHE_BASEDIR="${FOREST}/${name}"
+  # Per-package basedir only for self-contained roots; consumers/SuperBuilds keep
+  # the forest-wide default so their cross-package refs and EP trees stay inside
+  # the basedir subtree. See the CCACHE_PERPKG_ROOTS block near the top.
+  case " ${CCACHE_PERPKG_ROOTS} " in
+    *" ${name} "*) export CCACHE_BASEDIR="${FOREST}/${name}" ;;
+    *)             export CCACHE_BASEDIR="${FOREST}" ;;
+  esac
   if [ "$name" = BRAINSTools ]; then
     # BRAINSTools' SuperBuild clones ANTs during the build; first pass fetches
     # (may fail on the ANTs include bug), patch, second pass resumes. The

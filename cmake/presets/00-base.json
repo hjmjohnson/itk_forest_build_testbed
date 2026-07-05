@@ -15,9 +15,6 @@
         "CMAKE_C_FLAGS_INIT": "-ffile-prefix-map=${sourceDir}=.",
         "CMAKE_IGNORE_PREFIX_PATH": "/opt/homebrew"
       },
-      "environment": {
-        "CCACHE_BASEDIR": "${sourceDir}"
-      },
       "generator": "Ninja",
       "hidden": true,
       "installDir": "${sourceParentDir}/installed/${sourceDirName}",

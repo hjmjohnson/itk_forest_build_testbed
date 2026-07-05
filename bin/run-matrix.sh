@@ -36,19 +36,25 @@ CTEST_JOBS="${CTEST_JOBS:-$(( $(_ncpu) / 2 ))}"; [ "${CTEST_JOBS}" -lt 2 ] && CT
 CTEST_TIMEOUT="${CTEST_TIMEOUT:-300}"
 CTEST_TARGET_TIMEOUT="${CTEST_TARGET_TIMEOUT:-1800}"
 
+# Build tree for a target: nested layout (<name>/build, mirrors the engine's
+# build_dir()) with a fallback to the legacy flat <name>-build.
+bdir(){
+  local d="${TB}/${1}/build"
+  [ -d "${d}" ] || { [ -d "${TB}/${1}-build" ] && d="${TB}/${1}-build"; }
+  echo "${d}"
+}
+
 # Build dir that holds CTestTestfile.cmake for a target (inner build for
 # SuperBuilds); empty if no test harness is present.
 ctest_dir(){
   local n="$1" d
   case "$n" in
-    ITK)         d="${TB}/ITK-build" ;;
-    BRAINSTools) d="${TB}/BRAINSTools-build/BRAINSTools-Release-EPRelease-build" ;;
-    Slicer)      d="${TB}/Slicer-build/Slicer-build" ;;
-    *)           d="${TB}/${n}-build" ;;
+    BRAINSTools) d="$(bdir BRAINSTools)/BRAINSTools-Release-EPRelease-build" ;;
+    Slicer)      d="$(bdir Slicer)/Slicer-build" ;;
+    *)           d="$(bdir "$n")" ;;
   esac
   [ -f "${d}/CTestTestfile.cmake" ] && { echo "${d}"; return; }
-  local base="${TB}/${n}-build"; [ "$n" = ITK ] && base="${TB}/ITK-build"
-  find "${base}" -maxdepth 4 -name CTestTestfile.cmake -print 2>/dev/null \
+  find "$(bdir "$n")" -maxdepth 4 -name CTestTestfile.cmake -print 2>/dev/null \
     | head -1 | xargs -r dirname
 }
 
@@ -75,8 +81,8 @@ run_ctest(){
 }
 
 artifact_ok(){
-  local n="$1" b="${TB}/${1}-build"
-  [ "$n" = ITK ] && b="${TB}/ITK-build"
+  local n="$1" b
+  b="$(bdir "$n")"
   case "$n" in
     ITK)       ls "${b}"/lib/libITKCommon-*.a >/dev/null 2>&1 ;;  # version-agnostic (6.0, 5.4, ...)
     elastix)   [ -x "${b}/bin/elastix" ] ;;
@@ -90,11 +96,11 @@ artifact_ok(){
     vtkAddon)    find "${b}" -iname 'libvtkAddon*' 2>/dev/null | grep -q . ;;
     IGSIO)       find "${b}" -iname 'libvtkIGSIO*' 2>/dev/null | grep -q . ;;
     PlusLib)     find "${b}" \( -iname 'libvtkPlus*' -o -iname 'libPlus*' \) 2>/dev/null | grep -q . ;;
-    Slicer)      find "${TB}/Slicer-build/Slicer-build" \( -name 'SlicerApp-real' -o -name 'libMRMLCore*' \) 2>/dev/null | grep -q . ;;
+    Slicer)      find "$(bdir Slicer)/Slicer-build" \( -name 'SlicerApp-real' -o -name 'libMRMLCore*' \) 2>/dev/null | grep -q . ;;
     SlicerExtensions) find "${b}" \( -name '*.so' -o -name '*.dylib' \) 2>/dev/null | grep -q . ;;
-    *)  # external ITK modules link their lib into the ITK tree, not ${name}-build
+    *)  # external ITK modules link their lib into the ITK tree, not their own
         { find "${b}" \( -name '*.a' -o -name '*.dylib' -o -name '*.so' \) 2>/dev/null | grep -q . ; } \
-        || find "${TB}/ITK-build/lib" -iname "libitk${n}-6.0.a" 2>/dev/null | grep -q . ;;
+        || find "$(bdir ITK)/lib" -iname "libitk${n}-*.a" 2>/dev/null | grep -q . ;;
   esac
 }
 

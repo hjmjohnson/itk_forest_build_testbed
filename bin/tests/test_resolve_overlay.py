@@ -20,8 +20,8 @@ def test_overlay_is_flat_and_self_contained():
         assert cv["ITK_DIR"] == "/x/ITK/build"          # injected kv wins
         assert cv["CMAKE_BUILD_TYPE"] == "Release"      # from base
         assert p["generator"] == "Ninja"                     # carried from 00-base
-        assert p["environment"]["CCACHE_BASEDIR"] == "${sourceDir}"
-        assert "installDir" in p
+        assert "installDir" in p                             # carried from 00-base
+        assert "environment" not in p                        # basedir is shell-owned, not a preset env
 
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
