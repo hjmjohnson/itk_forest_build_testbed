@@ -161,7 +161,9 @@ def cmd_resolve_overlay(preset, src, binary_dir, forest, consumer, kvs):
     }
     cfg_preset.update(top)   # generator, installDir, environment from the chain
     doc = {
-        "version": 8,
+        # Version 3 is the minimum that supports installDir; its floor is cmake
+        # 3.21, so the presets read on cmake 3.22+ without needing a 3.28 build.
+        "version": 3,
         "configurePresets": [cfg_preset],
     }
     out_path = os.path.join(src, "CMakeUserPresets.json")

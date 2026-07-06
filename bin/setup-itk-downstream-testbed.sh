@@ -37,6 +37,11 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TESTBED="${TESTBED:-$(dirname "${SCRIPT_DIR}")}"   # repo root = parent of bin/
+# Put this repo's pixi env tools first so the v8 CMakePresets we write are read
+# by a new-enough cmake (>= 3.28); a stray older cmake earlier on PATH fails with
+# "Unrecognized version field". A no-op under `pixi run` (already first).
+_PIXI_BIN="${TESTBED}/.pixi/envs/default/bin"
+[ -d "${_PIXI_BIN}" ] && export PATH="${_PIXI_BIN}:${PATH}"
 KIT_PRESETS="${SCRIPT_DIR%/bin}/cmake/presets"   # SCRIPT_DIR is .../kit/bin
 
 # Bridge to versions.toml (the build-version source of truth): emit component
@@ -128,7 +133,7 @@ export CC CXX
 # top-level -DCMAKE_BUILD_RPATH does not. Idempotent: skip if already present.
 if [ -n "${CONDA_PREFIX:-}" ]; then
   case " ${LDFLAGS:-} " in *"-rpath,${CONDA_PREFIX}/lib "*|*"-rpath,${CONDA_PREFIX}/lib") : ;;
-    *) export LDFLAGS="-Wl,-rpath,${CONDA_PREFIX}/lib${LDFLAGS:+ ${LDFLAGS}}" ;; esac
+    *) export LDFLAGS="-L${CONDA_PREFIX}/lib -Wl,-rpath,${CONDA_PREFIX}/lib${LDFLAGS:+ ${LDFLAGS}}" ;; esac
 fi
 # Never the Homebrew toolchain (its packages are built with a different
 # compiler and ABI-mismatch the conda-forge stack). Conda-forge runtime libs
@@ -166,6 +171,14 @@ if [ "$(uname -s)" = Darwin ]; then
     _cpp="$(printf '%s' "${CMAKE_PREFIX_PATH:-}" | tr ':' '\n' | grep -v '/opt/homebrew/opt/qt@6' | paste -sd: - || true)"
     export CMAKE_PREFIX_PATH="${SLICER_QT_PREFIX}${_cpp:+:${_cpp}}"
     unset _cpp
+    # Qt6_ROOT is the authoritative Qt6 hint: find_package(Qt6) and every
+    # component sub-find (Qt6CoreTools host-tools included) honor it above the
+    # default system prefix path. CMake's arm64 CMAKE_SYSTEM_PREFIX_PATH lists
+    # /opt/homebrew, so without this a stray Homebrew qt@6 host-tool can be
+    # picked even after PATH/CMAKE_PREFIX_PATH cleanup — mismatching ~/Qt's Qt6
+    # and failing with "Unknown CMake command _qt_internal_should_include_targets".
+    # As an env var it reaches every SuperBuild inner EP (VTK, ANTs, ...).
+    export Qt6_ROOT="${SLICER_QT_PREFIX}"
   fi
 fi
 
@@ -176,11 +189,13 @@ fi
 unset CFLAGS CPPFLAGS CXXFLAGS LDFLAGS CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH
 
 # The unset above dropped the conda rpath along with the contaminating -I/-L
-# flags. Re-export LDFLAGS with ONLY the rpath (no include/lib leakage), so the
-# conda libc++/fftw resolve at run and build time — including SuperBuild inner
-# ExternalProjects, where a top-level -DCMAKE_BUILD_RPATH does not reach the
-# build-time tools (GenerateCLP, gtest_discover_tests) that ninja spawns.
-[ -n "${CONDA_PREFIX:-}" ] && export LDFLAGS="-Wl,-rpath,${CONDA_PREFIX}/lib"
+# flags. Re-export LDFLAGS with the conda libdir as both a link search path and
+# an rpath (no include leakage), so the conda libc++/fftw resolve at both link
+# and run time — including SuperBuild inner ExternalProjects, where a top-level
+# -DCMAKE_BUILD_RPATH does not reach the build-time tools that ninja spawns. The
+# -L is required for bare -l flags carried by ITK's exported targets, e.g. the
+# FFTW module's -lfftw3_threads.
+[ -n "${CONDA_PREFIX:-}" ] && export LDFLAGS="-L${CONDA_PREFIX}/lib -Wl,-rpath,${CONDA_PREFIX}/lib"
 
 # Forest toolchain via the CMAKE_TOOLCHAIN_FILE *environment* variable (CMake
 # 3.21+). Unlike a -D cache var or mark_as_superbuild (which SuperBuild inner EPs
@@ -233,12 +248,16 @@ vkfft_backend(){
 # (full + Qt) qualifies; BRAINSTools' VTK is headless and is NOT used here.
 # Override with VTK_DIR (must point at a rendering-enabled VTK).
 vtk_dir(){
-  local d
-  for d in "${VTK_DIR:-}" "${FOREST}/Slicer-build/VTK-build"; do
+  local d base f
+  # Nested layout ($(build_dir Slicer)/VTK-build) first, then the legacy flat one.
+  for d in "${VTK_DIR:-}" "$(build_dir Slicer)/VTK-build" "${FOREST}/Slicer-build/VTK-build"; do
     [ -n "$d" ] && [ -f "${d}/vtk-config.cmake" ] && { echo "$d"; return; }
   done
-  find "${FOREST}/Slicer-build" -maxdepth 3 -name vtk-config.cmake 2>/dev/null \
-    | grep -v CMakeFiles | head -1 | xargs -r dirname; }
+  for base in "$(build_dir Slicer)" "${FOREST}/Slicer-build"; do
+    [ -d "$base" ] || continue
+    f="$(find "$base" -maxdepth 3 -name vtk-config.cmake 2>/dev/null | grep -v CMakeFiles | head -1)"
+    [ -n "$f" ] && { dirname "$f"; return; }
+  done; }
 
 # Major version of the forest's ITK (from its source itkVersion.cmake). Empty
 # if not checked out yet.
@@ -882,7 +901,9 @@ configure_one(){
                  # Build a curated, ITK-exercising subset of Slicer extensions
                  # against the inner Slicer build (Slicer_DIR), per the
                  # Slicer/DashboardScripts SlicerExtensionsDashboardDriverScript pattern.
-                 local slicer_inner="${FOREST}/Slicer-build/Slicer-build"
+                 # Nested layout: the Slicer SuperBuild lives at $(build_dir Slicer)
+                 # and its inner app build is the Slicer-build subdir within it.
+                 local slicer_inner="$(build_dir Slicer)/Slicer-build"
                  [ -f "${slicer_inner}/SlicerConfig.cmake" ] || die "Slicer not built; run: pixi run build-Slicer"
                  local descdir="${FOREST}/SlicerExtensions-descriptions"
                  rm -rf "${descdir}"; mkdir -p "${descdir}"
