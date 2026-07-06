@@ -202,8 +202,8 @@ depends-on = ["build-ITK"]
 
 # ---- aggregate ------------------------------------------------------------
 [tasks.build-consumers]
-depends-on = ["build-ANTs", "build-BRAINSTools", "build-Slicer", "build-elastix", "build-c3d", "build-MITK", "build-SimpleITK"]
-description = "Build all main consumers"
+depends-on = ["build-ANTs", "build-BRAINSTools", "build-Slicer", "build-elastix", "build-c3d", "build-SimpleITK"]
+description = "Build all main consumers (MITK omitted: Qt6 FindThreads fails under the conda toolchain; run build-MITK explicitly)"
 
 [tasks.build-all]
 depends-on = ["build-consumers", "build-remotes"]

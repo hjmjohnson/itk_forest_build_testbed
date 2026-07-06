@@ -57,6 +57,11 @@ url    = "https://github.com/pyushkevich/c3d.git"
 ref    = "origin/main"
 branch = "c3d-itk-downstream"
 
+[components.ITKSNAP]
+url    = "https://github.com/pyushkevich/itksnap.git"
+ref    = "origin/master"
+branch = "itksnap-itk-downstream"
+
 [components.Plastimatch]
 url    = "https://gitlab.com/plastimatch/plastimatch.git"
 ref    = "origin/main"
@@ -209,13 +214,22 @@ heavy = true
 # ----------------------------------------------------------------------------
 [subbuild.Slicer]
 # Slicer always builds its own vendored ITK branch; never the system ITK.
+# Successor of the ITK ref under test (test/svdc-plus-dcmtkfix) + the 2 Slicer
+# patches (custom ITK namespace, itkFileTools build fix) cherry-picked on top,
+# so the Slicer branch of the forest validates the current/svd ITK instead of a
+# stale snapshot. Regenerate as <svd-base> + slicer patches when the base moves.
 ITK_GIT_REPOSITORY = "https://github.com/hjmjohnson/ITK"
-ITK_GIT_TAG        = "slicer-v6.0.0-2026-06-11-57ff6c6"
+ITK_GIT_TAG        = "slicer-v6.0.0-svdc-c1a4cecfab7"
 
 [subbuild.BRAINSTools]
 # Consumed via the overridable BRAINSTools_ANTs_GIT_* vars (BRAINSia/BRAINSTools#605).
 ANTs_GIT_REPOSITORY = "https://github.com/ANTsX/ANTs.git"
 ANTs_GIT_TAG        = "d2fbf8bd525f0b9f907b9c6ebd35ab26a4d8927a"
+
+[subbuild.PlusLib]
+# Test data (TestImages/ConfigFiles/CADModels) the PlusLib tests read from;
+# cloned shallow into forest_git_repos/PlusLibData and passed as PLUSLIB_DATA_DIR.
+data_url = "https://github.com/PlusToolkit/PlusLibData.git"
 
 [subbuild.Plastimatch]
 # Plastimatch builds from a maintained ITKv6-support fork branch.

@@ -249,11 +249,14 @@ vkfft_backend(){
 # Override with VTK_DIR (must point at a rendering-enabled VTK).
 vtk_dir(){
   local d base f
-  # Nested layout ($(build_dir Slicer)/VTK-build) first, then the legacy flat one.
-  for d in "${VTK_DIR:-}" "$(build_dir Slicer)/VTK-build" "${FOREST}/Slicer-build/VTK-build"; do
+  # Prefer the dedicated forest VTK (build_forest_vtk: release, VTK_DEBUG_LEAKS=OFF)
+  # over Slicer's internal VTK, whose DEBUG_LEAKS=ON crashes standalone consumers
+  # (e.g. PlusLib) at static-destruction time. Then the nested Slicer layout, then
+  # the legacy flat one.
+  for d in "${VTK_DIR:-}" "$(build_dir VTK)" "$(build_dir Slicer)/VTK-build" "${FOREST}/Slicer-build/VTK-build"; do
     [ -n "$d" ] && [ -f "${d}/vtk-config.cmake" ] && { echo "$d"; return; }
   done
-  for base in "$(build_dir Slicer)" "${FOREST}/Slicer-build"; do
+  for base in "$(build_dir VTK)" "$(build_dir Slicer)" "${FOREST}/Slicer-build"; do
     [ -d "$base" ] || continue
     f="$(find "$base" -maxdepth 3 -name vtk-config.cmake 2>/dev/null | grep -v CMakeFiles | head -1)"
     [ -n "$f" ] && { dirname "$f"; return; }
@@ -320,6 +323,22 @@ igsio_dir(){
   [ -f "${d}/IGSIOConfig.cmake" ] && { echo "$d"; return; }
   find "$(build_dir IGSIO)" -maxdepth 2 -name IGSIOConfig.cmake 2>/dev/null | head -1 | xargs -r dirname; }
 
+# PlusLib's tests read data (TestImages, ConfigFiles, CADModels) from a separate
+# PlusLibData repo that the PlusBuild superbuild normally downloads; the forest
+# builds PlusLib standalone, so clone it here (shallow — no history needed) and
+# hand PlusLib PLUSLIB_DATA_DIR. Override the URL via PLUSLIBDATA_URL or
+# versions.toml [subbuild.PlusLib] data_url.
+pluslibdata_dir(){
+  local repo="${REPOS}/PlusLibData"
+  if [ ! -e "${repo}/.git" ]; then
+    local url="${PLUSLIBDATA_URL:-$(cfg get subbuild.PlusLib.data_url 2>/dev/null)}"
+    [ -n "${url}" ] || url="https://github.com/PlusToolkit/PlusLibData.git"
+    mkdir -p "${REPOS}"
+    log "PlusLibData: shallow clone ${url} -> forest_git_repos/PlusLibData"
+    git clone --depth 1 "${url}" "${repo}" >/dev/null 2>&1 || { warn "PlusLibData: clone failed"; return 1; }
+  fi
+  echo "${repo}"; }
+
 # --- main consumers (name | git URL | worktree branch) — from versions.toml
 mapfile -t CONSUMERS < <(cfg consumers)
 # Curated, ITK-exercising subset of Slicer extensions built against the
@@ -338,7 +357,9 @@ fi
 # --- ITK remote modules, built EXTERNALLY against system ITK (name | URL | heavy?)
 #     from versions.toml (kind = "remote")
 mapfile -t REMOTES < <(cfg remotes)
-BUILD_ORDER=(ITK ANTs BRAINSTools Slicer SlicerExtensions elastix c3d MITK SimpleITK)
+# MITK is omitted: its Qt6 configure fails FindThreads under the conda toolchain.
+# Still buildable on demand via `build MITK`; re-add here once that is resolved.
+BUILD_ORDER=(ITK ANTs BRAINSTools Slicer SlicerExtensions elastix c3d SimpleITK)
 
 log(){ printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 warn(){ printf '\033[1;33m[warn]\033[0m %s\n' "$*"; }
@@ -783,16 +804,26 @@ build_forest_vtk(){
   fi
   [ -d "${SLICER_QT_PREFIX}/lib/cmake/Qt6" ] \
     || die "Qt6 not found at ${SLICER_QT_PREFIX} (set SLICER_QT_PREFIX/SLICER_QT_VERSION)"
+  # Windowing backend: Cocoa on macOS (no XQuartz), X11 on Linux.
+  local _win_args
+  case "$(uname -s)" in
+    Darwin) _win_args="-DVTK_USE_COCOA=ON -DVTK_USE_X=OFF" ;;
+    *)      _win_args="-DVTK_USE_X=ON" ;;
+  esac
   if [ ! -f "${b}/build.ninja" ]; then
     cmake -S "${src}" -B "${b}" $(common_cmake_args) \
       -DBUILD_SHARED_LIBS=ON -DVTK_BUILD_TESTING=OFF -DVTK_WRAP_PYTHON=OFF \
-      -DVTK_SMP_IMPLEMENTATION_TYPE=Sequential -DVTK_USE_X=ON \
+      -DVTK_SMP_IMPLEMENTATION_TYPE=Sequential ${_win_args} \
       -DVTK_GROUP_ENABLE_Qt=YES -DVTK_MODULE_ENABLE_VTK_GUISupportQt=YES \
       -DVTK_QT_VERSION=6 -DQt6_DIR="${SLICER_QT_PREFIX}/lib/cmake/Qt6" \
       -DCMAKE_PREFIX_PATH="${SLICER_QT_PREFIX}" \
-      -DVTK_MODULE_ENABLE_VTK_ChartsCore=DONT_WANT \
-      -DVTK_MODULE_ENABLE_VTK_ViewsContext2D=DONT_WANT \
       -DVTK_GROUP_ENABLE_Parallel=DONT_WANT \
+      -DVTK_MODULE_ENABLE_VTK_ImagingStencil=YES \
+      -DVTK_MODULE_ENABLE_VTK_ImagingHybrid=YES \
+      -DVTK_MODULE_ENABLE_VTK_ChartsCore=YES \
+      -DVTK_MODULE_ENABLE_VTK_ViewsContext2D=YES \
+      -DVTK_MODULE_ENABLE_VTK_FiltersParallel=YES \
+      -DVTK_DEBUG_LEAKS=OFF \
       -DCMAKE_C_FLAGS="-Wno-error=implicit-function-declaration"
   fi
   cmake --build "${b}" -j"${JOBS}"
@@ -954,16 +985,19 @@ configure_one(){
                  [ -n "${_va}" ] || die "IGSIO: vtkAddon not built — run: build vtkAddon (or set vtkAddon_DIR)"
                  log "IGSIO: ITK_DIR=$(itk_dir)  VTK_DIR=${_vtk}  vtkAddon_DIR=${_va}"
                  do_overlay IGSIO itk-forest-base "$s" "$b" \
-                   "ITK_DIR=$(itk_dir)" "VTK_DIR=${_vtk}" "vtkAddon_DIR=${_va}" "IGSIO_USE_3DSlicer=OFF" ;;
+                   "ITK_DIR=$(itk_dir)" "VTK_DIR=${_vtk}" "vtkAddon_DIR=${_va}" "IGSIO_USE_3DSlicer=OFF" \
+                   "IGSIO_BUILD_VOLUMERECONSTRUCTION=ON" ;;
     PlusLib)     local _vtk _igsio _oi _oio; _vtk="$(vtk_dir)"; _igsio="$(igsio_dir)"
                  _oi="$(openigtlink_dir)"; _oio="$(openigtlinkio_dir)"
                  [ -n "${_vtk}" ] || die "PlusLib: no built VTK (vtk-config.cmake) found — build Slicer (full VTK) or set VTK_DIR"
                  [ -n "${_igsio}" ] || die "PlusLib: IGSIO not built — run: build IGSIO (or set IGSIO_DIR)"
                  [ -n "${_oio}" ] || die "PlusLib: OpenIGTLinkIO not built (igtlioConverter target required) — run: build OpenIGTLinkIO"
-                 log "PlusLib: ITK_DIR=$(itk_dir)  VTK_DIR=${_vtk}  IGSIO_DIR=${_igsio}  OpenIGTLinkIO_DIR=${_oio}"
+                 local _data; _data="$(pluslibdata_dir)"
+                 log "PlusLib: ITK_DIR=$(itk_dir)  VTK_DIR=${_vtk}  IGSIO_DIR=${_igsio}  OpenIGTLinkIO_DIR=${_oio}  PLUSLIB_DATA_DIR=${_data}"
                  do_overlay PlusLib itk-forest-base "$s" "$b" \
                    "ITK_DIR=$(itk_dir)" "VTK_DIR=${_vtk}" "IGSIO_DIR=${_igsio}" "PLUS_USE_OpenIGTLink=ON" \
-                   "OpenIGTLink_DIR=${_oi}" "OpenIGTLinkIO_DIR=${_oio}" ;;
+                   "OpenIGTLink_DIR=${_oi}" "OpenIGTLinkIO_DIR=${_oio}" \
+                   ${_data:+"PLUSLIB_DATA_DIR=${_data}"} ;;
     VkFFTBackend)
                  local _vk; _vk="$(vkfft_backend)"
                  [ -n "${_vk}" ] || die "VkFFTBackend: no GPU backend (CUDA/Metal/OpenCL) on this host"
