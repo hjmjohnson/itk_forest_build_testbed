@@ -31,3 +31,5 @@
 !/build_forest/
 /build_forest/*
 !/build_forest/README.md
+__pycache__/
+*.pyc
