@@ -193,6 +193,39 @@ git push --force-with-lease origin "${PR_BRANCH}"
 prevents clobbering upstream commits if someone else pushed to your
 branch while you were working.
 
+### Separate force-pushes for rebase vs. content
+
+Never mix a rebase onto the base branch and PR-content changes in one
+force-push. GitHub's per-push "compare" link is the reviewer's main
+tool for seeing what changed since their last review; a push that both
+rebases and edits makes that range diff useless (it drowns the real
+changes in upstream churn). Requested verbatim by a reviewer on ITK
+PR #6614: *"when force-pushing, can you keep plain rebase on main as a
+separate force-push? That makes it easy to just look at the
+PR-specific changes. When a rebase is mixed in, catching those
+PR-changes is harder."*
+
+The ordering when both are needed:
+
+```bash
+# Push 1 — rebase only (reviewers skip this one)
+git fetch upstream "$BASE_REF"
+git rebase "upstream/${BASE_REF}"
+git push --force-with-lease origin "${PR_BRANCH}"
+
+# Push 2 — content only, on the already-rebased branch
+#   (fixup commits + autosquash + pre-commit gate per the procedure above)
+git push --force-with-lease origin "${PR_BRANCH}"
+```
+
+If content fixups are already committed locally when a rebase becomes
+necessary, still split: complete the autosquash on the OLD base, push
+(content-only), then rebase and push again (rebase-only). Either order
+is fine — one concern per force-push is the invariant. When both
+pushes land close together, leave a one-line PR comment naming which
+push is which, e.g. *"first force-push = plain rebase on main; second =
+review fixes only."*
+
 **Critical:** never push without step 6 passing. The PR #6154 push
 that landed a clang-format failure (HEAD `2e30d89c`, 2026-04-28) is
 the canonical violation — the perl rename of `randgen` →
@@ -325,6 +358,13 @@ actual work.
 
 **Always target `upstream/main`** (the canonical repo), not
 `origin/main` (the fork). The fork's `main` may itself be behind.
+
+**Push the pure rebase by itself, before any content changes.** The
+Step 0.5 force-push must contain ONLY the rebase onto the new base —
+no fixups, no edits. Reviewers can then dismiss that push at a glance
+(GitHub shows it as "force-pushed" with an empty/mechanical range
+diff) and read the later content-only force-push in isolation. See
+"Separate force-pushes for rebase vs. content" below.
 
 ### Step 1 — Fetch and classify
 
