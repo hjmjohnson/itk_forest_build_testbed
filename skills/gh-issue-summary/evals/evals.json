@@ -1,0 +1,46 @@
+{
+  "skill_name": "gh-issue-summary",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Summarize all my open GitHub PRs and issues from the last month and create a SummaryReport.md with outstanding actions and recommendations.",
+      "expected_output": "A SummaryReport.md is written to the current directory containing: high-priority outstanding actions section, tables of open PRs organized by recency, tables of open issues, and a recommendations section with immediate/short-term/medium-term buckets.",
+      "files": [],
+      "expectations": [
+        "SummaryReport.md is created in the current working directory",
+        "Report contains a 'Outstanding Actions' or 'High Priority' section",
+        "Report contains tables or lists of open PRs with URLs",
+        "Report contains tables or lists of open Issues with URLs",
+        "Report contains a Recommendations section",
+        "Reviewer comments with action requests are quoted or summarized in the report",
+        "gh search prs and gh search issues commands are used to gather data"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "What do I need to do on GitHub this week? Check my open PRs and issues and tell me what's waiting for attention.",
+      "expected_output": "The skill fetches open PRs/issues, examines comment threads, and produces a SummaryReport.md. The response highlights the most urgent items (reviewer requests, unanswered questions) and gives a concise summary of what needs attention.",
+      "files": [],
+      "expectations": [
+        "SummaryReport.md is created",
+        "Outstanding reviewer requests are identified from comment threads",
+        "Items with comments are fetched in detail using gh pr view or gh issue view",
+        "Each high-priority item has a concrete recommended action",
+        "DRAFT PRs that are ready to promote are noted"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Generate my monthly GitHub status report — open PRs, open issues, what's blocked, what has outstanding review comments I haven't addressed yet.",
+      "expected_output": "A SummaryReport.md organized by section, with merge dependencies called out, blocked items identified, and for complex issues, detailed notes written to an issues/ subdirectory.",
+      "files": [],
+      "expectations": [
+        "SummaryReport.md is created",
+        "Merge dependencies between PRs are identified if present",
+        "Items older than 30 days are listed separately from recent items",
+        "For issues with long comment threads, a detailed notes file is created in issues/ subdirectory",
+        "Stale PRs (>1 year old) are flagged with a recommendation to close or rebase"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,49 @@
+# Known test/build failure to PR mapping for /ctk-validate-pr reports.
+#
+# Format: TEST_PATTERN|CATEGORY|PR_OR_ISSUE|DESCRIPTION
+#
+# TEST_PATTERN: regex matched against the test name (from ctest output)
+# CATEGORY: infrastructure|open-pr|known-bug|wontfix
+# PR_OR_ISSUE: commontk/CTK#NNN or "none"
+# DESCRIPTION: short explanation
+#
+# Lines starting with # are comments. Empty lines are ignored.
+# This file is read by 05-generate-report.sh to annotate test failures.
+
+# --- Language/locale ---
+ctkLanguageComboBoxTest|open-pr|commontk/CTK#1400|BUG: Fix ctkLanguageComboBox locale normalization and selection
+
+# --- Modal dialog timeouts (Qt5 EventTranslatorPlayer tests) ---
+ctkFontButtonTest|open-pr|commontk/CTK#1395|WIP: Fix ctkFontButtonTest hang and disable stale modal dialog tests
+ctkColorPickerButtonEventTranslatorPlayerTest1|open-pr|commontk/CTK#1395|Modal dialog timeout — addressed in test fix PR
+ctkDirectoryButtonEventTranslatorPlayerTest1|open-pr|commontk/CTK#1395|Modal dialog timeout — addressed in test fix PR
+ctkFileDialogEventTranslatorPlayerTest1|open-pr|commontk/CTK#1395|Modal dialog timeout — addressed in test fix PR
+ctkMenuComboBoxEventTranslatorPlayerTest1|open-pr|commontk/CTK#1395|Modal dialog event translator failure
+ctkVTKTextPropertyWidgetEventTranslatorPlayerTest1|open-pr|commontk/CTK#1395|Modal dialog timeout — addressed in test fix PR
+
+# --- OpenGL/display infrastructure (headless CI) ---
+ctkWidgetsUtilsTestGrabWidget|infrastructure|none|Requires OpenGL display — fails in headless environments
+vtkLightBoxRendererManagerTest1|infrastructure|none|GPU/GLSL infrastructure — SEGFAULT in headless environments
+ctkVTKMagnifyViewTest2OddOdd|infrastructure|none|VTK OpenGL render — fails without GPU
+ctkVTKMagnifyViewTest2EvenEven|infrastructure|none|VTK OpenGL render — fails without GPU
+ctkVTKMagnifyViewTest2OddEven|infrastructure|none|VTK OpenGL render — fails without GPU
+ctkVTKMagnifyViewTest2EvenOdd|infrastructure|none|VTK OpenGL render — fails without GPU
+
+# --- Qt6-specific ---
+ctkWorkflowWidgetTest1|known-bug|none|Qt6 QStateMachine async transitions — widgets not visible in time
+ctkWorkflowWidgetTest2|known-bug|none|Qt6 QStateMachine async transitions — widgets not visible in time
+CTKPluginFrameworkAppTests|known-bug|none|Qt6 subprocess abort — pre-existing
+
+# --- Reference-only failures (fixed on master, fail at stock 935c4e04) ---
+ctkBackTraceTest|known-bug|none|Fixed on master — symbol resolution on Linux with hidden visibility
+ctkLoggerTest1|known-bug|none|Fixed on master — default log level expectation
+ctkMessageBoxDontShowAgainTest|known-bug|none|Fixed on master — ButtonRole vs StandardButton
+ctkPathLineEditEventTranslatorPlayerTest1|known-bug|none|Fixed on master — XML widget name update
+ctkDICOMPatientDelegateTest1|known-bug|none|Fixed on master — default header height
+ctkVTKErrorLogModelFileLoggingTest1|known-bug|none|Fixed on master — Qt6 + line stability
+ctkVTKHistogramTest3|known-bug|none|Fixed on master — out-of-bounds read with signed VTK_CHAR
+ctkVTKPropertyWidgetTest|known-bug|none|Fixed on master — float precision comparison
+ctkVTKThresholdWidgetTest1|known-bug|none|Fixed on master — threshold lost after setRange
+ctkVTKSurfaceMaterialPropertyWidgetTest1|known-bug|none|Fixed on master — opacity comparison
+ctkVTKRenderViewEventTranslatorPlayerTest1|known-bug|none|Fixed on master — Qt6 protected operator=
+ctkVTKScalarBarWidgetEventTranslatorPlayerTest1|known-bug|none|Fixed on master — missing XML events

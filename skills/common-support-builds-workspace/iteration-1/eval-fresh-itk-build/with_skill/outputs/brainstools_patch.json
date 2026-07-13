@@ -1,0 +1,18 @@
+{
+  "version": 3,
+  "configurePresets": [
+    {
+      "name": "csv_BRAINSTools_system_ITK",
+      "displayName": "BRAINSTools with USE_SYSTEM_ITK (shared ITK v5.4.2)",
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE":                {"type": "STRING", "value": "Release"},
+        "CMAKE_CXX_FLAGS":                 {"type": "STRING", "value": "-mtune=native -march=native"},
+        "CMAKE_C_FLAGS":                   {"type": "STRING", "value": "-mtune=native -march=native"},
+        "CMAKE_EXPORT_COMPILE_COMMANDS":   {"type": "BOOL",   "value": "ON"},
+        "USE_SYSTEM_ITK":                  {"type": "BOOL",   "value": "ON"},
+        "ITK_DIR":                         {"type": "PATH",   "value": "/Users/johnsonhj/src/common_support_versions/ITK/installed_v5.4.2_shared/lib/cmake/ITK-5.4"}
+      }
+    }
+  ]
+}

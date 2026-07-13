@@ -1,0 +1,13 @@
+{
+  "eval_id": 2,
+  "eval_name": "asan-variant",
+  "prompt": "I already have ITK v5.4.2 in common_support_versions. Now I need an ASAN build of the same tag for sanitizer testing. Use the default Apple Clang compiler.",
+  "assertions": [
+    {"text": "Uses _asan feature suffix (not _shared or no suffix)"},
+    {"text": "ASAN flags include -fsanitize=address"},
+    {"text": "Does NOT specify a non-default compiler (Apple Clang is system default)"},
+    {"text": "Reuses existing src_v5.4.2 worktree (no new clone)"},
+    {"text": "Build and install dirs have _asan suffix"},
+    {"text": "Existing csv_ITK_v5.4.2 preset is preserved"}
+  ]
+}

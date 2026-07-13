@@ -1,0 +1,71 @@
+version: 1
+project:
+  # IJ Article Publication ID -- replace 000 with the handle/ID assigned
+  # when you create the submission at https://insight-journal.org
+  id: insight-journal-000
+  title: "TITLE OF YOUR ARTICLE"
+  description: "One-sentence description of the contribution."
+
+  authors:
+    - name: Hans J. Johnson
+      email: hans-johnson@uiowa.edu
+      orcid: 0000-0001-9513-2660
+      corresponding: true
+      affiliations:
+        - id: uiowa
+          name: Department of Electrical and Computer Engineering, University of Iowa
+          address: Iowa City, IA, USA
+    # Verified-ORCID registry of active ITK contributors (ORCID public API,
+    # 2026-06-27; each confirmed against the person's employment/works record).
+    # Uncomment + add the matching affiliation only for actual co-authors of a
+    # given paper -- do not list someone as an author who did not co-write it.
+    # - name: Nicholas J. Tustison
+    #   orcid: 0000-0001-9418-5103   # University of Virginia (ANTsX)
+    # - name: Bradley C. Lowekamp
+    #   orcid: 0000-0002-4579-5738   # NIH (SimpleITK)
+    # - name: Matthew McCormick
+    #   orcid: 0000-0001-9475-3756   # Fideus Labs / Kitware (ITK-Wasm)
+    # - name: Dženan Zukić
+    #   orcid: 0000-0002-9546-9703   # Kitware (itk-elastix)
+    # - name: Jon Haitz Legarreta Gorroño
+    #   orcid: 0000-0002-9661-1396   # Brigham and Women's Hospital / Harvard Medical School
+    # - name: Simon Rit
+    #   orcid: 0000-0003-2530-1013   # CNRS / CREATIS, INSA-Lyon
+    # UNVERIFIED (no confident ORCID match found 2026-06-27 -- look up before use):
+    #   Niels Dekker (LUMC, N.Dekker@lumc.nl); Sean McBride (Rogue Research)
+
+  # License and access (IJ standard: Apache-2.0 code, CC-BY-4.0 content)
+  license:
+    code: Apache-2.0
+    content: CC-BY-4.0
+  open_access: true
+
+  numbering:
+    figure: true
+    table: true
+    equation: true
+
+  # Repository link -- point at your paper's repo
+  github: hjmjohnson/REPLACE-WITH-REPO
+
+  venue:
+    title: Insight Journal
+    url: https://insight-journal.org
+
+  exports:
+    - format: typst
+      template: lapreprint-typst
+      output: exports/manuscript.pdf
+    - format: cff
+    - format: meca
+      output: exports/article.meca.zip
+
+  toc:
+    - file: docs/index.md
+
+  resources:
+    - src/**
+    - data/**
+
+  bibliography:
+    - docs/references.bib

@@ -1,0 +1,87 @@
+{
+  "_comment": "Dependency graph for common_support_versions recursive builds. Resolution priority: installed CSV > pixi env > homebrew > build from source. Each dep has conda_pkg (conda-forge name) and homebrew_pkg for package manager resolution.",
+
+  "ITK": {
+    "repo": "https://github.com/InsightSoftwareConsortium/ITK.git",
+    "deps": {
+      "Eigen3":           {"use_system_var": "ITK_USE_SYSTEM_EIGEN",            "find_var": "Eigen3_DIR",           "category": "header-only", "conda_pkg": "eigen",              "homebrew_pkg": "eigen"},
+      "ZLIB":             {"use_system_var": "ITK_USE_SYSTEM_ZLIB",             "find_var": "ZLIB_ROOT",            "category": "tiny",        "conda_pkg": "zlib",               "homebrew_pkg": "zlib"},
+      "PNG":              {"use_system_var": "ITK_USE_SYSTEM_PNG",              "find_var": "PNG_DIR",              "category": "tiny",        "conda_pkg": "libpng",             "homebrew_pkg": "libpng"},
+      "JPEG":             {"use_system_var": "ITK_USE_SYSTEM_JPEG",             "find_var": "JPEG_DIR",             "category": "tiny",        "conda_pkg": "libjpeg-turbo",      "homebrew_pkg": "jpeg"},
+      "TIFF":             {"use_system_var": "ITK_USE_SYSTEM_TIFF",             "find_var": "TIFF_DIR",             "category": "tiny",        "conda_pkg": "libtiff",            "homebrew_pkg": "libtiff"},
+      "Expat":            {"use_system_var": "ITK_USE_SYSTEM_EXPAT",            "find_var": "EXPAT_DIR",            "category": "tiny",        "conda_pkg": "expat",              "homebrew_pkg": "expat"},
+      "DoubleConversion": {"use_system_var": "ITK_USE_SYSTEM_DOUBLECONVERSION", "find_var": "double-conversion_DIR","category": "tiny",        "conda_pkg": "double-conversion",  "homebrew_pkg": "double-conversion"},
+      "HDF5":             {"use_system_var": "ITK_USE_SYSTEM_HDF5",             "find_var": "HDF5_DIR",             "category": "medium",      "conda_pkg": "hdf5",               "homebrew_pkg": "hdf5"},
+      "DCMTK":            {"use_system_var": "ITK_USE_SYSTEM_DCMTK",           "find_var": "DCMTK_DIR",            "category": "large",       "conda_pkg": "dcmtk",              "homebrew_pkg": null},
+      "GDCM":             {"use_system_var": "ITK_USE_SYSTEM_GDCM",            "find_var": "GDCM_DIR",             "category": "large",       "conda_pkg": "gdcm",               "homebrew_pkg": null},
+      "FFTW":             {"use_system_var": "ITK_USE_SYSTEM_FFTW",             "find_var": "FFTW_DIR",             "category": "medium",      "conda_pkg": "fftw",               "homebrew_pkg": "fftw"},
+      "TBB":              {"use_system_var": "USE_SYSTEM_TBB",                  "find_var": "TBB_DIR",              "category": "medium",      "conda_pkg": "tbb-devel",          "homebrew_pkg": "tbb"},
+      "SWIG":             {"use_system_var": "ITK_USE_SYSTEM_SWIG",             "find_var": "SWIG_EXECUTABLE",      "category": "build-tool",  "conda_pkg": "swig",               "homebrew_pkg": "swig"},
+      "CastXML":          {"use_system_var": "ITK_USE_SYSTEM_CASTXML",          "find_var": "CASTXML_EXECUTABLE",   "category": "build-tool",  "conda_pkg": "castxml",            "homebrew_pkg": "castxml"},
+      "GoogleTest":       {"use_system_var": "ITK_USE_SYSTEM_GOOGLETEST",       "find_var": "GTest_DIR",            "category": "tiny",        "conda_pkg": "gtest",              "homebrew_pkg": "googletest"}
+    }
+  },
+
+  "VTK": {
+    "repo": "https://github.com/Kitware/VTK.git",
+    "deps": {
+      "Eigen3":           {"use_system_var": "VTK_MODULE_USE_EXTERNAL_VTK_eigen",   "find_var": "Eigen3_DIR",           "category": "header-only", "conda_pkg": "eigen",             "homebrew_pkg": "eigen"},
+      "ZLIB":             {"use_system_var": "VTK_MODULE_USE_EXTERNAL_VTK_zlib",    "find_var": "ZLIB_ROOT",            "category": "tiny",        "conda_pkg": "zlib",              "homebrew_pkg": "zlib"},
+      "PNG":              {"use_system_var": "VTK_MODULE_USE_EXTERNAL_VTK_png",     "find_var": "PNG_DIR",              "category": "tiny",        "conda_pkg": "libpng",            "homebrew_pkg": "libpng"},
+      "JPEG":             {"use_system_var": "VTK_MODULE_USE_EXTERNAL_VTK_jpeg",    "find_var": "JPEG_DIR",             "category": "tiny",        "conda_pkg": "libjpeg-turbo",     "homebrew_pkg": "jpeg"},
+      "TIFF":             {"use_system_var": "VTK_MODULE_USE_EXTERNAL_VTK_tiff",    "find_var": "TIFF_DIR",             "category": "tiny",        "conda_pkg": "libtiff",           "homebrew_pkg": "libtiff"},
+      "Expat":            {"use_system_var": "VTK_MODULE_USE_EXTERNAL_VTK_expat",   "find_var": "EXPAT_DIR",            "category": "tiny",        "conda_pkg": "expat",             "homebrew_pkg": "expat"},
+      "DoubleConversion": {"use_system_var": "VTK_MODULE_USE_EXTERNAL_VTK_doubleconversion", "find_var": "double-conversion_DIR", "category": "tiny", "conda_pkg": "double-conversion", "homebrew_pkg": "double-conversion"},
+      "HDF5":             {"use_system_var": "VTK_MODULE_USE_EXTERNAL_VTK_hdf5",    "find_var": "HDF5_DIR",             "category": "medium",      "conda_pkg": "hdf5",              "homebrew_pkg": "hdf5"},
+      "FFTW":             {"use_system_var": "VTK_MODULE_USE_EXTERNAL_VTK_fftw",    "find_var": "FFTW_DIR",             "category": "medium",      "conda_pkg": "fftw",              "homebrew_pkg": "fftw"}
+    }
+  },
+
+  "BRAINSTools": {
+    "repo": "https://github.com/BRAINSia/BRAINSTools.git",
+    "deps": {
+      "ITK":  {"use_system_var": "USE_SYSTEM_ITK",  "find_var": "ITK_DIR",  "category": "large",  "conda_pkg": null, "homebrew_pkg": null},
+      "VTK":  {"use_system_var": "USE_SYSTEM_VTK",  "find_var": "VTK_DIR",  "category": "large",  "conda_pkg": null, "homebrew_pkg": null},
+      "TBB":  {"use_system_var": "USE_SYSTEM_TBB",  "find_var": "TBB_DIR",  "category": "medium", "conda_pkg": "tbb-devel", "homebrew_pkg": "tbb"},
+      "ANTs": {"use_system_var": "USE_SYSTEM_ANTs", "find_var": "ANTs_DIR", "category": "large",  "conda_pkg": null, "homebrew_pkg": null}
+    }
+  },
+
+  "ANTs": {
+    "repo": "https://github.com/ANTsX/ANTs.git",
+    "deps": {
+      "ITK": {"use_system_var": "USE_SYSTEM_ITK", "find_var": "ITK_DIR", "category": "large", "conda_pkg": null, "homebrew_pkg": null}
+    }
+  },
+
+  "_slicer_note": "BLOCKED means Slicer's External_*.cmake has FATAL_ERROR for USE_SYSTEM — not supported upstream. OK deps can be pre-built. Python python-* deps inherit from Slicer_USE_SYSTEM_python.",
+
+  "Slicer": {
+    "repo": "https://github.com/Slicer/Slicer.git",
+    "deps": {
+      "ITK":       {"use_system_var": "Slicer_USE_SYSTEM_ITK",       "find_var": "ITK_DIR",       "category": "large",      "conda_pkg": null,              "homebrew_pkg": null},
+      "VTK":       {"use_system_var": "Slicer_USE_SYSTEM_VTK",       "find_var": "VTK_DIR",       "category": "large",      "conda_pkg": null,              "homebrew_pkg": null},
+      "DCMTK":     {"use_system_var": "Slicer_USE_SYSTEM_DCMTK",     "find_var": "DCMTK_DIR",     "category": "large",      "conda_pkg": "dcmtk",           "homebrew_pkg": null},
+      "curl":      {"use_system_var": "Slicer_USE_SYSTEM_curl",      "find_var": "CURL_DIR",      "category": "medium",     "conda_pkg": "libcurl",          "homebrew_pkg": "curl"},
+      "zlib":      {"use_system_var": "Slicer_USE_SYSTEM_zlib",      "find_var": "ZLIB_ROOT",     "category": "tiny",       "conda_pkg": "zlib",             "homebrew_pkg": "zlib"},
+      "bzip2":     {"use_system_var": "Slicer_USE_SYSTEM_bzip2",     "find_var": "BZIP2_ROOT",    "category": "tiny",       "conda_pkg": "bzip2",            "homebrew_pkg": "bzip2"},
+      "LZMA":      {"use_system_var": "Slicer_USE_SYSTEM_LZMA",      "find_var": "LZMA_DIR",      "category": "tiny",       "conda_pkg": "xz",              "homebrew_pkg": "xz"},
+      "LibFFI":    {"use_system_var": "Slicer_USE_SYSTEM_LibFFI",    "find_var": "LibFFI_DIR",    "category": "tiny",       "conda_pkg": "libffi",           "homebrew_pkg": "libffi"},
+      "OpenSSL":   {"use_system_var": "Slicer_USE_SYSTEM_OpenSSL",   "find_var": "OPENSSL_ROOT_DIR","category": "medium",   "conda_pkg": "openssl",          "homebrew_pkg": "openssl@3"},
+      "sqlite":    {"use_system_var": "Slicer_USE_SYSTEM_sqlite",    "find_var": "sqlite_DIR",    "category": "tiny",       "conda_pkg": "sqlite",           "homebrew_pkg": "sqlite"},
+      "RapidJSON": {"use_system_var": "Slicer_USE_SYSTEM_RapidJSON", "find_var": "RapidJSON_DIR", "category": "header-only","conda_pkg": "rapidjson",        "homebrew_pkg": "rapidjson"},
+      "teem":      {"use_system_var": "Slicer_USE_SYSTEM_teem",      "find_var": "Teem_DIR",      "category": "medium",     "conda_pkg": "teem",             "homebrew_pkg": "teem"},
+      "python":    {"use_system_var": "Slicer_USE_SYSTEM_python",    "find_var": "PYTHON_EXECUTABLE","category": "large",   "conda_pkg": "python",           "homebrew_pkg": "python@3"}
+    },
+    "blocked": ["CTK", "CTKAPPLAUNCHER", "CTKAppLauncherLib", "CTKResEdit", "JsonCpp", "LibArchive", "ParameterSerializer", "qRestAPI", "SlicerExecutionModel", "tbb"]
+  },
+
+  "CTK": {
+    "repo": "https://github.com/commontk/CTK.git",
+    "deps": {
+      "VTK":   {"use_system_var": "CTK_USE_SYSTEM_VTK",   "find_var": "VTK_DIR",   "category": "large",  "conda_pkg": null, "homebrew_pkg": null},
+      "DCMTK": {"use_system_var": "CTK_USE_SYSTEM_DCMTK", "find_var": "DCMTK_DIR", "category": "large",  "conda_pkg": "dcmtk", "homebrew_pkg": null},
+      "ITK":   {"use_system_var": "CTK_USE_SYSTEM_ITK",   "find_var": "ITK_DIR",   "category": "large",  "conda_pkg": null, "homebrew_pkg": null}
+    }
+  }
+}

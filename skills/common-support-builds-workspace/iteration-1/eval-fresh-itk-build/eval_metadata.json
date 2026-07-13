@@ -1,0 +1,15 @@
+{
+  "eval_id": 1,
+  "eval_name": "fresh-itk-build",
+  "prompt": "I need ITK v5.4.2 built as a shared library so I can use it with BRAINSTools via USE_SYSTEM_ITK. Set it up in common_support_versions.",
+  "assertions": [
+    {"text": "Uses csv_scaffold.sh with --feature shared flag"},
+    {"text": "Preset name includes _shared suffix (csv_ITK_v5.4.2_shared)"},
+    {"text": "BUILD_SHARED_LIBS is ON in the preset"},
+    {"text": "No -D flags used on cmake command line"},
+    {"text": "Uses cmake --preset for configure step"},
+    {"text": "Consumer patch sets ITK_DIR pointing to installed_v5.4.2_shared"},
+    {"text": "Consumer patch sets USE_SYSTEM_ITK=ON"},
+    {"text": "Build dir is bld_v5.4.2_shared (not bld_v5.4.2)"}
+  ]
+}

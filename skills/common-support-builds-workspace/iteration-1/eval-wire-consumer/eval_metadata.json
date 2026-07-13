@@ -1,0 +1,12 @@
+{
+  "eval_id": 3,
+  "eval_name": "wire-consumer",
+  "prompt": "I've got ITK and VTK pre-built in common_support_versions. Update my BRAINSTools CMakeUserPresets.json to use them instead of the SuperBuild ExternalProjects.",
+  "assertions": [
+    {"text": "Uses csv_update_consumer.py (not manual JSON editing)"},
+    {"text": "Sets ITK_DIR to correct cmake config path under installed_v5.4.2"},
+    {"text": "Sets VTK_DIR to correct cmake config path under installed_v9.4.0"},
+    {"text": "Sets USE_SYSTEM_ITK=ON and USE_SYSTEM_VTK=ON"},
+    {"text": "Mentions disabling SuperBuild EP for ITK/VTK"}
+  ]
+}

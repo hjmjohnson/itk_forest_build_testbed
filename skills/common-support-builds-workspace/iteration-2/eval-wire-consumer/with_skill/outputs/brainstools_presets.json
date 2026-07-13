@@ -1,0 +1,43 @@
+{
+  "version": 3,
+  "configurePresets": [
+    {
+      "name": "base_language",
+      "displayName": "BRAINSTools with pre-built dependencies",
+      "description": "Uses common_support_versions ITK and VTK instead of SuperBuild",
+      "inherits": "brainstools_base",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/cmake-csv-build",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": {
+          "type": "STRING",
+          "value": "Release"
+        },
+        "BRAINSTools_SUPERBUILD": {
+          "type": "BOOL",
+          "value": "OFF"
+        },
+        "BRAINSTools_PKGBUILD": {
+          "type": "BOOL",
+          "value": "ON"
+        },
+        "ITK_DIR": {
+          "type": "PATH",
+          "value": "/Users/johnsonhj/src/common_support_versions/ITK/installed_v5.4.2/lib/cmake/ITK-5.4"
+        },
+        "USE_SYSTEM_ITK": {
+          "type": "BOOL",
+          "value": "ON"
+        },
+        "VTK_DIR": {
+          "type": "PATH",
+          "value": "/Users/johnsonhj/src/common_support_versions/VTK/installed_v9.4.0/lib/cmake/vtk-9.4"
+        },
+        "USE_SYSTEM_VTK": {
+          "type": "BOOL",
+          "value": "ON"
+        }
+      }
+    }
+  ]
+}

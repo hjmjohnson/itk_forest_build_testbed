@@ -1,0 +1,21 @@
+PR #6489 downstream consumer matrix  (SYSTEM_ZLIB ON unless OFF col; ITK 6.0)
+variants: C=main baseline, A=PR(install empty), B=both INSTALL+BUILD empty
+==========================================================================================
+consumer          tree        OFF        C:base     A:PR       B:empty2     PR-vs-baseline
+------------------------------------------------------------------------------------------
+modern_libraries  buildtree   PASS       PASS       PASS       PASS         same
+modern_libraries  installtree PASS       PASS       PASS       PASS         same
+legacy_usefile    buildtree   PASS       PASS       PASS       PASS         same
+legacy_usefile    installtree PASS       PASS       PASS       PASS         same
+config_nomodule   buildtree   PASS       PASS       PASS       PASS         same
+config_nomodule   installtree PASS       PASS       PASS       PASS         same
+components        buildtree   FAIL-build FAIL-build FAIL-build FAIL-build   same
+components        installtree PASS       PASS       PASS       PASS         same
+direct_target     buildtree   PASS       PASS       PASS       PASS         same
+direct_target     installtree PASS       PASS       PASS       PASS         same
+naive_thirdparty  buildtree   FAIL-configurePASS       PASS       FAIL-configure  same
+naive_thirdparty  installtree FAIL-configurePASS       FAIL-configureFAIL-configure  CHANGED PASS->FAIL-configure
+------------------------------------------------------------------------------------------
+notes: components/buildtree FAIL-build and OFF naive FAIL = constants,
+orthogonal to the change (see SKILL.md 'Known constants'). The ONLY
+PR-induced change is naive_thirdparty/installtree: PASS -> FAIL.

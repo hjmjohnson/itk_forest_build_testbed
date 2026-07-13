@@ -1,0 +1,124 @@
+{
+  "skill_name": "common-support-builds",
+  "evals": [
+    {
+      "id": 1,
+      "name": "fresh-itk-build",
+      "prompt": "I need ITK v5.4.2 built as a shared library so I can use it with BRAINSTools via USE_SYSTEM_ITK. Set it up in common_support_versions.",
+      "expected_output": "Shell commands using skill scripts, ITK CMakeUserPresets.json with _shared suffix, and BRAINSTools consumer patch",
+      "assertions": [
+        {
+          "text": "Uses csv_scaffold.sh with --feature shared flag",
+          "type": "content_check",
+          "check": "commands.sh contains csv_scaffold.sh and --feature shared"
+        },
+        {
+          "text": "Preset name includes _shared suffix (csv_ITK_v5.4.2_shared)",
+          "type": "content_check",
+          "check": "itk_presets.json contains csv_ITK_v5.4.2_shared"
+        },
+        {
+          "text": "BUILD_SHARED_LIBS is ON in the preset",
+          "type": "content_check",
+          "check": "itk_presets.json has BUILD_SHARED_LIBS ON"
+        },
+        {
+          "text": "No -D flags used on cmake command line",
+          "type": "content_check",
+          "check": "commands.sh does not contain 'cmake -D' or 'cmake -S'"
+        },
+        {
+          "text": "Uses cmake --preset for configure step",
+          "type": "content_check",
+          "check": "commands.sh contains 'cmake --preset'"
+        },
+        {
+          "text": "Consumer patch sets ITK_DIR pointing to installed_v5.4.2_shared",
+          "type": "content_check",
+          "check": "brainstools_patch.json contains installed_v5.4.2_shared and ITK_DIR"
+        },
+        {
+          "text": "Consumer patch sets USE_SYSTEM_ITK=ON",
+          "type": "content_check",
+          "check": "brainstools_patch.json contains USE_SYSTEM_ITK ON"
+        },
+        {
+          "text": "Build dir is bld_v5.4.2_shared (not bld_v5.4.2)",
+          "type": "content_check",
+          "check": "itk_presets.json binaryDir contains bld_v5.4.2_shared"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "asan-variant",
+      "prompt": "I already have ITK v5.4.2 in common_support_versions. Now I need an ASAN build of the same tag for sanitizer testing. Use the default Apple Clang compiler.",
+      "expected_output": "Commands for ASAN variant, preset with _asan suffix alongside existing default preset, ASAN flag notes",
+      "assertions": [
+        {
+          "text": "Uses _asan feature suffix (not _shared or no suffix)",
+          "type": "content_check",
+          "check": "preset name is csv_ITK_v5.4.2_asan"
+        },
+        {
+          "text": "ASAN flags include -fsanitize=address",
+          "type": "content_check",
+          "check": "itk_presets.json contains -fsanitize=address"
+        },
+        {
+          "text": "Does NOT specify a non-default compiler (Apple Clang is system default)",
+          "type": "content_check",
+          "check": "itk_presets.json does not set CMAKE_CXX_COMPILER"
+        },
+        {
+          "text": "Reuses existing src_v5.4.2 worktree (no new clone)",
+          "type": "content_check",
+          "check": "commands.sh does not clone a new repo or create a new worktree for the source"
+        },
+        {
+          "text": "Build and install dirs have _asan suffix",
+          "type": "content_check",
+          "check": "bld_v5.4.2_asan and installed_v5.4.2_asan appear"
+        },
+        {
+          "text": "Existing csv_ITK_v5.4.2 preset is preserved",
+          "type": "content_check",
+          "check": "itk_presets.json contains both csv_ITK_v5.4.2 and csv_ITK_v5.4.2_asan"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "name": "wire-consumer",
+      "prompt": "I've got ITK and VTK pre-built in common_support_versions. Update my BRAINSTools CMakeUserPresets.json to use them instead of the SuperBuild ExternalProjects.",
+      "expected_output": "Commands using csv_update_consumer.py for both ITK and VTK, resulting BRAINSTools presets, SuperBuild bypass notes",
+      "assertions": [
+        {
+          "text": "Uses csv_update_consumer.py (not manual JSON editing)",
+          "type": "content_check",
+          "check": "commands.sh contains csv_update_consumer.py"
+        },
+        {
+          "text": "Sets ITK_DIR to correct cmake config path under installed_v5.4.2",
+          "type": "content_check",
+          "check": "brainstools_presets.json contains ITK_DIR with lib/cmake/ITK"
+        },
+        {
+          "text": "Sets VTK_DIR to correct cmake config path under installed_v9.4.0",
+          "type": "content_check",
+          "check": "brainstools_presets.json contains VTK_DIR with lib/cmake/vtk"
+        },
+        {
+          "text": "Sets USE_SYSTEM_ITK=ON and USE_SYSTEM_VTK=ON",
+          "type": "content_check",
+          "check": "brainstools_presets.json contains both USE_SYSTEM variables set to ON"
+        },
+        {
+          "text": "Mentions disabling SuperBuild EP for ITK/VTK",
+          "type": "content_check",
+          "check": "superbuild_notes.md discusses skipping ExternalProject builds"
+        }
+      ]
+    }
+  ]
+}

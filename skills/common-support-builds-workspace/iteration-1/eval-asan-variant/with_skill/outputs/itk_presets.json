@@ -1,0 +1,54 @@
+{
+  "version": 3,
+  "configurePresets": [
+    {
+      "name": "csv_base",
+      "hidden": true,
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE":              {"type": "STRING", "value": "Release"},
+        "CMAKE_CXX_FLAGS":              {"type": "STRING", "value": "-mtune=native -march=native"},
+        "CMAKE_C_FLAGS":                {"type": "STRING", "value": "-mtune=native -march=native"},
+        "BUILD_TESTING":                {"type": "BOOL",   "value": "OFF"},
+        "BUILD_EXAMPLES":               {"type": "BOOL",   "value": "OFF"},
+        "BUILD_SHARED_LIBS":            {"type": "BOOL",   "value": "OFF"},
+        "CMAKE_EXPORT_COMPILE_COMMANDS": {"type": "BOOL",  "value": "ON"}
+      }
+    },
+    {
+      "name": "csv_ITK_v5.4.2",
+      "inherits": "csv_base",
+      "displayName": "ITK v5.4.2 (Release, static, native)",
+      "binaryDir": "${sourceDir}/../bld_v5.4.2",
+      "cacheVariables": {
+        "CMAKE_INSTALL_PREFIX":     {"type": "PATH", "value": "/Users/johnsonhj/src/common_support_versions/ITK/installed_v5.4.2"},
+        "ITK_LEGACY_REMOVE":        {"type": "BOOL", "value": "ON"},
+        "ITK_BUILD_DEFAULT_MODULES": {"type": "BOOL", "value": "ON"}
+      }
+    },
+    {
+      "name": "csv_ITK_v5.4.2_asan",
+      "inherits": "csv_ITK_v5.4.2",
+      "displayName": "ITK v5.4.2 (Release, static, native, ASAN)",
+      "binaryDir": "${sourceDir}/../bld_v5.4.2_asan",
+      "cacheVariables": {
+        "CMAKE_INSTALL_PREFIX":       {"type": "PATH",   "value": "/Users/johnsonhj/src/common_support_versions/ITK/installed_v5.4.2_asan"},
+        "CMAKE_CXX_FLAGS":           {"type": "STRING", "value": "-mtune=native -march=native -fsanitize=address -fno-omit-frame-pointer -fno-optimize-sibling-calls"},
+        "CMAKE_C_FLAGS":             {"type": "STRING", "value": "-mtune=native -march=native -fsanitize=address -fno-omit-frame-pointer -fno-optimize-sibling-calls"},
+        "CMAKE_EXE_LINKER_FLAGS":    {"type": "STRING", "value": "-fsanitize=address"},
+        "CMAKE_SHARED_LINKER_FLAGS": {"type": "STRING", "value": "-fsanitize=address"},
+        "CMAKE_MODULE_LINKER_FLAGS": {"type": "STRING", "value": "-fsanitize=address"}
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "csv_ITK_v5.4.2",
+      "configurePreset": "csv_ITK_v5.4.2"
+    },
+    {
+      "name": "csv_ITK_v5.4.2_asan",
+      "configurePreset": "csv_ITK_v5.4.2_asan"
+    }
+  ]
+}
