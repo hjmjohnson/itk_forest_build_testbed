@@ -207,6 +207,13 @@ unset CFLAGS CPPFLAGS CXXFLAGS LDFLAGS CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH
 # wins for itself; EPs without one fall back to this env default.
 export CMAKE_TOOLCHAIN_FILE="${TESTBED}/cmake/forest-toolchain.cmake"
 
+# Conda activation exports CPATH=$PREFIX/include, which the compiler searches
+# like -I — BEFORE every -isystem — so conda headers (OpenSSL 3, zlib, ...)
+# silently shadow the header set a project explicitly configures against
+# (e.g. Slicer's curl EP compiled vs conda OpenSSL 3 while linking the
+# OpenSSL 1.1 EP). Drop it; CMake projects locate headers via find_package.
+unset CPATH
+
 # Forest-level build/install tree locations. Task-2 flips these two bodies to
 # the nested layout; every caller goes through them so the change is one place.
 build_dir(){   echo "${FOREST}/${1}/build"; }
@@ -297,7 +304,7 @@ itk_vtk_dir(){
   # ITKVtkGlue and all consumers); then a Slicer/override VTK; then the
   # headless BRAINSTools VTK as a last resort.
   for d in "${ITK_VTK_DIR:-}" "$(build_dir VTK)" "$(vtk_dir)" \
-           "${FOREST}/BRAINSTools-build/VTK-Release-build"; do
+           "$(build_dir BRAINSTools)/VTK-Release-build"; do
     [ -n "$d" ] && [ -f "${d}/vtk-config.cmake" ] && { echo "$d"; return; }
   done; return 0; }
 
@@ -745,7 +752,7 @@ _patch_brainstools_tbb(){
 # header changes above take effect on the next build.
 _reconfigure_brainstools_inner(){
   local ib
-  ib="$(find "${FOREST}/BRAINSTools-build" -maxdepth 1 -type d -name 'BRAINSTools-*-EP*-build' 2>/dev/null | head -1)"
+  ib="$(find "$(build_dir BRAINSTools)" -maxdepth 1 -type d -name 'BRAINSTools-*-EP*-build' 2>/dev/null | head -1)"
   [ -n "${ib}" ] && [ -f "${ib}/CMakeCache.txt" ] && cmake "${ib}" >/dev/null 2>&1 || true
 }
 
@@ -797,7 +804,7 @@ build_forest_vtk(){
   local src="${FOREST}/VTK" b="$(build_dir VTK)"
   local tag="ddd10cf957df01f54eca6546e975e502ea248645" # slicer-v9.6.2-2026-05-15
   if [ ! -f "${src}/CMakeLists.txt" ]; then
-    local existing="${FOREST}/BRAINSTools-build/VTK"
+    local existing="$(build_dir BRAINSTools)/VTK"
     if [ -f "${existing}/CMakeLists.txt" ]; then src="${existing}"
     else git clone https://github.com/slicer/VTK.git "${src}" \
          && git -C "${src}" checkout "${tag}"; fi

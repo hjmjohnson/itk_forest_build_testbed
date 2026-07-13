@@ -32,3 +32,39 @@ if(APPLE AND DEFINED ENV{CONDA_PREFIX} AND EXISTS "$ENV{CONDA_PREFIX}/lib/libico
   set(Iconv_INCLUDE_DIR "$ENV{CONDA_PREFIX}/include" CACHE PATH "conda iconv (matches compiler default header)" FORCE)
   set(Iconv_LIBRARY "$ENV{CONDA_PREFIX}/lib/libiconv.dylib" CACHE FILEPATH "conda iconv (has libiconv_* symbols)" FORCE)
 endif()
+
+# 4. Linux: conda binutils (new-dtags) does not search -rpath when resolving a
+#    shared library's own NEEDED entries at link time, so executables linking a
+#    lib with PRIVATE shared deps (e.g. ITK's itkTestDriver vs ITKTestKernel's
+#    IO factories) fail with "needed by ... not found". Point -rpath-link at
+#    the consuming project's own lib dir.
+if(UNIX AND NOT APPLE)
+  # Own lib dir plus sibling SuperBuild EP lib dirs (Slicer layout: the EPs
+  # are peers under the SuperBuild root; nonexistent dirs are harmless).
+  set(_forest_rpl " -Wl,-rpath-link,${CMAKE_BINARY_DIR}/lib")
+  foreach(_forest_dep ITK-build/lib VTK-build/lib CTK-build/CTK-build/lib
+                      DCMTK-build/lib tbb-install/lib LibArchive-install/lib
+                      SlicerExecutionModel-build/lib)
+    string(APPEND _forest_rpl " -Wl,-rpath-link,${CMAKE_BINARY_DIR}/../${_forest_dep}")
+  endforeach()
+  string(APPEND CMAKE_EXE_LINKER_FLAGS_INIT "${_forest_rpl}")
+  string(APPEND CMAKE_SHARED_LINKER_FLAGS_INIT "${_forest_rpl}")
+  string(APPEND CMAKE_MODULE_LINKER_FLAGS_INIT "${_forest_rpl}")
+  unset(_forest_rpl)
+endif()
+
+# 5. Linux: the conda compiler's default iconv.h macro-renames iconv->libiconv_*
+#    but only some libraries (e.g. GDCM's MSFF) record the dependency; append
+#    conda libiconv so those symbols resolve on every executable link.
+if(UNIX AND NOT APPLE AND DEFINED ENV{CONDA_PREFIX} AND EXISTS "$ENV{CONDA_PREFIX}/lib/libiconv.so")
+  string(APPEND CMAKE_C_STANDARD_LIBRARIES_INIT " $ENV{CONDA_PREFIX}/lib/libiconv.so")
+  string(APPEND CMAKE_CXX_STANDARD_LIBRARIES_INIT " $ENV{CONDA_PREFIX}/lib/libiconv.so")
+endif()
+
+# 6. Linux: shared libs built against an under-linked static zlib (e.g. the
+#    slicer-itk branch's IO modules vs Slicer's zlib EP) leave plain zlib
+#    symbols undefined; the conda libz resolves them at executable link.
+if(UNIX AND NOT APPLE AND DEFINED ENV{CONDA_PREFIX} AND EXISTS "$ENV{CONDA_PREFIX}/lib/libz.so")
+  string(APPEND CMAKE_C_STANDARD_LIBRARIES_INIT " $ENV{CONDA_PREFIX}/lib/libz.so")
+  string(APPEND CMAKE_CXX_STANDARD_LIBRARIES_INIT " $ENV{CONDA_PREFIX}/lib/libz.so")
+endif()
