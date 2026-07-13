@@ -226,6 +226,32 @@ pushes land close together, leave a one-line PR comment naming which
 push is which, e.g. *"first force-push = plain rebase on main; second =
 review fixes only."*
 
+**Verify before pushing content:** GitHub's per-push compare
+(`compare/<old-head>..<new-head>`) shows only the patch's changes iff
+the merge base did not move. Gate the content push on:
+
+```bash
+[ "$(git merge-base "origin/${PR_BRANCH}" "upstream/${BASE_REF}")" = \
+  "$(git merge-base HEAD "upstream/${BASE_REF}")" ] \
+  || echo "STOP: base moved — this push would mix rebase into the compare"
+```
+
+**Repairing an already-mixed push:** when a force-push has already
+combined a rebase with content changes (or a reviewer is staring at a
+noisy compare link), post the patch-only delta as a `git range-diff`
+in a PR comment — it pairs old and new commits and shows only how each
+patch itself changed (`=` means identical):
+
+```bash
+OLD=<previous-head-sha>; NEW=<current-head-sha>; N=<PR commit count>
+git range-diff "${OLD}~${N}..${OLD}" "${NEW}~${N}..${NEW}"
+# post inside a ```diff fence via gh pr comment --body-file
+```
+
+Example: ITK PR #6614's mixed push `deddbb8..f25689d` range-diffs to
+one include swap in commit 1 and `=` for commit 2 — the entire review
+burden of that force-push, recovered after the fact.
+
 **Critical:** never push without step 6 passing. The PR #6154 push
 that landed a clang-format failure (HEAD `2e30d89c`, 2026-04-28) is
 the canonical violation — the perl rename of `randgen` →
