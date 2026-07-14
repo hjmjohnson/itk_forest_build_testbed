@@ -1,4 +1,4 @@
-import asyncio, os, sys, tempfile
+import asyncio, os, subprocess, sys, tempfile, time
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from pathlib import Path
 from forest_tui.plan import Step
@@ -40,6 +40,33 @@ def test_run_step_nonbuild_fails_by_exit_code():
         step = Step("repoint-itk bad", ["bash", "-c", "exit 3"], {}, "repoint")
         res = _run(runner.run_step(step, Path.cwd(), forest, lambda s: None))
         assert res.status == "FAIL"
+
+def test_run_step_survives_very_long_line():
+    with tempfile.TemporaryDirectory() as tmp:
+        forest = Path(tmp); (forest / "logs").mkdir()
+        step = Step("long line", ["bash", "-c", "printf 'a%.0s' {1..100000}; echo; echo done"],
+                    {}, "checkout")
+        res = _run(runner.run_step(step, Path.cwd(), forest, lambda s: None))
+        assert res.status == "PASS"
+
+def test_run_step_cancellation_terminates_process_group():
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp:
+            forest = Path(tmp); (forest / "logs").mkdir()
+            step = Step("long sleep", ["bash", "-c", "sleep 12345.6"], {}, "checkout")
+            task = asyncio.ensure_future(runner.run_step(step, Path.cwd(), forest, lambda s: None))
+            await asyncio.sleep(0.3)
+            task.cancel()
+            try:
+                await task
+                raised = False
+            except asyncio.CancelledError:
+                raised = True
+            assert raised
+    _run(go())
+    time.sleep(0.5)
+    found = subprocess.run(["pgrep", "-f", "sleep 12345.6"], stdout=subprocess.DEVNULL)
+    assert found.returncode != 0
 
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):

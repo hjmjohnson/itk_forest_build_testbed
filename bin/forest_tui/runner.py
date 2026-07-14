@@ -59,17 +59,22 @@ async def run_step(step: Step, root: Path, forest: Path,
     proc = await asyncio.create_subprocess_exec(
         *step.argv, cwd=root, env=env,
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
-        start_new_session=True)
+        start_new_session=True, limit=2**20)
     tail: list[str] = []
-    with log.open("w", errors="replace") as fh:
-        assert proc.stdout is not None
-        async for raw in proc.stdout:
-            line = raw.decode(errors="replace").rstrip("\n")
-            fh.write(line + "\n")
-            fh.flush()
-            tail.append(line)
-            on_line(line)
-    rc = await proc.wait()
+    try:
+        with log.open("w", errors="replace") as fh:
+            assert proc.stdout is not None
+            async for raw in proc.stdout:
+                line = raw.decode(errors="replace").rstrip("\n")
+                fh.write(line + "\n")
+                fh.flush()
+                tail.append(line)
+                on_line(line)
+        rc = await proc.wait()
+    finally:
+        if proc.returncode is None:
+            terminate(proc)
+            await proc.wait()
     if step.kind == "build":
         if check_artifact(root, forest, step.target):
             return StepResult("PASS", "", log)
