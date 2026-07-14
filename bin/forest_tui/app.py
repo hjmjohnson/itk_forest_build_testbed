@@ -30,13 +30,13 @@ class ForestScreen(Screen[None]):
         yield Label("Select a forest (build environment)", classes="title")
         self._ids: list[str] = []
         buttons = []
-        for f in app.forests:
+        for idx, f in enumerate(app.forests):
             name = f"build_forest{'-' + f.suffix if f.suffix else ''}"
             art = "ITK built" if f.itk_artifact else "no ITK artifact"
             desc = f"{name}  [{f.itk_branch} @ {f.itk_sha or '?'}  {f.itk_describe}]  {art}"
-            buttons.append(RadioButton(desc))
+            buttons.append(RadioButton(desc, value=(idx == 0)))
             self._ids.append(f.suffix or "__default__")
-        buttons.append(RadioButton("[ New forest… ]"))
+        buttons.append(RadioButton("[ New forest… ]", value=(len(buttons) == 0)))
         self._ids.append(NEW_FOREST)
         yield RadioSet(*buttons, id="forests")
         yield Input(placeholder="new forest suffix (e.g. pr6500)", id="new-suffix", disabled=True)
