@@ -39,7 +39,15 @@ def test_build_steps_full_matrix_supersedes_projects():
     sel = Selections("", False, "", True, ["ITK", "elastix"], {})
     steps = build_steps(sel)
     assert [s.kind for s in steps] == ["matrix"]
-    assert "FOREST_REFERENCE_SUFFIX" not in steps[0].env
+    assert steps[0].env["FOREST_REFERENCE_SUFFIX"] == ""
+
+def test_build_steps_full_matrix_sweep_ctest_options():
+    sel = Selections("", False, "", True, [], {"__sweep__": CtestOpts(True, "elx", 100, 900)})
+    steps = build_steps(sel)
+    assert [s.kind for s in steps] == ["matrix"]
+    assert steps[0].env["CTEST_INCLUDE"] == "elx"
+    assert steps[0].env["CTEST_TIMEOUT"] == "100"
+    assert steps[0].env["CTEST_TARGET_TIMEOUT"] == "900"
 
 def test_emit_plan_script_is_runnable_shell():
     sel = Selections("pr9999", False, "pr/9999", False, ["ITK"], {})

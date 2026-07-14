@@ -43,6 +43,12 @@ def test_run_ctest_no_harness_token():
         assert r.returncode == 0
         assert r.stdout.strip().endswith("T:skip:no-harness")
 
+def test_list_targets_does_not_create_logs_dir():
+    with tempfile.TemporaryDirectory() as tmp:
+        r = _run(["--list-targets"], env={"FOREST": tmp})
+        assert r.returncode == 0
+        assert not os.path.isdir(os.path.join(tmp, "logs"))
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):

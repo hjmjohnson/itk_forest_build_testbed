@@ -67,7 +67,7 @@ def prereq_closure(selected: list[str], order: list[str]) -> list[str]:
 
 
 def _base_env(sel: Selections) -> dict[str, str]:
-    return {"FOREST_REFERENCE_SUFFIX": sel.forest_suffix} if sel.forest_suffix else {}
+    return {"FOREST_REFERENCE_SUFFIX": sel.forest_suffix}
 
 
 def build_steps(sel: Selections) -> list[Step]:
@@ -79,7 +79,14 @@ def build_steps(sel: Selections) -> list[Step]:
         steps.append(Step(f"repoint-itk {sel.itk_ref}", ["bash", ENGINE, "repoint-itk"],
                           {**env, "ITK_REF": sel.itk_ref}, "repoint"))
     if sel.full_matrix:
-        steps.append(Step("run-matrix", ["bash", MATRIX], dict(env), "matrix"))
+        menv = dict(env)
+        sweep = sel.ctest.get("__sweep__")
+        if sweep and sweep.enabled:
+            if sweep.include_regex:
+                menv["CTEST_INCLUDE"] = sweep.include_regex
+            menv["CTEST_TIMEOUT"] = str(sweep.test_timeout)
+            menv["CTEST_TARGET_TIMEOUT"] = str(sweep.target_timeout)
+        steps.append(Step("run-matrix", ["bash", MATRIX], menv, "matrix"))
         return steps
     for p in sel.projects:
         steps.append(Step(f"build {p}", ["bash", ENGINE, "build", p], dict(env), "build", target=p))

@@ -1,4 +1,4 @@
-import os, subprocess, sys
+import os, subprocess, sys, tempfile
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 def _cli(args):
@@ -24,6 +24,14 @@ def test_dry_run_prereq_closure_applied():
 
 def test_dry_run_full_matrix():
     r = _cli(["--dry-run", "--forest", "", "--full-matrix"])
+    assert r.returncode == 0, r.stderr
+    assert "run-matrix.sh" in r.stdout
+
+def test_dry_run_full_matrix_no_projects_skips_list_targets():
+    env = {**os.environ, "PYTHONPATH": os.path.join(ROOT, "bin")}
+    with tempfile.TemporaryDirectory() as cwd:
+        r = subprocess.run([sys.executable, "-m", "forest_tui", "--dry-run", "--forest", "",
+                            "--full-matrix"], capture_output=True, text=True, cwd=cwd, env=env)
     assert r.returncode == 0, r.stderr
     assert "run-matrix.sh" in r.stdout
 

@@ -55,7 +55,9 @@ async def run_step(step: Step, root: Path, forest: Path,
     logdir = forest / "logs"
     logdir.mkdir(parents=True, exist_ok=True)
     log = logdir / f"tui-{_slug(step.name)}.log"
-    env = {**os.environ, **step.env}
+    env = {**os.environ}
+    env.pop("FOREST", None)
+    env.update(step.env)
     proc = await asyncio.create_subprocess_exec(
         *step.argv, cwd=root, env=env,
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,

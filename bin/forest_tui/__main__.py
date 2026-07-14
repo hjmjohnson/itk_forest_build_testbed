@@ -22,10 +22,9 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
 
 def selections_from_args(a: argparse.Namespace, root: Path) -> Selections:
-    order = list_targets(root)
     projects = [t for t in a.projects.split(",") if t]
     if projects:
-        projects = prereq_closure(projects, order)
+        projects = prereq_closure(projects, list_targets(root))
     ctest = {t: CtestOpts(True, a.ctest_include) for t in a.ctest.split(",") if t}
     return Selections(a.forest or "", a.new_forest, a.ref, a.full_matrix, projects, ctest)
 

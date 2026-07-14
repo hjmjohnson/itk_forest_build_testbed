@@ -12,10 +12,14 @@ from textual.widgets import (Button, Checkbox, DataTable, Footer, Header, Input,
 from textual.widgets.option_list import Option
 from textual.widgets.selection_list import Selection
 
+import re
+
 from .discover import ForestInfo, list_deferred, list_forests, list_targets
 from .plan import (CtestOpts, Selections, Step, build_steps, emit_plan_script,
                    forest_dir, prereq_closure)
 from .runner import StepResult, run_step
+
+_SLUG_RE = re.compile(r"[^A-Za-z0-9._-]+")
 
 NEW_FOREST = "__new__"
 
@@ -149,8 +153,11 @@ class TestsScreen(Screen[None]):
         include = self.query_one("#include", Input).value.strip()
         tmo = self.query_one("#timeout", Input).value.strip()
         timeout = int(tmo) if tmo.isdigit() else 300
-        app.sel.ctest = {t: CtestOpts(True, include, timeout)
-                         for t in self.query_one("#ctest-projects", SelectionList).selected}
+        if app.sel.full_matrix:
+            app.sel.ctest = {"__sweep__": CtestOpts(True, include, timeout)}
+        else:
+            app.sel.ctest = {t: CtestOpts(True, include, timeout)
+                             for t in self.query_one("#ctest-projects", SelectionList).selected}
         app.push_screen(ConfirmScreen())
 
 
@@ -223,10 +230,14 @@ class RunScreen(Screen[None]):
             try:
                 res: StepResult = await run_step(s, app.root, forest, lambda line: tail.write(line))
             except Exception as e:
-                res = StepResult("FAIL", f"error: {e}", forest / "logs" / f"tui-{s.name}.log")
+                log = forest / "logs" / f"tui-{_SLUG_RE.sub('_', s.name)}.log"
+                res = StepResult("FAIL", f"error: {e}", log)
             table.update_cell(s.name, "state", res.status)
             table.update_cell(s.name, "detail", res.detail)
-            summary.append(f"{res.status:4}  {s.name:24} {res.detail}")
+            if res.status == "FAIL":
+                summary.append(f"{res.status:4}  {s.name:24} {res.detail}  {res.log}")
+            else:
+                summary.append(f"{res.status:4}  {s.name:24} {res.detail}")
             if s.target == "ITK" and s.kind == "build" and res.status == "FAIL":
                 abort = True
                 tail.write("ITK FAILED — aborting remaining steps")

@@ -21,7 +21,11 @@ LOG_TAG="${FOREST_REFERENCE_SUFFIX:+-${FOREST_REFERENCE_SUFFIX}}"
 [ -d "${ROOT}/.pixi/envs/default/bin" ] && PATH="${ROOT}/.pixi/envs/default/bin:$PATH"
 ENG="${BIN_DIR}/setup-itk-downstream-testbed.sh"
 TB="${FOREST}"
-LOGDIR="${FOREST}/logs"; mkdir -p "${LOGDIR}"
+LOGDIR="${FOREST}/logs"
+case "${1:-}" in
+  --list-targets|--list-deferred|--check-artifact|--ctest-dir) : ;;
+  *) mkdir -p "${LOGDIR}" ;;
+esac
 SUMMARY=""
 
 # --- ctest layer -----------------------------------------------------------
