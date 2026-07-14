@@ -4,6 +4,7 @@
 # record pass/fail counts as a separate column. Continues past failures.
 #   pixi run bash bin/run-matrix.sh            # build + test
 #   RUN_CTEST=0 pixi run bash bin/run-matrix.sh   # build-only
+#   bin/run-matrix.sh --list-targets|--list-deferred|--check-artifact <X>|--ctest-dir <X>|--run-ctest <X>
 #
 # Slicer note: Slicer never consumes the system ITK. It always builds a
 # dedicated Slicer-vendored ITK branch (hjmjohnson/ITK @ slicer-itk-<...>) via
@@ -138,6 +139,28 @@ TARGETS=(ITK elastix SimpleITK RTK Cleaver
          TractographyTRX VkFFTBackend ANTs BRAINSTools
          OpenIGTLink Slicer SlicerExtensions
          OpenIGTLinkIO vtkAddon IGSIO PlusLib)
+
+# Deferred targets (see docs/DEFERRED-FAILURES.md) as machine-readable rows.
+DEFERRED_TARGETS=(
+  $'TubeTK\tneeds its own module/data deps'
+  $'c3d\tneeds its own module/data deps'
+  $'BioCell\tneeds its own module/data deps'
+  $'HASI\tneeds its own module/data deps'
+  $'Shape\tneeds its own module/data deps'
+  $'SkullStrip\tneeds its own module/data deps'
+  $'Ultrasound\textra ITK COMPILE_DEPENDS / clFFT not resolved'
+  $'LesionSizingToolkit\tneeds more ITK modules enabled (missing headers)'
+  $'SphinxExamples\tExternalData test-data fetch failure'
+)
+
+# Query/action modes for tooling (forest_tui); default no-flag behavior unchanged.
+case "${1:-}" in
+  --list-targets)   printf '%s\n' "${TARGETS[@]}"; exit 0 ;;
+  --list-deferred)  printf '%s\n' "${DEFERRED_TARGETS[@]}"; exit 0 ;;
+  --check-artifact) artifact_ok "${2:?usage: --check-artifact <target>}"; exit $? ;;
+  --ctest-dir)      ctest_dir "${2:?usage: --ctest-dir <target>}"; exit 0 ;;
+  --run-ctest)      run_ctest "${2:?usage: --run-ctest <target>}"; exit 0 ;;
+esac
 
 for t in "${TARGETS[@]}"; do
   # VkFFTBackend is GPU-gated: build with CUDA/Metal/OpenCL where available,
