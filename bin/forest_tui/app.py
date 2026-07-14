@@ -220,7 +220,10 @@ class RunScreen(Screen[None]):
                 summary.append(f"SKIP  {s.name}")
                 continue
             table.update_cell(s.name, "state", "running")
-            res: StepResult = await run_step(s, app.root, forest, lambda line: tail.write(line))
+            try:
+                res: StepResult = await run_step(s, app.root, forest, lambda line: tail.write(line))
+            except Exception as e:
+                res = StepResult("FAIL", f"error: {e}", forest / "logs" / f"tui-{s.name}.log")
             table.update_cell(s.name, "state", res.status)
             table.update_cell(s.name, "detail", res.detail)
             summary.append(f"{res.status:4}  {s.name:24} {res.detail}")
