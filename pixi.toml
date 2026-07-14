@@ -49,6 +49,8 @@ eigen = ">=5.0.1,<6"
 openblas = ">=0.3.28,<1"  # BLAS/LAPACK for BRAINSTools BRAINSSuperResolution (LinAlgSelector)
 libcblas = ">=3.9,<4"  # cblas.h for OpenBLAS consumers
 liblapacke = ">=3.9,<4"  # lapacke.h for OpenBLAS consumers
+python = ">=3.11,<3.15"
+textual = ">=1.0"
 
 # ccache tuning for cross-machine, path-independent reuse. CCACHE_DIR is left at
 # the user default (~/.ccache) so it is shared with other local builds.
@@ -208,6 +210,11 @@ description = "Build all main consumers (MITK omitted: Qt6 FindThreads fails und
 [tasks.build-all]
 depends-on = ["build-consumers", "build-remotes"]
 description = "Build every consumer + remote module (very long)"
+
+[tasks.tui]
+cmd = "python3 -m forest_tui"
+env = { PYTHONPATH = "bin" }
+description = "Wizard TUI: pick forest, ITK ref, projects, tests; run live"
 
 [target.linux-64.dependencies]
 mesalib = ">=26.0.3,<27"
