@@ -46,6 +46,33 @@ def test_list_targets_and_deferred_against_real_matrix():
     deferred = dict(discover.list_deferred(ROOT))
     assert "Ultrasound" in deferred
 
+def test_testbed_root_resolution():
+    with tempfile.TemporaryDirectory() as tmp:
+        primary = Path(tmp) / "primary"
+        primary.mkdir()
+        subprocess.run(["git", "init", "-q"], cwd=primary, check=True)
+        subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t",
+                        "commit", "-q", "--allow-empty", "-m", "x"], cwd=primary, check=True)
+        wt = Path(tmp) / "wt"
+        subprocess.run(["git", "worktree", "add", "-q", "-b", "wtbranch", str(wt)],
+                       cwd=primary, check=True)
+        assert discover.testbed_root(wt) == primary.resolve()
+        assert discover.testbed_root(primary) == primary.resolve()
+        other = Path(tmp) / "other"
+        other.mkdir()
+        env_root = Path(tmp) / "envroot"
+        env_root.mkdir()
+        old = os.environ.get("TESTBED")
+        os.environ["TESTBED"] = str(env_root)
+        try:
+            assert discover.testbed_root(other) == env_root.resolve()
+        finally:
+            if old is None:
+                os.environ.pop("TESTBED", None)
+            else:
+                os.environ["TESTBED"] = old
+
+
 def test_error_grep():
     with tempfile.TemporaryDirectory() as tmp:
         log = Path(tmp) / "x.log"

@@ -14,7 +14,7 @@ from textual.widgets.selection_list import Selection
 
 import re
 
-from .discover import ForestInfo, list_deferred, list_forests, list_targets
+from .discover import ForestInfo, list_deferred, list_forests, list_targets, testbed_root
 from .plan import (CtestOpts, Selections, Step, build_steps, emit_plan_script,
                    forest_dir, prereq_closure)
 from .runner import StepResult, run_step
@@ -175,7 +175,7 @@ class ConfirmScreen(Screen[None]):
         app: ForestTuiApp = self.app  # type: ignore[assignment]
         app.steps = build_steps(app.sel)
         script = emit_plan_script(app.sel, app.steps)
-        forest = forest_dir(app.root, app.sel.forest_suffix)
+        forest = forest_dir(app.testbed, app.sel.forest_suffix)
         coords = f"Forest: {forest.name} | ITK: {app.sel.itk_ref or '(current checkout)'}"
         self.query_one("#coords", Label).update(coords)
         self.query_one("#plan", RichLog).write(script)
@@ -218,7 +218,7 @@ class RunScreen(Screen[None]):
         app: ForestTuiApp = self.app  # type: ignore[assignment]
         table = self.query_one("#status", DataTable)
         tail = self.query_one("#tail", RichLog)
-        forest = forest_dir(app.root, app.sel.forest_suffix)
+        forest = forest_dir(app.testbed, app.sel.forest_suffix)
         summary: list[str] = []
         abort = False
         for s in app.steps:
@@ -260,10 +260,12 @@ class ForestTuiApp(App[None]):
     def __init__(self, root: Path) -> None:
         super().__init__()
         self.root = root
+        self.testbed = testbed_root(root)
         self.sel = Selections()
+        self.sel.root = str(self.testbed)
         self.steps: list[Step] = []
         self.plan_path: Path | None = None
-        self.forests: list[ForestInfo] = list_forests(root)
+        self.forests: list[ForestInfo] = list_forests(self.testbed)
         self.targets: list[str] = list_targets(root)
         self.deferred: list[tuple[str, str]] = list_deferred(root)
 

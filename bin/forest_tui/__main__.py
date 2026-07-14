@@ -4,7 +4,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from .discover import list_targets
+from .discover import list_targets, testbed_root
 from .plan import CtestOpts, Selections, build_steps, emit_plan_script, prereq_closure
 
 
@@ -26,7 +26,8 @@ def selections_from_args(a: argparse.Namespace, root: Path) -> Selections:
     if projects:
         projects = prereq_closure(projects, list_targets(root))
     ctest = {t: CtestOpts(True, a.ctest_include) for t in a.ctest.split(",") if t}
-    return Selections(a.forest or "", a.new_forest, a.ref, a.full_matrix, projects, ctest)
+    return Selections(a.forest or "", a.new_forest, a.ref, a.full_matrix, projects, ctest,
+                      root=str(testbed_root(root)))
 
 
 def main(argv: list[str] | None = None) -> int:

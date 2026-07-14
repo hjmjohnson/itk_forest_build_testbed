@@ -36,6 +36,7 @@ class Selections:
     full_matrix: bool = False
     projects: list[str] = field(default_factory=list)
     ctest: dict[str, CtestOpts] = field(default_factory=dict)
+    root: str = ""
 
 
 @dataclass
@@ -67,7 +68,11 @@ def prereq_closure(selected: list[str], order: list[str]) -> list[str]:
 
 
 def _base_env(sel: Selections) -> dict[str, str]:
-    return {"FOREST_REFERENCE_SUFFIX": sel.forest_suffix}
+    env = {"FOREST_REFERENCE_SUFFIX": sel.forest_suffix}
+    if sel.root:
+        env["TESTBED"] = sel.root
+        env["FOREST"] = str(forest_dir(Path(sel.root), sel.forest_suffix))
+    return env
 
 
 def build_steps(sel: Selections) -> list[Step]:

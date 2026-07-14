@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 from dataclasses import dataclass
@@ -26,6 +27,19 @@ def _git(args: list[str], cwd: Path) -> str:
         return r.stdout.strip() if r.returncode == 0 else ""
     except OSError:
         return ""
+
+
+def testbed_root(cwd: Path | None = None) -> Path:
+    base = (cwd or Path.cwd()).resolve()
+    env = os.environ.get("TESTBED")
+    if env:
+        return Path(env).resolve()
+    common = _git(["rev-parse", "--git-common-dir"], base)
+    if common:
+        common_path = (base / common).resolve() if not os.path.isabs(common) else Path(common)
+        if common_path.name == ".git" and common_path.parent != base:
+            return common_path.parent
+    return base
 
 
 def list_forests(root: Path) -> list[ForestInfo]:
@@ -61,7 +75,6 @@ def list_deferred(root: Path) -> list[tuple[str, str]]:
 
 
 def check_artifact(root: Path, forest: Path, target: str) -> bool:
-    import os
     env = {**os.environ, "FOREST": str(forest)}
     r = subprocess.run(["bash", MATRIX, "--check-artifact", target], cwd=root, env=env,
                        capture_output=True, text=True)

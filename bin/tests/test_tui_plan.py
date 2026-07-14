@@ -49,6 +49,15 @@ def test_build_steps_full_matrix_sweep_ctest_options():
     assert steps[0].env["CTEST_TIMEOUT"] == "100"
     assert steps[0].env["CTEST_TARGET_TIMEOUT"] == "900"
 
+def test_build_steps_pins_forest_and_testbed_when_root_set():
+    sel = Selections(forest_suffix="pr42", create_forest=False, itk_ref="pr/42",
+                     full_matrix=False, projects=["ITK"], ctest={}, root="/some/root")
+    steps = build_steps(sel)
+    assert steps
+    for s in steps:
+        assert s.env["FOREST"] == "/some/root/build_forest-pr42"
+        assert s.env["TESTBED"] == "/some/root"
+
 def test_emit_plan_script_is_runnable_shell():
     sel = Selections("pr9999", False, "pr/9999", False, ["ITK"], {})
     txt = emit_plan_script(sel, build_steps(sel))
