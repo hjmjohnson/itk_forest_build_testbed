@@ -17,6 +17,10 @@ pixi run build-Slicer
 pixi run bash bin/run-matrix.sh
 ```
 
+Prefer a guided flow? `pixi run tui` walks the same steps interactively
+(forest → ITK ref → projects → tests) and saves each run's exact command
+plan to `<forest>/logs/tui-plan-<timestamp>.sh`.
+
 ## Selecting the ITK ref
 
 `ITK_REF` accepts any of: a local branch, a tag, a SHA, a remote ref
