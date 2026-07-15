@@ -47,6 +47,7 @@ contract:
 dependencies:
   skills:
     - itk-start-worktree
+    - itk-incremental-refactor-loop
     # payload cleanup skill is chosen at runtime from the detect/transform
     # family; run list-cleanup-patterns.sh for the eligible set.
   external_tools:
@@ -109,13 +110,11 @@ Work only inside the printed `WORKTREE_DIR` for the rest of the lifecycle.
 Run the payload's detector to get the candidate sites within `[scope]`:
 `bash skills/<pattern-skill>/detect.sh <WORKTREE_DIR>`
 
-### 3. Transform — one class at a time, loop until dry
-Apply the payload's transform, then re-detect; while candidate sites remain in
-scope, transform the **next single pattern class**, confirm it compiles, and
-**commit before moving to the next class** (N-Dekker incremental per-commit).
-Use the payload's `transform.sh --apply` (or its documented clang-tidy command).
-Re-run step 2's detector after each class; the loop ends when it reports zero
-sites in scope. (When issue #3's reusable loop construct lands, delegate to it.)
+### 3. Transform — delegate to the incremental-refactor loop
+Run `/itk-incremental-refactor-loop <pattern-skill> [scope]`. It applies the
+payload one pattern class at a time, verifies each class compiles, and commits
+per class until the payload's detector is dry (N-Dekker incremental per-commit).
+See its SKILL.md for the loop procedure and the optional subagent-per-class mode.
 
 ### 4. Verify
 `bash skills/<pattern-skill>/detect.sh <WORKTREE_DIR>` shows 0 sites in scope,
