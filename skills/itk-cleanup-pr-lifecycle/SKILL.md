@@ -87,6 +87,10 @@ never re-implements their procedure.
   (e.g. `Modules/Core/Common`) or a payload-specific filter (e.g.
   `--varname size`). Treat the payload's interface as opaque; read its
   `SKILL.md` for the flags it accepts.
+- `--stop-at-commit` — run steps 1–7 (through the local commit) and **STOP**
+  before step 8: do not summarize-for-PR and do not open a PR. Used by
+  `itk-parallel-cleanup` to fan out arms safely. Without it, the full lifecycle
+  runs to the draft PR.
 
 Validate the argument:
 
@@ -141,6 +145,8 @@ payload's guidance), minimal comments (rules/code-comment-minimization.md), and
 attribution per rules/commit-attribution.md (no `Co-Authored-By` for AI).
 
 ### 8. HUMAN GATE — PR authorization (rules/pr-no-unsolicited.md)
+**If invoked with `--stop-at-commit`, STOP here — the local commits are ready; do
+not run steps 8–9.** Otherwise:
 Summarize the change set (pattern, modules touched, commit count) to the user
 and ask: *"Local work is complete and tested. Shall I open a single draft PR?"*
 **Wait for an explicit human "yes". Never proceed on assumption.** ONLY after the
