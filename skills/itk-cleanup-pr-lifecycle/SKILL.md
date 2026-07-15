@@ -144,6 +144,12 @@ Ensure each commit has the correct ITK prefix (`STYLE:`/`COMP:`/`ENH:` per the
 payload's guidance), minimal comments (rules/code-comment-minimization.md), and
 attribution per rules/commit-attribution.md (no `Co-Authored-By` for AI).
 
+### 7.5 Review gate — ITK-lens panel (advisory)
+Run `/itk-review-panel` on the local commits. Address — or consciously accept,
+noting why — the surviving findings before the human PR gate. Advisory: it does
+not open or block the PR by itself; it cleans the diff before reviewers/CI (and
+gh-triage-pr's later greptile round) see it. Skip only for a trivial one-liner.
+
 ### 8. HUMAN GATE — PR authorization (rules/pr-no-unsolicited.md)
 **If invoked with `--stop-at-commit`, STOP here — the local commits are ready; do
 not run steps 8–9.** Otherwise:
