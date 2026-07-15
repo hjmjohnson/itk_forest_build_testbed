@@ -16,5 +16,21 @@ grep -qx "itk-emplace-back-construct"  <<<"$out"; check "lists itk-emplace-back-
 if grep -qx "itk-start-worktree" <<<"$out"; then check "excludes itk-start-worktree (no detect.sh)" 1; else check "excludes itk-start-worktree (no detect.sh)" 0; fi
 if grep -qx "itk-cleanup-pr-lifecycle" <<<"$out"; then check "excludes self" 1; else check "excludes self" 0; fi
 
+# --- validate-lifecycle-refs.sh ---
+tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+# A fixture that cites a real rule and a bogus one:
+cat >"$tmp/GOOD.md" <<'EOF'
+Uses skills/itk-start-worktree and obeys rules/pre-commit-mandatory.md.
+EOF
+cat >"$tmp/BAD.md" <<'EOF'
+Obeys rules/this-rule-does-not-exist.md.
+EOF
+bash "$skill_dir/validate-lifecycle-refs.sh" "$tmp/GOOD.md"; check "validator PASSES a good fixture" $?
+if bash "$skill_dir/validate-lifecycle-refs.sh" "$tmp/BAD.md" >/dev/null 2>&1; then
+  check "validator FAILS a bogus-rule fixture" 1
+else
+  check "validator FAILS a bogus-rule fixture" 0
+fi
+
 echo "----"
 [ "$fail" -eq 0 ] && echo "ALL PASS" || { echo "SOME FAILED"; exit 1; }
