@@ -74,12 +74,12 @@ branch = "simpleitk-itk-downstream"
 
 [components.OpenIGTLink]
 url    = "https://github.com/openigtlink/OpenIGTLink.git"
-ref    = "origin/main"
+ref    = "origin/master"
 branch = "openigtlink-itk-downstream"
 
 [components.OpenIGTLinkIO]
 url    = "https://github.com/IGSIO/OpenIGTLinkIO.git"
-ref    = "origin/main"
+ref    = "origin/master"
 branch = "openigtlinkio-itk-downstream"
 
 [components.vtkAddon]
@@ -89,13 +89,18 @@ branch = "vtkaddon-itk-downstream"
 
 [components.IGSIO]
 url    = "https://github.com/IGSIO/IGSIO.git"
-ref    = "origin/main"
+ref    = "origin/master"
 branch = "igsio-itk-downstream"
 
 [components.PlusLib]
 url    = "https://github.com/PlusToolkit/PlusLib.git"
-ref    = "origin/main"
+ref    = "origin/master"
 branch = "pluslib-itk-downstream"
+
+[components.AlizaMS]
+url    = "https://github.com/AlizaMedicalImaging/AlizaMS.git"
+ref    = "origin/master"
+branch = "alizams-itk-downstream"
 
 # ----------------------------------------------------------------------------
 # ITK remote modules — built externally against the system ITK under test

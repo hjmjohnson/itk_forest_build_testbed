@@ -1012,6 +1012,13 @@ configure_one(){
                  [ "${_vk}" = 1 ] && _vk_kvs+=("CMAKE_CUDA_COMPILER=$(_find_nvcc)")
                  log "VkFFTBackend: VKFFT_BACKEND=${_vk} (1=CUDA 5=Metal 3=OpenCL)"
                  do_overlay VkFFTBackend itk-forest-base "$s" "$b" "${_vk_kvs[@]}" ;;
+    AlizaMS)     # Qt6 DICOM viewer; bundles its own DICOM lib (mdcm). Needs ITK,
+                 # OpenGL, and the forest Qt6 (ALIZA_QT_VERSION selects the major).
+                 log "AlizaMS: ITK_DIR=$(itk_dir)  Qt6=${SLICER_QT_PREFIX}"
+                 do_overlay AlizaMS itk-forest-base "$s" "$b" \
+                   "ITK_DIR=$(itk_dir)" "ALIZA_QT_VERSION=6" \
+                   "Qt6_DIR=${SLICER_QT_PREFIX}/lib/cmake/Qt6" \
+                   "CMAKE_PREFIX_PATH=${SLICER_QT_PREFIX}" ;;
     *)  do_overlay "${name}" itk-forest-base "$s" "$b" "ITK_DIR=$(itk_dir)" ;;
   esac
 }

@@ -117,6 +117,10 @@ depends-on = ["build-ITK"]
 cmd = "bash ./bin/setup-itk-downstream-testbed.sh build c3d"
 depends-on = ["build-ITK"]
 
+[tasks.build-AlizaMS]
+cmd = "bash ./bin/setup-itk-downstream-testbed.sh build AlizaMS"
+depends-on = ["build-ITK"]
+
 [tasks.build-Plastimatch]
 cmd = "bash ./bin/setup-itk-downstream-testbed.sh build Plastimatch"
 depends-on = ["build-ITK"]
