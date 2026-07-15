@@ -61,6 +61,11 @@ deployment:
 
 # ITK Declare-Then-Initialize Pattern Finder
 
+> **Looping across all pattern classes:** this skill fixes ONE pattern class per
+> invocation. To drive every class to completion (one commit per class, until the
+> finder is dry), run it as the payload of the incremental-refactor loop:
+> `/itk-incremental-refactor-loop itk-declare-then-init`.
+
 ## Quick reference
 
 If invoked without arguments, print this and ask what the user wants:
