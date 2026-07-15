@@ -215,6 +215,25 @@ def parse_greptile_findings(body):
     return findings
 
 
+def mark_addressed(comments, addressed_set):
+    """Tag each comment with addressed_locally (True if its id is in the
+    locally-recorded addressed set). Returns the same list."""
+    for c in comments:
+        c["addressed_locally"] = str(c.get("id")) in addressed_set
+    return comments
+
+
+def count_unresolved_inline(comments):
+    """Human inline comments that are neither resolved upstream nor addressed locally."""
+    return sum(
+        1
+        for c in comments
+        if c.get("kind") == "inline"
+        and c.get("thread_state", {}).get("is_resolved") is False
+        and not c.get("addressed_locally", False)
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(description="Fetch PR triage state")
     parser.add_argument("--owner", required=True)
@@ -308,6 +327,23 @@ def main():
                 source=f"review_{r.get('state', 'COMMENTED').lower()}",
             )
 
+    # Locally-recorded addressed concerns (best-effort; never break fetch).
+    addressed_local = set()
+    try:
+        import os as _os
+        import subprocess as _sp
+
+        _pw = _os.path.expanduser("~/.claude/skills/gh-comment-cache/scripts/pr_workstate.py")
+        if _os.path.exists(_pw):
+            _r = _sp.run(
+                [sys.executable, _pw, "addressed", f"{owner}/{repo}", str(num)],
+                capture_output=True, text=True, timeout=15,
+            )
+            addressed_local = {ln.strip() for ln in _r.stdout.splitlines() if ln.strip()}
+    except Exception:
+        addressed_local = set()
+    mark_addressed(human_comments, addressed_local)
+
     # 6. CI summary
     ci_failures = [
         {
@@ -324,11 +360,7 @@ def main():
     ci_green = not ci_failures and not ci_pending
 
     # 7. Unresolved human count (blocks Phase 3)
-    unresolved_human_inline = sum(
-        1
-        for c in human_comments
-        if c["kind"] == "inline" and c["thread_state"].get("is_resolved") is False
-    )
+    unresolved_human_inline = count_unresolved_inline(human_comments)
 
     # 8. Latest CHANGES_REQUESTED review that hasn't been superseded
     changes_requested = [r for r in reviews if r.get("state") == "CHANGES_REQUESTED"]

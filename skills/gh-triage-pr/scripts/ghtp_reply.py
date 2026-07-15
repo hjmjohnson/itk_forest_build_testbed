@@ -18,6 +18,7 @@ Requires: gh CLI (authenticated), python3.
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 
@@ -112,6 +113,26 @@ def resolve_thread(thread_id):
     return json.loads(out)
 
 
+def _record_addressed(owner, repo, num, comment_id, script=None):
+    """Best-effort: record this concern as addressed in the work-state ledger.
+    Never raises — triage must not break if the ledger is unavailable."""
+    import subprocess as _sp
+
+    pw = script or os.path.expanduser(
+        "~/.claude/skills/gh-comment-cache/scripts/pr_workstate.py"
+    )
+    if not os.path.exists(pw):
+        return
+    try:
+        _sp.run(
+            [sys.executable, pw, "concern", f"{owner}/{repo}", str(num),
+             str(comment_id), "--by", "gh-triage-pr"],
+            capture_output=True, text=True, timeout=15,
+        )
+    except Exception:
+        pass
+
+
 def main():
     parser = argparse.ArgumentParser(description="Reply to a PR comment and optionally resolve")
     parser.add_argument("--owner", required=True)
@@ -128,6 +149,7 @@ def main():
     try:
         reply = post_reply(args.owner, args.repo, args.num, args.comment_id, args.body)
         print(f"Reply posted: {reply.get('html_url', 'ok')}", file=sys.stderr)
+        _record_addressed(args.owner, args.repo, args.num, args.comment_id)
     except Exception as e:
         print(f"ERROR: failed to post reply: {e}", file=sys.stderr)
         sys.exit(1)
