@@ -105,6 +105,10 @@ The script (fails loudly if the target dir exists) does:
   already-installed, working hooks. KWStyle/rebase/blame config is shared via
   `.git/config`, so the worktree is a full peer with no SetupForDevelopment
   re-run and no per-worktree hook download.
+- `pixi install -e pre-commit` inside the worktree — the kw commit-msg hooks
+  resolve `./.pixi/envs/pre-commit/bin/python` relative to the worktree root
+  (per thewtex on ITK PR #6522, per-worktree pixi envs are the intended
+  mechanism), so without this the hooks fail in every fresh worktree
 - for a PR, `gh pr checkout <PR#>` *inside* the worktree (wires push tracking)
 - symlinks `<WORKTREE_DIR>/.devlocal` → `<MAIN_REPO>/.devlocal`. `.devlocal` is
   per-project scratch (`hj-todo`'s `todo.md`, plans, hints), not per-worktree;

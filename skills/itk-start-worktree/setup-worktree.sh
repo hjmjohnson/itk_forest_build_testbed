@@ -58,12 +58,17 @@ if [ -z "$(git config core.hooksPath || true)" ]; then
   git config core.hooksPath "$MAIN_REPO/.git/hooks"
 fi
 
-# 3. For PR mode, gh pr checkout inside the worktree wires up push tracking.
+# 3. Provision the worktree's pixi pre-commit env: the kw commit-msg hooks run
+#    Utilities/Hooks/run-pixi-python.sh, which resolves
+#    ./.pixi/envs/pre-commit/bin/python relative to the worktree root.
+( cd "$WT_DIR" && pixi install -e pre-commit )
+
+# 4. For PR mode, gh pr checkout inside the worktree wires up push tracking.
 if [ "$MODE" = pr ]; then
   ( cd "$WT_DIR" && gh pr checkout "$PR" --repo "$UPSTREAM_SLUG" )
 fi
 
-# 4. Share .devlocal with the main checkout so TODO/scratch content is not
+# 5. Share .devlocal with the main checkout so TODO/scratch content is not
 #    forked per-worktree; every worktree symlinks to the primary's .devlocal.
 [ -e "$WT_DIR/.devlocal" ] || ln -s "$MAIN_REPO/.devlocal" "$WT_DIR/.devlocal"
 
