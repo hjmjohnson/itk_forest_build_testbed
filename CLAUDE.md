@@ -1,9 +1,39 @@
-# CLAUDE.md — ITK forest-build testbed
+# CLAUDE.md — ITK ecosystem improvement kit
 
 Guidance for Claude Code (and humans). This file is the **entry point**: read it
 first, then route to the focused doc in `docs/` for the task at hand.
 
-## What this is
+## The one purpose
+
+This repo exists to **make ITK and its ecosystem better.** Every script, skill,
+rule, and forest here serves that single goal. It supplies **two avenues** toward
+it — always know which one you are working in:
+
+- **(a) ITK PR & issue management** — a library of agent skills (`skills/`) plus
+  cross-cutting policy (`rules/`) for authoring, reviewing, triaging, and landing
+  changes to ITK and its remote modules: the `itk-*` refactor/cleanup skills, the
+  `gh-*` PR/issue skills (`gh-triage-pr`, `gh-issue-audit`, `gh-issue-summary`),
+  `cdash-build-analysis`, and the `pr-*` / `ingest-*` rules. This avenue improves
+  ITK **directly**, one PR or issue at a time.
+- **(b) The forest testbed** — an extensive build environment of upstream and
+  downstream ITK-related projects that acts as a **sounding board and
+  proof-generating environment**: given any ITK ref under test, prove it does not
+  break the ecosystem before it lands. This avenue **validates** changes and turns
+  genuine breakages into upstream PRs.
+
+The avenues reinforce each other: **(b) produces the evidence that (a)'s PRs are
+safe.** State which avenue a task belongs to the same way you state repo + forest.
+
+## Avenue (a): ITK PR & issue management skills
+
+The `skills/` and `rules/` trees are a portable agent-skills library (deployed via
+symlinks under `~/.claude/`; canonical source and framework conventions live in the
+separate `agent-skills` repo). Skills are self-describing — each `SKILL.md` carries
+a v2 contract (triggers, side-effects, determinism, dependencies). Invoke a skill
+by its trigger; don't re-derive its steps from memory. Work here targets the
+upstream ITK repos, **never** the testbed's build output.
+
+## Avenue (b): the forest testbed — sounding board & proof generator
 
 A **pixi workspace** that builds every open-source ITK consumer — ITK itself,
 plus ANTs, BRAINSTools, Slicer, elastix, c3d, MITK, SimpleITK, and the ITK
@@ -63,6 +93,7 @@ forest-scoped commands with the suffix explicit:
 
 | If you are about to… | Read |
 |---|---|
+| **(a)** Author / review / triage / land an ITK or remote-module PR or issue | the matching `skills/itk-*`, `skills/gh-*` `SKILL.md` + the `rules/pr-*` policies |
 | Set up the kit on a fresh machine / understand env overrides | [docs/bootstrap.md](docs/bootstrap.md) |
 | Set node-specific paths (Qt6, ccache, forest root, compilers) | [docs/config.md](docs/config.md) |
 | Test an ITK PR/branch/tag, run the build matrix, or read the dependency model | [docs/workflow.md](docs/workflow.md) |
