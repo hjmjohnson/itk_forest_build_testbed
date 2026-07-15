@@ -122,10 +122,13 @@ the target builds (`pixi run build-ITK`), and `git diff` shows every changed
 site is a true instance of the pattern (per the payload's "Common mistakes").
 
 ### 5. GATE — pre-commit (rules/pre-commit-mandatory.md)
-Run `pre-commit run --all-files`. If any hook reports "files were modified",
-stage the fixes, fold them into the relevant commit (`git commit --fixup` +
-`git -c sequence.editor=: rebase -i --autosquash upstream/main`), and re-run.
-**Do not proceed until exit code is 0.**
+Run `python3 ~/src/agent-skills/bin/pr_gate.py record-precommit` — it runs
+`pre-commit run --all-files` and records a pass marker for the current HEAD. If
+any hook reports "files were modified", stage the fixes, fold them into the
+relevant commit (`git commit --fixup` + `git -c sequence.editor=: rebase -i
+--autosquash upstream/main`), and re-run `record-precommit`. **Do not proceed
+until it exits 0.** (The push in step 9's era is blocked by the pr_gate hook
+until this marker exists for the exact HEAD being pushed.)
 
 ### 6. Local test (rules/pr-local-test-first.md)
 Build the touched code (minimum: it compiles). If the change touched or added
@@ -140,7 +143,9 @@ attribution per rules/commit-attribution.md (no `Co-Authored-By` for AI).
 ### 8. HUMAN GATE — PR authorization (rules/pr-no-unsolicited.md)
 Summarize the change set (pattern, modules touched, commit count) to the user
 and ask: *"Local work is complete and tested. Shall I open a single draft PR?"*
-**Wait for an explicit human "yes". Never proceed on assumption.**
+**Wait for an explicit human "yes". Never proceed on assumption.** ONLY after the
+human authorizes THIS PR, run `python3 ~/src/agent-skills/bin/pr_gate.py approve`
+to record the approval the pr_gate hook requires before `gh pr create`.
 
 ### 9. Open the draft PR
 Only after the human yes: author the body in a file and open a draft
