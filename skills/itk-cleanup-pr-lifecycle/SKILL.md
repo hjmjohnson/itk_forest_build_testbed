@@ -19,7 +19,7 @@ triggers:
   - cleanup PR lifecycle
 user_invocable: true
 cmd: false
-argument_hint: "<pattern-skill> [scope]"
+argument_hint: "<pattern-skill> [scope] [--stop-at-commit]"
 contract:
   inputs:
     - argument

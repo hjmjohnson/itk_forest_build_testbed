@@ -89,11 +89,14 @@ eligible list.
 ### 2. Fan out (bounded, concurrent) — steps 1–7 per arm
 Dispatch ONE subagent per payload, **concurrently** (see
 superpowers:dispatching-parallel-agents). Each subagent runs:
-`/itk-cleanup-pr-lifecycle <pattern-N> [--scope PATH] --stop-at-commit`
-— i.e. lifecycle steps 1–7 (worktree → detect → transform-loop → verify →
-pre-commit → local-test → commit), then STOP. **Cap concurrency at ≤ 3** — each
-arm builds ITK (ccache/CPU pressure); if more payloads are given, run the excess
-in a second wave and say so.
+`/itk-cleanup-pr-lifecycle <pattern-N> [<scope-path>] --stop-at-commit`
+— pass the `--scope` value (if given) **positionally** as the lifecycle's
+`[scope]` argument, NOT as a `--scope` flag (the lifecycle takes scope as a bare
+positional). This runs lifecycle steps 1–7 (worktree → detect → transform-loop,
+which commits one class at a time → verify → pre-commit → local-test → finalize
+commits), then STOPS before the PR gate. **Cap concurrency at ≤ 3** — each arm
+builds ITK (ccache/CPU pressure); if more payloads are given, run the excess in a
+second wave and say so.
 Each subagent returns: payload, `WORKTREE_DIR`, branch, commit count, and
 verify/pre-commit/local-test outcome (pass/fail + any blocker).
 
