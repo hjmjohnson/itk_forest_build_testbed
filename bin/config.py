@@ -211,14 +211,25 @@ def _parse_manifest(path):
 
 
 def _itk_version(itk_src):
-    """ITK version 'MAJOR.MINOR.PATCH' from <itk_src>/CMakeLists.txt, or None."""
-    cml = os.path.join(itk_src, "CMakeLists.txt")
-    if not os.path.exists(cml):
-        return None
-    try:
-        with open(cml, errors="replace") as f:
-            text = f.read()
-    except OSError:
+    """ITK version 'MAJOR.MINOR.PATCH' from <itk_src>/CMake/itkVersion.cmake.
+
+    That file is where ITK declares it, and where the engine's forest_itk_major()
+    already reads it -- one fact, one location. CMakeLists.txt mentions
+    ITK_VERSION_* but never sets it, so reading there silently returned None.
+    Falls back to CMakeLists.txt only for a tree that predates the split.
+    """
+    for rel in (os.path.join("CMake", "itkVersion.cmake"), "CMakeLists.txt"):
+        cml = os.path.join(itk_src, rel)
+        if not os.path.exists(cml):
+            continue
+        try:
+            with open(cml, errors="replace") as f:
+                text = f.read()
+        except OSError:
+            continue
+        if re.search(r'set\s*\(\s*ITK_VERSION_MAJOR\s+"?(\d+)"?\s*\)', text):
+            break
+    else:
         return None
     parts = []
     for field in ("MAJOR", "MINOR", "PATCH"):
@@ -502,11 +513,22 @@ def cmd_manifest(forest):
         resolved = _resolved_ref(d) or spec.get("ref", "")
         if resolved.startswith("itk-downstream"):
             resolved = ""  # our own worktree branch: not an ITK ref
+        head_sha = _git(d, "rev-parse", "HEAD")
+        # The resolved ref needs the same proof as a requested one. @{u} is
+        # stale tracking info, not an observation: repoint-itk moves HEAD onto a
+        # local branch and leaves the old upstream behind, so @{u} keeps naming
+        # the ref this worktree used to be on. Recorded unchecked, that asserts a
+        # ref the sha contradicts -- the exact defect this function exists to fix.
+        if resolved and _requested_sha(d, resolved) not in (head_sha, None):
+            print(f"warn: {name}: resolved ref {resolved!r} does not name "
+                  f"{head_sha[:8]}; recording no ref (the sha is the record)",
+                  file=sys.stderr)
+            resolved = ""
         rec = {
             "url": _git(d, "remote", "get-url", "origin") or spec.get("url", ""),
             "ref": resolved,
             "branch": _git(d, "rev-parse", "--abbrev-ref", "HEAD"),
-            "sha": _git(d, "rev-parse", "HEAD"),
+            "sha": head_sha,
             "kind": spec.get("kind", "consumer"),
         }
         try:
