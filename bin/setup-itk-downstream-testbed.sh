@@ -103,6 +103,13 @@ HEAVY="${HEAVY:-0}"
 # ITK ref under test: any branch, tag, SHA, remote ref (e.g. upstream/main), or
 # GitHub PR shorthand (pr/NNNN -> pull/NNNN/head). `repoint-itk` moves the ITK
 # worktree here; the rest of the forest then rebuilds against it.
+#
+# ITK_REF_EXPLICIT is the ref the USER asked for, captured BEFORE the default is
+# applied; ITK_REF may merely be that default. The manifest needs the
+# distinction: a PR worktree is checked out from FETCH_HEAD with no upstream, so
+# the ref it holds is not recoverable from the worktree, and a defaulted
+# origin/main must never be recorded as a request.
+export ITK_REF_EXPLICIT="${ITK_REF:-}"
 ITK_REF="${ITK_REF:-$(cfg get components.ITK.ref)}"
 
 if command -v nproc >/dev/null 2>&1; then JOBS="${JOBS:-$(nproc)}"
@@ -1146,6 +1153,9 @@ cmd_list(){ echo "# consumers (build order: ${BUILD_ORDER[*]})"
     echo "  ${nm}$([ "$hv" = 1 ] && echo '  [heavy: HEAVY=1]')"; done; }
 
 case "${1:-checkout}" in
+  # A pure query: print the forest this invocation resolves to, so callers ask
+  # the engine rather than each recomputing the composition and drifting.
+  --print-forest) printf '%s\n' "${FOREST}" ;;
   checkout)  shift; cmd_checkout "$@" ;;
   configure) shift; configure_one "${1:?configure <name>}" ;;
   build)     shift; build_one "${1:?build <name>}"; cfg manifest "${FOREST}" 2>/dev/null || true ;;
@@ -1158,5 +1168,5 @@ case "${1:-checkout}" in
   status)    cmd_status ;;
   vtk)       build_forest_vtk ;;
   vkfft-backend) vkfft_backend ;;
-  *) die "unknown command '$1' (checkout|configure|build|build-all|remotes|repoint-itk|manifest|list|status|vtk|vkfft-backend)" ;;
+  *) die "unknown command '$1' (--print-forest|checkout|configure|build|build-all|remotes|repoint-itk|manifest|list|status|vtk|vkfft-backend)" ;;
 esac
