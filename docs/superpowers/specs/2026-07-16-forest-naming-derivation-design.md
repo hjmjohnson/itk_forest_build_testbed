@@ -1,5 +1,15 @@
 # Forest naming derivation (phase 1)
 
+> **SUPERSEDED — engine-side derivation was ABANDONED (2026-07-16).** Do not
+> implement this plan. Derivation, the reserved `itk-` prefix, the refusal gate
+> and the identity gate were dropped after eight review rounds; the salvaged
+> keepers (`refslug()`, the manifest recording resolved truth, `compare`, the
+> suffix-key validator, `ITK_REF_EXPLICIT`) landed on `feat/forest-manifest-truth`.
+> `FOREST_REFERENCE_SUFFIX` is a plain free-form suffix and `itk-<refslug>` is a
+> convention you type. Kept as the design record only — see `docs/workflow.md`
+> and `docs/config.md` for how forest naming actually works, and
+> `.superpowers/sdd/salvage-report.md` for what was kept and dropped.
+
 **Status:** design, approved for spec
 **Date:** 2026-07-16
 **Repo:** `hjmjohnson/itk_forest_build_testbed` (kit)

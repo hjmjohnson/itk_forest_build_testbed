@@ -1,5 +1,15 @@
 # Forest Naming Derivation Implementation Plan
 
+> **SUPERSEDED — engine-side derivation was ABANDONED (2026-07-16).** Do not
+> implement this plan. Derivation, the reserved `itk-` prefix, the refusal gate
+> and the identity gate were dropped after eight review rounds; the salvaged
+> keepers (`refslug()`, the manifest recording resolved truth, `compare`, the
+> suffix-key validator, `ITK_REF_EXPLICIT`) landed on `feat/forest-manifest-truth`.
+> `FOREST_REFERENCE_SUFFIX` is a plain free-form suffix and `itk-<refslug>` is a
+> convention you type. Kept as the design record only — see `docs/workflow.md`
+> and `docs/config.md` for how forest naming actually works, and
+> `.superpowers/sdd/salvage-report.md` for what was kept and dropped.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Derive every ITK-ref forest's name from its ITK ref so a forest's name and manifest can never lie about what it contains.
