@@ -466,6 +466,15 @@ def _git(dirpath, *args):
         return ""
 
 
+def _requested_sha(d, ref):
+    """The commit `ref` names in this worktree, or "" if it does not resolve.
+    PR shorthand has no local ref name; it is checked out from FETCH_HEAD, so
+    that is where it resolves."""
+    if _PR_RE.match(ref) or _PULL_RE.match(ref):
+        return _git(d, "rev-parse", "FETCH_HEAD^{commit}")
+    return _git(d, "rev-parse", f"{ref}^{{commit}}")
+
+
 def _toml_str(v):
     return '"' + str(v).replace("\\", "\\\\").replace('"', '\\"') + '"'
 
@@ -504,14 +513,27 @@ def cmd_manifest(forest):
             rec["slug"] = refslug(resolved, _remotes_of(d))
         except ValueError:
             pass  # free-form / unsluggable ref: record no slug rather than fail
+        # A request is only recorded once verified against reality: the SHA the
+        # requested ref names must be the SHA the worktree is on. Unverified, the
+        # manifest asserts a ref its own sha contradicts. Compare to the worktree,
+        # never to another copy of the request -- that comparison is a tautology.
+        # Never fatal: a manifest write rides on nearly every command, so an
+        # unhonored request is recorded honestly and warned about, not refused.
         if name == "ITK" and requested_ref:
-            rec["ref"] = requested_ref
-            try:
-                rec["slug"] = refslug(requested_ref, _remotes_of(d))
-            except ValueError:
-                # No slug beats a slug computed from the resolved branch: that
-                # pair (ref=requested, slug=other) reads as a drifted forest.
-                rec.pop("slug", None)
+            want = _requested_sha(d, requested_ref)
+            if want and want == rec["sha"]:
+                rec["ref"] = requested_ref
+                try:
+                    rec["slug"] = refslug(requested_ref, _remotes_of(d))
+                except ValueError:
+                    # No slug beats a slug computed from the resolved branch: that
+                    # pair (ref=requested, slug=other) reads as a drifted forest.
+                    rec.pop("slug", None)
+            else:
+                print(f"warn: {name}: requested ref {requested_ref!r} resolves to "
+                      f"{want[:8] if want else '<unresolvable>'} but the worktree "
+                      f"is at {rec['sha'][:8]}; recording the worktree's ref "
+                      f"({rec['ref'] or '<none>'}) instead", file=sys.stderr)
         components[name] = rec
     meta = dict(existing_meta or {})
     meta["name"] = os.path.basename(forest)

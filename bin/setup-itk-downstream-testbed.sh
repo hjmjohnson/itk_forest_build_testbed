@@ -568,15 +568,26 @@ cmd_checkout(){ require git; mkdir -p "${FOREST}"
       [ "$br" = 1 ] && [ "${HEAVY}" != 1 ] && { log "$n: heavy (CUDA/Java/wasm); set HEAVY=1 to include (skip)"; continue; }
       checkout_one "$n" "$url" "" || warn "$n: checkout failed (skip)"
     else checkout_one "$n" "$url" "$br" || warn "$n: checkout failed (skip)"; fi
+    # ITK's component default is only a default; ITK_REF is the ref under test
+    # and wins here, so `ITK_REF=<ref> checkout` needs no repoint-itk chaser.
+    # Applied whether the worktree was just created or already present.
+    if [ "$n" = ITK ] && [ -n "${ITK_REF_EXPLICIT}" ] && [ -e "${FOREST}/ITK/.git" ]; then
+      log "ITK: honoring ITK_REF=${ITK_REF}"
+      _checkout_itk_ref "${FOREST}/ITK" "${ITK_REF}" "$(_itk_wt_branch)"
+    fi
   done
   log "checkout dir: ${FOREST}"
   cfg manifest "${FOREST}" 2>/dev/null || warn "manifest write skipped"; }
 
-cmd_repoint_itk(){ require git
-  local itk="${FOREST}/ITK"
-  [ -e "${itk}/.git" ] || die "ITK not checked out"   # .git is a FILE in a worktree
-  local ref="${ITK_REF}" wt="itk-downstream${FOREST_REFERENCE_SUFFIX:+-${FOREST_REFERENCE_SUFFIX}}"
-  log "move ITK worktree to ${ref}"
+# The ITK worktree branch this forest owns; one fact, one derivation.
+_itk_wt_branch(){ printf '%s\n' "itk-downstream${FOREST_REFERENCE_SUFFIX:+-${FOREST_REFERENCE_SUFFIX}}"; }
+
+# Move the ITK worktree at $1 onto ref $2, on branch $3. The single
+# implementation of ITK ref resolution: both `checkout` (honoring ITK_REF) and
+# `repoint-itk` call it. Every arm dies on failure: a ref that was asked for and
+# not honored must never fall through to success and be recorded as if honored.
+_checkout_itk_ref(){
+  local itk="$1" ref="$2" wt="$3"
   git -C "${itk}" reset --hard --quiet   # clean tree so checkout can switch
   case "${ref}" in
     pr/*|pull/*)   # GitHub PR shorthand: pr/6250 -> pull/6250/head on ITK_PR_REMOTE
@@ -591,7 +602,14 @@ cmd_repoint_itk(){ require git
       git -C "${itk}" checkout -f -B "${wt}" "${ref}" \
         || die "checkout ${ref} failed (a remote-only branch needs its remote: origin/${ref})" ;;
   esac
-  warn "ITK now at ${ref}; run build-ITK then rebuild the downstream consumers"; }
+}
+
+cmd_repoint_itk(){ require git
+  local itk="${FOREST}/ITK"
+  [ -e "${itk}/.git" ] || die "ITK not checked out"   # .git is a FILE in a worktree
+  log "move ITK worktree to ${ITK_REF}"
+  _checkout_itk_ref "${itk}" "${ITK_REF}" "$(_itk_wt_branch)"
+  warn "ITK now at ${ITK_REF}; run build-ITK then rebuild the downstream consumers"; }
 
 # Some enabled remote modules (IOMeshMZ3, AnisotropicDiffusionLBR) ship a
 # CMakeLists that calls itk_module_examples() but no examples/ dir, which is a

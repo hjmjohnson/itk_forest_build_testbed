@@ -4,11 +4,15 @@ The whole point: **prove an ITK change (any pull request, branch, tag, or SHA)
 does not break downstream builds before it lands upstream.**
 
 ```bash
-# 1. Point the ITK worktree at the ref under test:
-ITK_REF=pr/6250          pixi run repoint-itk   # GitHub PR  (pull/6250/head)
-ITK_REF=upstream/main    pixi run repoint-itk   # a remote branch
-ITK_REF=v5.4.0           pixi run repoint-itk   # a tag
-ITK_REF=<sha>            pixi run repoint-itk   # a commit
+# 1. Point the ITK worktree at the ref under test. `checkout` honors ITK_REF,
+#    so a fresh forest lands on the ref in one step; `repoint-itk` moves the
+#    ITK worktree of a forest that is already checked out. Both take the same
+#    ref forms and resolve them identically:
+ITK_REF=pr/6250          pixi run checkout      # GitHub PR  (pull/6250/head)
+ITK_REF=upstream/main    pixi run checkout      # a remote branch
+ITK_REF=v5.4.0           pixi run checkout      # a tag
+ITK_REF=<sha>            pixi run checkout      # a commit
+ITK_REF=pr/6251          pixi run repoint-itk   # move an existing forest's ITK
 # 2. Build ITK, then the consumers you care about (ccache keeps it fast):
 pixi run build-ITK
 pixi run build-elastix
@@ -26,8 +30,12 @@ plan to `<forest>/logs/tui-plan-<timestamp>.sh`.
 `ITK_REF` accepts any of: a local branch, a tag, a SHA, a remote ref
 (`<remote>/<branch>` — its remote is fetched first), or the GitHub PR shorthand
 `pr/NNNN` (fetched as `pull/NNNN/head`). PRs are fetched from `origin` by
-default; override with `ITK_PR_REMOTE`. `repoint-itk` resets the ITK worktree
-and checks the ref out onto the local branch `itk-downstream`.
+default; override with `ITK_PR_REMOTE`. Both `checkout` and `repoint-itk` share
+one ref-resolution implementation: they reset the ITK worktree and check the ref
+out onto the local branch `itk-downstream` (suffixed per forest). Unset,
+`ITK_REF` falls back to ITK's `versions.toml` default and no request is
+recorded. A ref that cannot be checked out is fatal — it never falls through to
+a forest silently holding a different ref.
 
 ## Dependency model
 
@@ -77,8 +85,7 @@ matrix, logs) into `build_forest-<tag>` instead of `build_forest`, so two ITK
 refs can be compared side by side:
 
 ```bash
-FOREST_REFERENCE_SUFFIX=itk-pr6250 pixi run checkout
-FOREST_REFERENCE_SUFFIX=itk-pr6250 ITK_REF=pr/6250 pixi run repoint-itk
+FOREST_REFERENCE_SUFFIX=itk-pr6250 ITK_REF=pr/6250 pixi run checkout
 FOREST_REFERENCE_SUFFIX=itk-pr6250 pixi run bash bin/run-matrix.sh   # logs: <forest>/logs/matrix-<name>-itk-pr6250.log
 ```
 

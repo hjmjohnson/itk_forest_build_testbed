@@ -130,6 +130,15 @@ repo, requested ref, branch, and **resolved git SHA** of each component present
 in that forest — a human-readable record of exactly what was built. Regenerate
 on demand: `bash bin/setup-itk-downstream-testbed.sh manifest`.
 
+The **SHA is the authority**, and a requested `ITK_REF` is recorded only once
+verified against it: if the requested ref does not resolve, in that worktree, to
+the SHA the worktree is on, the request is *not* recorded. The manifest instead
+records the worktree's own ref and warns on stderr naming both SHAs. So `ref`
+never asserts something the `sha` beside it contradicts — a forest holding a ref
+other than the one asked for says so. This is detection, not refusal: an
+unhonored request warns, never dies, since a manifest write rides on nearly
+every command.
+
 ### Cross-forest ccache (`BUILD_FOREST_ROOT`)
 
 `CCACHE_BASEDIR` defaults to the per-forest root (`$FOREST`), so each compile
