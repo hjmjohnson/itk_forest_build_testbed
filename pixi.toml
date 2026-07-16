@@ -58,6 +58,9 @@ textual = ">=1.0"
 CCACHE_MAXSIZE = "75G"
 CCACHE_COMPILERCHECK = "content"
 CCACHE_SLOPPINESS = "time_macros,system_headers,pch_defines"
+# Forest-independent, so it belongs here; its partner CCACHE_BASEDIR is
+# per-forest and stays the engine's to export (see setup-itk-downstream-testbed.sh).
+CCACHE_NOHASHDIR = "true"
 # CMake ignores CPPFLAGS, so conda's "-isystem $PREFIX/include" never reaches
 # external-project builds (e.g. VTK X11). CPATH/LIBRARY_PATH put the env's
 # include/lib dirs on the compiler+linker search path at invocation time.

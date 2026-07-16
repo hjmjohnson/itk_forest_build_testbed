@@ -102,3 +102,31 @@ rewrites its forest-absolute paths to forest-relative before hashing. Two
 forests at **any** two `BUILD_FOREST_ROOT` locations (siblings, or unrelated
 absolute paths) therefore share compiled objects: the second forest is ~100%
 cache hits and only recompiles the TUs its ITK ref actually changed.
+
+**`CCACHE_BASEDIR` is exported by the engine, not by pixi activation.** It has
+to be, because sharing requires it to equal the *per-forest* root: point it at
+the testbed root instead and the forest name survives inside the rewritten
+path, which defeats the purpose. `[activation.env]` therefore carries only the
+forest-independent knobs (`CCACHE_NOHASHDIR`, `CCACHE_MAXSIZE`,
+`CCACHE_COMPILERCHECK`, `CCACHE_SLOPPINESS`).
+
+The consequence: **a `pixi shell` alone does not warm the cache portably.**
+Driving a build by hand from inside one —
+
+```bash
+pixi shell
+ninja -C build_forest-itkv5/ITK/build      # base_dir empty -> keyed on absolute paths
+```
+
+— stores every object under its forest-absolute path, so another forest gets
+zero reuse from it. Either build through the engine (`pixi run build-ITK`,
+`pixi run bash bin/run-matrix.sh`), which exports the right basedir per
+package, or export it yourself to match the engine's policy:
+
+```bash
+export CCACHE_BASEDIR="$PWD/build_forest-itkv5/ITK"   # ITK: per-package root
+export CCACHE_BASEDIR="$PWD/build_forest-itkv5"       # any consumer/SuperBuild
+```
+
+Verify at any time with `ccache -p | grep base_dir` — an empty value inside a
+build shell means the objects you are about to produce are forest-locked.
