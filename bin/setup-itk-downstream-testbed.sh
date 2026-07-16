@@ -286,19 +286,16 @@ forest_itk_major(){
 # ("ITK 6", merged 2026-03-15: External_ITKv5.cmake -> External_ITKv6.cmake,
 # find_package(ITK 6 REQUIRED)). The last ITK5 ANTs master was ITK 5.4.3
 # (2025-04-02). Fail fast on an ITK<6 forest rather than deep in the build.
-require_itk6_for_ants(){
+# ANTs builds against ITK v5 or v6 (ANTsX/ANTs#2005, merged 2026-07-15, restored
+# the v5 support #1933 had dropped). It expects ONE major and defaults to 6, so
+# the forest's actual major must be passed as -DITK_VERSION_MAJOR or ANTs looks
+# for v6 while find_package(ITK) hands it v5. forest_itk_major() is that fact;
+# this only refuses a major ANTs does not support.
+require_ants_itk_major(){
   local m; m="$(forest_itk_major)"
   [ -z "${m}" ] && return 0
-  [ "${m}" -ge 6 ] && return 0
-  # Escape hatch for building a pinned pre-2026-03-15 ANTs (last ITK5 mainline
-  # was 9d0ecf098) against an ITK5 forest. Caller must have checked out an
-  # ITK5-compatible ANTs worktree; modern ANTs master will still fail here.
-  [ "${ANTS_ALLOW_ITK5:-0}" = 1 ] && { warn "ANTS_ALLOW_ITK5=1: building ANTs against ITK v${m} (caller pinned an ITK5-compatible ANTs)"; return 0; }
-  die "ANTs requires ITK v6+, but this forest's ITK is v${m}.
-  ANTs master dropped ITK5 in PR #1933 (merged 2026-03-15). Build ANTs only
-  against an ITKv6 forest (e.g. BUILD_FOREST_ROOT=build_forest-itkv6_main), or
-  pin a pre-2026-03-15 ANTs (<= ITK 5.4.3) via BRAINSTools_ANTs_GIT_TAG /
-  External_ANTs GIT_TAG if an ITK5 build is required."
+  case "${m}" in 5|6) return 0 ;; esac
+  die "ANTs supports ITK v5 or v6, but this forest's ITK is v${m} (ANTsX/ANTs#2005)."
 }
 
 # A VTK for ITK's ITKVtkGlue bridge. Prefer a rendering VTK (vtk_dir); else
@@ -892,7 +889,7 @@ configure_one(){ require_pixi_toolchain configure
   local name="$1" meta; meta="$(row_for "$name")" || die "unknown project: $name"
   local s="${FOREST}/${name}" b="$(build_dir "$name")"
   [ -d "$s" ] || die "${name} not checked out (run: pixi run checkout)"
-  [ "$name" = ANTs ] && require_itk6_for_ants
+  [ "$name" = ANTs ] && require_ants_itk_major
   if [ "$name" = ITK ]; then
     local _itk_major
     _itk_major="$(grep -oE 'ITK_VERSION_MAJOR[^0-9]*[0-9]+' "${s}/CMake/itkVersion.cmake" 2>/dev/null | grep -oE '[0-9]+$' | head -1)"
@@ -930,7 +927,11 @@ configure_one(){ require_pixi_toolchain configure
                  # (USE_VTK/BUILD_ALL_ANTS_APPS) is selected via variant preset
                  # itk-forest-ants-max-modules. ANTS_VTK_DIR reuses an existing
                  # VTK (support build) instead of ANTs building its own.
-                 local ants_preset="itk-forest-ants" ants_kvs=("ITK_DIR=$(itk_dir)")
+                 # ANTs defaults ITK_VERSION_MAJOR to 6 (ANTsX/ANTs#2005); tell it
+                 # which major this forest actually holds, or a v5 forest silently
+                 # configures an ANTs that expects v6.
+                 local ants_preset="itk-forest-ants" \
+                       ants_kvs=("ITK_DIR=$(itk_dir)" "ITK_VERSION_MAJOR=$(forest_itk_major)")
                  if [ "${ANTS_MAX_MODULES:-0}" = 1 ]; then
                    ants_preset="itk-forest-ants-max-modules"
                    if [ -n "${ANTS_VTK_DIR:-}" ]; then
@@ -1093,7 +1094,7 @@ _hide_conda_jpeg_shadow_headers(){
 build_one(){ require cmake ninja ccache; require_pixi_toolchain build
   _hide_conda_jpeg_shadow_headers
   local name="$1" b="$(build_dir "$1")"; [ "$name" = ITK ] && b="${ITK_BUILD}"
-  [ "$name" = ANTs ] && require_itk6_for_ants
+  [ "$name" = ANTs ] && require_ants_itk_major
   # Slicer's bundled TBB (tbbbind) and other EPs include env-provided headers
   # (hwloc.h, ...) that the conda compiler only finds via CPATH (no -I is added
   # otherwise). The conflicting jpeg headers are already hidden above.
