@@ -79,7 +79,10 @@ def build_steps(sel: Selections) -> list[Step]:
     env = _base_env(sel)
     steps: list[Step] = []
     if sel.create_forest:
-        steps.append(Step("checkout", ["bash", ENGINE, "checkout"], dict(env), "checkout"))
+        checkout_env = dict(env)
+        if sel.itk_ref:
+            checkout_env["ITK_REF"] = sel.itk_ref
+        steps.append(Step("checkout", ["bash", ENGINE, "checkout"], checkout_env, "checkout"))
     if sel.itk_ref:
         steps.append(Step(f"repoint-itk {sel.itk_ref}", ["bash", ENGINE, "repoint-itk"],
                           {**env, "ITK_REF": sel.itk_ref}, "repoint"))
