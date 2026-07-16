@@ -14,9 +14,10 @@ Version-manifest subcommands (read versions.toml, the source of truth):
   python3 bin/config.py consumers            # emit  name|url|branch  rows
   python3 bin/config.py remotes              # emit  name|url|heap(0/1)  rows
   python3 bin/config.py get <dotted.key>     # print one scalar, e.g. subbuild.Slicer.ITK_GIT_TAG
+  python3 bin/config.py refslug <ref>        # conventional forest slug for an ITK ref
   python3 bin/config.py manifest <FOREST>    # write <FOREST>/manifest.toml from live worktrees
 """
-import sys, os, json, glob, subprocess
+import sys, os, json, glob, subprocess, re
 
 try:
     import tomllib
@@ -29,6 +30,116 @@ OUT = os.path.join(ROOT, "config.sh")
 VERSIONS = os.path.join(ROOT, "versions.toml")
 SENTINEL = "__SET_MANUALLY__"
 PRESETS_DIR = os.path.join(ROOT, "cmake", "presets")
+
+# Remote names refslug() strips by default. The engine passes the ITK clone's
+# real list; these two cover every ref used without a clone present.
+DEFAULT_REMOTES = ("origin", "upstream")
+
+_SLUG_OK = re.compile(r"^[A-Za-z0-9._-]+$")
+_SHA_RE = re.compile(r"^[0-9a-f]{7,40}$")
+_PR_RE = re.compile(r"^pr/(\d+)$")
+_PULL_RE = re.compile(r"^pull/(\d+)/head$")
+
+
+def refslug(ref, remotes=DEFAULT_REMOTES):
+    """Map an ITK ref to a git- and filesystem-safe slug. Pure: no git, no I/O.
+
+    A ref that is 7-40 lowercase hex chars is treated as a SHA even if a branch
+    of that name exists; resolving that would require git and make this impure.
+    The manifest's resolved SHA stays authoritative.
+    """
+    if not isinstance(ref, str):
+        raise ValueError(f"refslug: expected str, got {type(ref).__name__}")
+    ref = ref.strip()
+    if not ref:
+        raise ValueError("refslug: empty ref")
+    m = _PR_RE.match(ref) or _PULL_RE.match(ref)
+    if m:
+        return f"pr{m.group(1)}"
+    if _SHA_RE.match(ref):
+        return f"sha{ref[:7]}"
+    for r in remotes:
+        if ref.startswith(f"{r}/"):
+            ref = ref[len(r) + 1:]
+            break
+    _validate_slug(ref)
+    return ref
+
+
+def _validate_slug(slug):
+    if not slug or not _SLUG_OK.match(slug):
+        raise ValueError(
+            f"refslug: {slug!r} is not a valid forest slug "
+            "(allowed: A-Z a-z 0-9 . _ -; a '/' means the leading component "
+            "is not a known remote)")
+    if slug.startswith(".") or slug.startswith("-"):
+        raise ValueError(f"refslug: {slug!r} must not start with '.' or '-'")
+    if ".." in slug:
+        raise ValueError(f"refslug: {slug!r} must not contain '..'")
+    if slug.endswith("."):
+        raise ValueError(f"refslug: {slug!r} must not end with '.' "
+                         "(git rejects a ref component with a trailing dot)")
+    if slug.endswith(".lock"):
+        raise ValueError(f"refslug: {slug!r} must not end with '.lock'")
+
+
+def validate_suffix_keys(vers):
+    """Config keyed by the forest suffix must stay well-formed.
+
+    A rename that misses these changes the build with no error:
+    subbuild.ANTs.skip_suffix gates the ANTs fork, and [scenarios.<suffix>]
+    selects consumer overrides. Only 'itk-' keys -- the documented
+    itk-<refslug> convention -- are checked; free-form experiment suffixes are
+    unconstrained by design.
+    """
+    errs = []
+
+    def _check(where, value):
+        if not isinstance(value, str) or not value.startswith("itk-"):
+            return
+        try:
+            _validate_slug(value[len("itk-"):])
+        except ValueError as e:
+            errs.append(f"{where}: {value!r} follows the 'itk-' convention but is not a "
+                        f"valid itk-<refslug> ({e})")
+
+    for key in (vers.get("scenarios") or {}):
+        _check("scenarios", key)
+    for pkg, rec in (vers.get("subbuild") or {}).items():
+        if isinstance(rec, dict) and "skip_suffix" in rec:
+            _check(f"subbuild.{pkg}.skip_suffix", rec["skip_suffix"])
+    return errs
+
+
+def warn_unmatched_scenarios(vers, testbed_root):
+    """Scenario keys with no corresponding forest on disk.
+
+    A WARNING, never an error: a scenario may legitimately precede its forest
+    (and every forest is disposable). Returns a list of message strings.
+    """
+    out = []
+    root = os.environ.get("BUILD_FOREST_ROOT") or "build_forest"
+    for key in sorted((vers.get("scenarios") or {})):
+        forest = f"{expand(root)}-{key}" if os.path.isabs(expand(root)) \
+            else os.path.join(testbed_root, f"{root}-{key}")
+        if not os.path.isdir(expand(forest)):
+            out.append(f"scenarios.{key}: no {os.path.basename(forest)} on disk "
+                       "(harmless if the forest has not been created yet)")
+    return out
+
+
+def cmd_refslug(ref, itk_clone=None):
+    """Print refslug(ref). Discovers real remotes from itk_clone when given."""
+    remotes = DEFAULT_REMOTES
+    if itk_clone and os.path.isdir(itk_clone):
+        out = _git(itk_clone, "remote")
+        if out:
+            remotes = tuple(x for x in out.split("\n") if x.strip())
+    try:
+        print(refslug(ref, remotes))
+    except ValueError as e:
+        sys.exit(f"config.py: {e}")
+    return 0
 
 
 def _cv_value(v):
@@ -249,6 +360,14 @@ def check_only(warn=False):
             rc = 1
             if warn:
                 print(f"  [!] required key unresolved: {key}", file=sys.stderr)
+    vers = load_versions()
+    for e in validate_suffix_keys(vers):
+        rc = 1
+        if warn:
+            print(f"  [!] {e}", file=sys.stderr)
+    for w in warn_unmatched_scenarios(vers, ROOT):
+        if warn:
+            print(f"  [i] {w}", file=sys.stderr)   # informational: never sets rc
     return rc
 
 
@@ -380,6 +499,10 @@ if __name__ == "__main__":
         if len(args) < 3:
             sys.exit("usage: config.py compare <forestA> <forestB>")
         sys.exit(cmd_compare(args[1], args[2]))
+    if cmd == "refslug":
+        if len(args) < 2:
+            sys.exit("usage: config.py refslug <ref> [itk_clone]")
+        sys.exit(cmd_refslug(args[1], args[2] if len(args) > 2 else None))
     if cmd == "manifest":
         if len(args) < 2:
             sys.exit("usage: config.py manifest <FOREST>")
