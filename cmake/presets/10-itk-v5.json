@@ -11,7 +11,9 @@
         "ITK_USE_BRAINWEB_DATA": "ON",
         "ITK_USE_FFTWD": "ON",
         "ITK_USE_FFTWF": "ON",
-        "ITK_USE_SYSTEM_FFTW": "OFF"
+        "ITK_USE_SYSTEM_FFTW": "OFF",
+        "Module_AdaptiveDenoising": "ON",
+        "Module_GenericLabelInterpolator": "ON"
       },
       "hidden": true,
       "inherits": "itk-forest-base",
