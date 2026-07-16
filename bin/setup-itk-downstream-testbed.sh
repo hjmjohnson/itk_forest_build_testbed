@@ -837,7 +837,25 @@ build_forest_vtk(){
   cmake --build "${b}" -j"${JOBS}"
 }
 
-configure_one(){
+# Outside `pixi run` there is no CONDA_PREFIX, so the CC/CXX defaults above fall
+# back to the system toolchain -- ABI-mismatched against the conda-forge stack
+# for the same reason the Homebrew toolchain is refused, and hashed under a
+# different ccache policy (compiler_check/sloppiness come from the activation
+# env), so its objects can never be reused by a pixi-built forest. Demand the
+# conda compilers rather than silently building something unusable.
+require_pixi_toolchain(){
+  if [ -n "${CONDA_PREFIX:-}" ]; then
+    case "${CC}" in "${CONDA_PREFIX}"/*)
+      case "${CXX}" in "${CONDA_PREFIX}"/*) return 0 ;; esac ;;
+    esac
+  fi
+  die "non-conda toolchain refused (CC=${CC} CXX=${CXX}); run under pixi:
+      pixi run bash bin/setup-itk-downstream-testbed.sh ${1:-build} <pkg>
+      pixi run bash bin/run-matrix.sh
+      Outside pixi the system compiler is picked and ccache hashes differ, so
+      the build is neither pinned nor shareable with other forests."; }
+
+configure_one(){ require_pixi_toolchain configure
   local name="$1" meta; meta="$(row_for "$name")" || die "unknown project: $name"
   local s="${FOREST}/${name}" b="$(build_dir "$name")"
   [ -d "$s" ] || die "${name} not checked out (run: pixi run checkout)"
@@ -1039,7 +1057,7 @@ _hide_conda_jpeg_shadow_headers(){
     [ -f "${inc}/${h}" ] && mv "${inc}/${h}" "${inc}/${h}.itk-shadow-disabled"
   done; :; }
 
-build_one(){ require cmake ninja ccache
+build_one(){ require cmake ninja ccache; require_pixi_toolchain build
   _hide_conda_jpeg_shadow_headers
   local name="$1" b="$(build_dir "$1")"; [ "$name" = ITK ] && b="${ITK_BUILD}"
   [ "$name" = ANTs ] && require_itk6_for_ants

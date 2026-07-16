@@ -15,9 +15,10 @@ _forest_dir="build_forest${FOREST_REFERENCE_SUFFIX:+-${FOREST_REFERENCE_SUFFIX}}
 FOREST="${FOREST:-${ROOT}/${_forest_dir}}"  # source checkouts + build trees
 export FOREST
 LOG_TAG="${FOREST_REFERENCE_SUFFIX:+-${FOREST_REFERENCE_SUFFIX}}"
-# Prefer the pixi env's toolchain (cmake/ninja/compilers) over any system one,
-# so a bare `bash bin/run-matrix.sh` matches `pixi run` (system cmake 3.26.6 is
-# too old for Slicer's >=3.28 requirement).
+# Put the pixi env's cmake/ninja ahead of any system one (system cmake 3.26.6 is
+# too old for Slicer's >=3.28 requirement). This is NOT equivalent to `pixi run`:
+# the compilers ($CC/$CXX) and the ccache hash policy come from the activation
+# env, not from PATH. Run under `pixi run`; the engine enforces it.
 [ -d "${ROOT}/.pixi/envs/default/bin" ] && PATH="${ROOT}/.pixi/envs/default/bin:$PATH"
 ENG="${BIN_DIR}/setup-itk-downstream-testbed.sh"
 TB="${FOREST}"
