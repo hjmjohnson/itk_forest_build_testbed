@@ -11,8 +11,14 @@
 # -DSlicer_ITK_GIT_TAG=<branch>. See docs/slicer-itk-policy.md.
 BIN_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(dirname "${BIN_DIR}")"            # repo root = parent of bin/
-_forest_dir="build_forest${FOREST_REFERENCE_SUFFIX:+-${FOREST_REFERENCE_SUFFIX}}"
-FOREST="${FOREST:-${ROOT}/${_forest_dir}}"  # source checkouts + build trees
+ENG="${BIN_DIR}/setup-itk-downstream-testbed.sh"
+# The engine is the single authority on the forest name; ask it rather than
+# recomputing the composition here and risking drift.
+# No `set -e` here (the matrix continues past build failures), so an engine that
+# dies must be caught explicitly: an empty FOREST would root LOGDIR at "/logs"
+# and build the whole matrix at "/".
+FOREST="${FOREST:-$(bash "${ENG}" --print-forest)}" || exit 1
+[ -n "${FOREST}" ] || { echo "run-matrix: engine could not resolve the forest name" >&2; exit 1; }
 export FOREST
 LOG_TAG="${FOREST_REFERENCE_SUFFIX:+-${FOREST_REFERENCE_SUFFIX}}"
 # Put the pixi env's cmake/ninja ahead of any system one (system cmake 3.26.6 is
@@ -20,7 +26,6 @@ LOG_TAG="${FOREST_REFERENCE_SUFFIX:+-${FOREST_REFERENCE_SUFFIX}}"
 # the compilers ($CC/$CXX) and the ccache hash policy come from the activation
 # env, not from PATH. Run under `pixi run`; the engine enforces it.
 [ -d "${ROOT}/.pixi/envs/default/bin" ] && PATH="${ROOT}/.pixi/envs/default/bin:$PATH"
-ENG="${BIN_DIR}/setup-itk-downstream-testbed.sh"
 TB="${FOREST}"
 LOGDIR="${FOREST}/logs"
 case "${1:-}" in

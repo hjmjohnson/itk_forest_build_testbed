@@ -24,12 +24,9 @@ fi
 [ -f "${CONFIG_SH}" ] && . "${CONFIG_SH}"
 
 REPOS="${FOREST_GIT_REPOS:-${TESTBED}/forest_git_repos}"
-BUILD_FOREST_ROOT="${BUILD_FOREST_ROOT:-build_forest}"
-[ -n "${FOREST_REFERENCE_SUFFIX:-}" ] && BUILD_FOREST_ROOT="${BUILD_FOREST_ROOT}-${FOREST_REFERENCE_SUFFIX}"
-case "${BUILD_FOREST_ROOT}" in
-  /*) FOREST="${FOREST:-${BUILD_FOREST_ROOT}}" ;;
-  *)  FOREST="${FOREST:-${TESTBED}/${BUILD_FOREST_ROOT}}" ;;
-esac
+# The engine is the single authority on the forest name; ask it rather than
+# recomputing the composition here and risking drift.
+FOREST="${FOREST:-$(bash "${SCRIPT_DIR}/setup-itk-downstream-testbed.sh" --print-forest)}"
 JOBS="${JOBS:-$( (command -v nproc >/dev/null && nproc) || sysctl -n hw.ncpu 2>/dev/null || echo 4)}"
 
 INDEX="${FOREST}/SlicerExtensions"
