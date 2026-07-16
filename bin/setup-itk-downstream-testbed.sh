@@ -576,12 +576,13 @@ cmd_repoint_itk(){ require git
       local num="${ref##*/}"
       git -C "${itk}" fetch "${ITK_PR_REMOTE:-origin}" "pull/${num}/head" --quiet \
         || die "fetch PR ${num} from ${ITK_PR_REMOTE:-origin} failed"
-      git -C "${itk}" checkout -f -B "${wt}" FETCH_HEAD ;;
+      git -C "${itk}" checkout -f -B "${wt}" FETCH_HEAD || die "checkout PR ${num} failed" ;;
     */*)           # remote ref (has a '/') -> fetch its remote first
       git -C "${itk}" fetch "${ref%%/*}" --quiet || warn "fetch ${ref%%/*} failed; using cached refs"
-      git -C "${itk}" checkout -f -B "${wt}" "${ref}" ;;
+      git -C "${itk}" checkout -f -B "${wt}" "${ref}" || die "checkout ${ref} failed" ;;
     *)             # local branch / tag / SHA
-      git -C "${itk}" checkout -f -B "${wt}" "${ref}" ;;
+      git -C "${itk}" checkout -f -B "${wt}" "${ref}" \
+        || die "checkout ${ref} failed (a remote-only branch needs its remote: origin/${ref})" ;;
   esac
   warn "ITK now at ${ref}; run build-ITK then rebuild the downstream consumers"; }
 
