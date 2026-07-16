@@ -15,6 +15,7 @@ Version-manifest subcommands (read versions.toml, the source of truth):
   python3 bin/config.py remotes              # emit  name|url|heap(0/1)  rows
   python3 bin/config.py get <dotted.key>     # print one scalar, e.g. subbuild.Slicer.ITK_GIT_TAG
   python3 bin/config.py refslug <ref>        # conventional forest slug for an ITK ref
+  python3 bin/config.py compare <A> <B>      # what each forest actually holds
   python3 bin/config.py manifest <FOREST>    # write <FOREST>/manifest.toml from live worktrees
 """
 import sys, os, json, glob, subprocess, re
@@ -199,13 +200,47 @@ def resolve_preset_toplevel(name, presets_dir, _index=None):
 
 
 def _parse_manifest(path):
+    """-> (components, config, forest_meta). Empty dicts when absent."""
     if not os.path.exists(path):
-        return {}, {}
+        return {}, {}, {}
     if tomllib is None:
         sys.exit("config.py: needs Python >=3.11 (tomllib) to read/update manifest.toml")
     with open(path, "rb") as f:
         data = tomllib.load(f)
-    return data.get("components", {}), data.get("config", {})
+    return data.get("components", {}), data.get("config", {}), data.get("forest", {})
+
+
+def _itk_version(itk_src):
+    """ITK version 'MAJOR.MINOR.PATCH' from <itk_src>/CMakeLists.txt, or None."""
+    cml = os.path.join(itk_src, "CMakeLists.txt")
+    if not os.path.exists(cml):
+        return None
+    try:
+        with open(cml, errors="replace") as f:
+            text = f.read()
+    except OSError:
+        return None
+    parts = []
+    for field in ("MAJOR", "MINOR", "PATCH"):
+        m = re.search(rf'set\s*\(\s*ITK_VERSION_{field}\s+"?(\d+)"?\s*\)', text)
+        if not m:
+            return None
+        parts.append(m.group(1))
+    return ".".join(parts)
+
+
+def _remotes_of(d):
+    out = _git(d, "remote")
+    return tuple(x for x in (out or "").split("\n") if x.strip()) or DEFAULT_REMOTES
+
+
+def _resolved_ref(d):
+    """The ref this worktree actually tracks: its upstream (e.g.
+    'origin/release-5.4') when set, else the current branch name."""
+    up = _git(d, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
+    if up:
+        return up
+    return _git(d, "rev-parse", "--abbrev-ref", "HEAD")
 
 
 def _manifest_header(forest):
@@ -217,17 +252,20 @@ def _manifest_header(forest):
         "# SHAs: python3 bin/config.py manifest <forest>;  [config.*]: written at configure time.",
         "",
     ]
-    itk_ref_env = os.environ.get("ITK_REF", "")
-    if itk_ref_env:
-        hdr += [f"itk_ref_requested = {_toml_str(itk_ref_env)}  # ITK_REF env at generation", ""]
     return hdr
 
 
-def _emit_manifest(forest, components, config):
+def _emit_manifest(forest, components, config, forest_meta=None):
     out = _manifest_header(forest)
+    if forest_meta:
+        out.append("[forest]")
+        for k in ("name", "itk_version"):
+            if forest_meta.get(k) is not None:
+                out.append(f"{k:<12} = {_toml_str(forest_meta[k])}")
+        out.append("")
     for name, spec in components.items():
         out.append(f"[components.{name}]")
-        for k in ("url", "ref", "branch", "sha", "kind"):
+        for k in ("url", "ref", "slug", "branch", "sha", "kind"):
             if k in spec:
                 out.append(f"{k:<6} = {_toml_str(spec[k])}")
         out.append("")
@@ -249,9 +287,9 @@ def _emit_manifest(forest, components, config):
 def _write_config_record(forest, consumer, preset, cache):
     forest = os.path.abspath(forest)
     path = os.path.join(forest, "manifest.toml")
-    components, cfg = _parse_manifest(path)
+    components, cfg, forest_meta = _parse_manifest(path)
     cfg[consumer] = {"preset": preset, **cache}
-    _emit_manifest(forest, components, cfg)
+    _emit_manifest(forest, components, cfg, forest_meta)
 
 
 def cmd_resolve_overlay(preset, src, binary_dir, forest, consumer, kvs):
@@ -438,32 +476,77 @@ def cmd_manifest(forest):
     forest = os.path.abspath(forest)
     vers = load_versions()
     path = os.path.join(forest, "manifest.toml")
-    _, existing_cfg = _parse_manifest(path)
+    _, existing_cfg, existing_meta = _parse_manifest(path)
+    # The engine knows the ITK ref the user REQUESTED (ITK_REF_EXPLICIT, captured
+    # before ITK_REF is defaulted); the worktree alone cannot say, since
+    # repoint-itk checks a PR out from FETCH_HEAD onto a local branch with no
+    # upstream. A merely-defaulted ITK_REF is not a request and must not be
+    # recorded as one.
+    requested_ref = os.environ.get("ITK_REF_EXPLICIT") or None
     components = {}
     for name, spec in vers.get("components", {}).items():
         d = os.path.join(forest, name)
         if not (os.path.isdir(os.path.join(d, ".git")) or os.path.exists(os.path.join(d, ".git"))):
             continue
-        components[name] = {
+        # Resolved ref, NOT the versions.toml default: the declared default is
+        # what made every forest report ref="origin/main" regardless of content.
+        resolved = _resolved_ref(d) or spec.get("ref", "")
+        if resolved.startswith("itk-downstream"):
+            resolved = ""  # our own worktree branch: not an ITK ref
+        rec = {
             "url": _git(d, "remote", "get-url", "origin") or spec.get("url", ""),
-            "ref": spec.get("ref", "origin/main"),
+            "ref": resolved,
             "branch": _git(d, "rev-parse", "--abbrev-ref", "HEAD"),
             "sha": _git(d, "rev-parse", "HEAD"),
             "kind": spec.get("kind", "consumer"),
         }
-    _emit_manifest(forest, components, existing_cfg)
+        try:
+            rec["slug"] = refslug(resolved, _remotes_of(d))
+        except ValueError:
+            pass  # free-form / unsluggable ref: record no slug rather than fail
+        if name == "ITK" and requested_ref:
+            rec["ref"] = requested_ref
+            try:
+                rec["slug"] = refslug(requested_ref, _remotes_of(d))
+            except ValueError:
+                # No slug beats a slug computed from the resolved branch: that
+                # pair (ref=requested, slug=other) reads as a drifted forest.
+                rec.pop("slug", None)
+        components[name] = rec
+    meta = dict(existing_meta or {})
+    meta["name"] = os.path.basename(forest)
+    if "ITK" in components:
+        itk_ver = _itk_version(os.path.join(forest, "ITK"))
+        if itk_ver:
+            meta["itk_version"] = itk_ver
+        else:
+            print(f"warn: could not parse ITK version from {forest}/ITK/CMakeLists.txt",
+                  file=sys.stderr)
+    _emit_manifest(forest, components, existing_cfg, meta)
     print(f"wrote {path} ({len(components)} components, {len(existing_cfg)} config records)")
     return 0
 
 
 def cmd_compare(forest_a, forest_b):
-    """Diff two forests' manifest.toml: ref/SHA deltas and [config.*] -D deltas."""
-    ca, cfa = _parse_manifest(os.path.join(os.path.abspath(forest_a), "manifest.toml"))
-    cb, cfb = _parse_manifest(os.path.join(os.path.abspath(forest_b), "manifest.toml"))
+    """Diff two forests' manifest.toml: forest identity, ref/slug/SHA deltas,
+    and [config.*] -D deltas. This is how you check which ITK a forest holds --
+    the directory name is a convention, the manifest is the record."""
+    ca, cfa, fma = _parse_manifest(os.path.join(os.path.abspath(forest_a), "manifest.toml"))
+    cb, cfb, fmb = _parse_manifest(os.path.join(os.path.abspath(forest_b), "manifest.toml"))
     print(f"# compare A={forest_a}  B={forest_b}")
+    print("## forest")
+    for k in ("name", "itk_version"):
+        va, vb = (fma or {}).get(k, "-"), (fmb or {}).get(k, "-")
+        if va != vb:
+            print(f"  {k}: {va} != {vb}")
     print("## refs/SHAs (A != B)")
     for n in sorted(set(ca) | set(cb)):
-        sa = ca.get(n, {}).get("sha", "-"); sb = cb.get(n, {}).get("sha", "-")
+        ra, rb = ca.get(n, {}), cb.get(n, {})
+        for k in ("ref", "slug"):
+            va, vb = ra.get(k, "-"), rb.get(k, "-")
+            if va != vb:
+                print(f"  {n}.{k}: {va} != {vb}")
+        sa, sb = ra.get("sha", "-"), rb.get("sha", "-")
         if sa != sb:
             print(f"  {n}: {sa[:12]} != {sb[:12]}")
     print("## config -D deltas (A != B)")
