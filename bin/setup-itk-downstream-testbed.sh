@@ -572,6 +572,14 @@ cmd_checkout(){ require git; mkdir -p "${FOREST}"
     # and wins here, so `ITK_REF=<ref> checkout` needs no repoint-itk chaser.
     # Applied whether the worktree was just created or already present.
     if [ "$n" = ITK ] && [ -n "${ITK_REF_EXPLICIT}" ] && [ -e "${FOREST}/ITK/.git" ]; then
+      # _checkout_itk_ref resets --hard. checkout has always been safe to re-run,
+      # so it must not silently discard a worktree's uncommitted edits to honor a
+      # ref: skip when already there, refuse when dirty, repoint only when clean.
+      if [ -n "$(git -C "${FOREST}/ITK" status --porcelain --untracked-files=no 2>/dev/null)" ]; then
+        die "ITK worktree ${FOREST}/ITK has uncommitted changes; refusing to repoint it
+      to '${ITK_REF}' (that would reset --hard over them). Commit/stash them, or
+      drop ITK_REF to leave the worktree as it is."
+      fi
       log "ITK: honoring ITK_REF=${ITK_REF}"
       _checkout_itk_ref "${FOREST}/ITK" "${ITK_REF}" "$(_itk_wt_branch)"
     fi
