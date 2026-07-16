@@ -45,7 +45,9 @@ upstream.**
 
 Point the ITK worktree at the ref under test with `ITK_REF` (e.g. `pr/6250`,
 `upstream/main`, a tag, or a SHA) and `pixi run repoint-itk`, then rebuild the
-forest. We assume developer/push privileges on most downstream projects, so a
+forest. `manifest.toml` records what the forest **actually** holds -- the
+resolved ref, slug, SHA and ITK version -- so the forest's contents are always
+knowable regardless of what its directory is called. We assume developer/push privileges on most downstream projects, so a
 genuine breakage becomes an upstream PR against that consumer's latest main.
 
 The build environment is reproducible: the conda toolchain (compilers, ninja,
@@ -77,10 +79,13 @@ front in every plan, summary, commit/PR description, and report.
 
 **2. Which forest (sub-environment)?** Each forest is a self-contained build
 tree selected by `BUILD_FOREST_ROOT` / `FOREST_REFERENCE_SUFFIX`
-(`FOREST_REFERENCE_SUFFIX=foo` ⇒ `build_forest-foo`). Forests present include
-`build_forest` (default), `build_forest-itkv6_main`, `build_forest-pr6487`,
-`build_forest-ITK-main`, `build_forest-ITK-release-5-4`. **The same source repo
-exists in each forest as a separate worktree on a separate per-forest branch
+(`FOREST_REFERENCE_SUFFIX=foo` ⇒ `build_forest-foo`; no suffix ⇒ `build_forest`).
+The suffix is free-form; the **recommended convention** for a ref forest is
+`itk-<refslug>` (`FOREST_REFERENCE_SUFFIX=itk-pr6250`), which you type -- nothing
+derives or enforces it, and a name can drift from its contents. The record that
+cannot drift is `manifest.toml`; `python3 bin/config.py compare <A> <B>` is how
+you check which ITK is in which forest. **The same source repo exists in each
+forest as a separate worktree on a separate per-forest branch
 (`itk-downstream-<suffix>`, etc.) at a possibly different SHA.** "I built ITK"
 is meaningless; "I built ITK `pr/6487` in `build_forest-pr6487`" is actionable.
 
@@ -111,6 +116,11 @@ ITK_REF=pr/6250 pixi run repoint-itk   # or ITK_REF=upstream/main, a tag, a SHA
 pixi run build-ITK
 pixi run build-elastix     # rebuild a consumer (ccache keeps it fast)
 pixi run bash bin/run-matrix.sh   # full sweep, scored by artifact
+
+# A dedicated forest for a ref: name it by the convention (you type the suffix).
+python3 bin/config.py refslug pr/6250                     # -> pr6250
+FOREST_REFERENCE_SUFFIX=itk-pr6250 ITK_REF=pr/6250 pixi run checkout
+python3 bin/config.py compare build_forest build_forest-itk-pr6250
 ```
 
 ## Non-negotiables

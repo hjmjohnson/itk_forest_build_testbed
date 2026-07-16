@@ -77,10 +77,25 @@ matrix, logs) into `build_forest-<tag>` instead of `build_forest`, so two ITK
 refs can be compared side by side:
 
 ```bash
-FOREST_REFERENCE_SUFFIX=pr6250 pixi run checkout
-FOREST_REFERENCE_SUFFIX=pr6250 ITK_REF=pr/6250 pixi run repoint-itk
-FOREST_REFERENCE_SUFFIX=pr6250 pixi run bash bin/run-matrix.sh   # logs: /tmp/matrix-<name>-pr6250.log
+FOREST_REFERENCE_SUFFIX=itk-pr6250 pixi run checkout
+FOREST_REFERENCE_SUFFIX=itk-pr6250 ITK_REF=pr/6250 pixi run repoint-itk
+FOREST_REFERENCE_SUFFIX=itk-pr6250 pixi run bash bin/run-matrix.sh   # logs: <forest>/logs/matrix-<name>-itk-pr6250.log
 ```
+
+`itk-<refslug>` is a **recommended convention you type**, not a rule: the suffix
+is free-form, nothing derives it from `ITK_REF`, and nothing refuses a name that
+disagrees with the forest's contents. Get the conventional slug with
+`python3 bin/config.py refslug pr/6250` (-> `pr6250`).
+
+Since a name is only a promise, the safety net is the record: each forest's
+`manifest.toml` holds the **resolved** ITK ref, slug, SHA and version, and
+
+```bash
+python3 bin/config.py compare build_forest-itk-release-5.4 build_forest-itk-pr6250
+```
+
+reports the `## forest` identity and per-component `ref`/`slug`/`sha` deltas —
+that is how you check which ITK is in which forest before trusting a result.
 
 Worktree branch names are suffixed (`itk-downstream-pr6250`) since git allows a
 branch in only one worktree. Cross-forest ccache hits are enabled by

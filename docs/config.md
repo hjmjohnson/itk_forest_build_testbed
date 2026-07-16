@@ -29,6 +29,41 @@ QT6_DIR=/opt/Qt/6.10/macos pixi run build-Slicer   # one-off override
 | `CC` / `CXX` | `CC` / `CXX` | Compilers; empty → auto. |
 | `HEAVY` | `HEAVY` | `1` includes CUDA/Java/wasm remotes. |
 
+### Forest naming (a convention, not a rule)
+
+`FOREST_REFERENCE_SUFFIX` is a plain free-form suffix: the forest directory is
+`BUILD_FOREST_ROOT[-FOREST_REFERENCE_SUFFIX]`, and with no suffix it is the bare
+`build_forest`. Nothing derives the name and nothing enforces it.
+
+The **recommended convention** for a forest holding a particular ITK ref is
+`itk-<refslug>`, which you type yourself alongside the ref:
+
+```bash
+FOREST_REFERENCE_SUFFIX=itk-pr6250 ITK_REF=pr/6250 pixi run checkout
+```
+
+| `ITK_REF` | conventional forest |
+|---|---|
+| `origin/release-5.4` | `build_forest-itk-release-5.4` |
+| `v5.4.6` | `build_forest-itk-v5.4.6` |
+| `origin/main` | `build_forest-itk-main` |
+| `pr/6250` | `build_forest-itk-pr6250` |
+| `origin/v6-integration` | `build_forest-itk-v6-integration` |
+
+`python3 bin/config.py refslug <ref> [itk_clone]` prints the slug to type.
+
+Because the name is only a convention, it can drift from the contents. The
+authority on what a forest holds is its `manifest.toml` (resolved ref, slug,
+SHA, ITK version), and `python3 bin/config.py compare <A> <B>` is how you check
+it. Ask the engine for the resolved directory with
+`bash bin/setup-itk-downstream-testbed.sh --print-forest`.
+
+**Suffix-keyed config.** `subbuild.ANTs.skip_suffix` and `[scenarios.<suffix>]`
+in `versions.toml` are keyed by the forest suffix. Renaming a forest without
+updating them changes the build with no error, so `config.py --check` rejects a
+key that follows the `itk-` convention but is not a valid `itk-<refslug>`, and
+notes any scenario key with no forest on disk.
+
 ## How resolution works
 
 `config.json.in` declares each key as either:
