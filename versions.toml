@@ -249,7 +249,7 @@ fork_ref    = "itkv6-support"
 fork_remote  = "hjmjohnson"
 fork_url     = "git@github.com:hjmjohnson/ANTs.git"
 fork_ref     = "integration/itkv6-ants-fixes"
-skip_suffix  = "itkv5"
+skip_suffix  = "itk-release-5.4"
 
 # ----------------------------------------------------------------------------
 # Toolchain knobs that gate version-sensitive consumers
@@ -265,6 +265,6 @@ slicer_qt_version = "6.9.1"        # Qt version the Slicer SuperBuild requires
 #   [scenarios.<FOREST_REFERENCE_SUFFIX>.<ComponentName>]
 #   url = "<fork git url>" ; branch = "demo-<suffix>"
 # ----------------------------------------------------------------------------
-[scenarios.itkv6_main.elastix]
+[scenarios.itk-main.elastix]
 url    = "https://github.com/hjmjohnson/elastix.git"
 branch = "demo-itkv6_main"        # PR #1452 MatrixExponential fix on latest main
