@@ -191,6 +191,9 @@ kind  = "remote"
 heavy = false
 
 [components.TractographyTRX]
+# Upstream baseline. The per-forest scenario overrides below redirect this to an
+# integration fork branch while two interdependent PRs await review; drop the
+# scenarios once they merge and this alone tracks upstream again.
 url   = "https://github.com/tee-ar-ex/ITKTractographyTRX.git"
 ref   = "origin/main"
 kind  = "remote"
@@ -281,6 +284,23 @@ slicer_qt_version = "6.9.1"        # Qt version the Slicer SuperBuild requires
 [scenarios.itk-main.elastix]
 url    = "https://github.com/hjmjohnson/elastix.git"
 branch = "demo-itkv6_main"        # PR #1452 MatrixExponential fix on latest main
+
+# --- TractographyTRX: TEMPORARY integration branch until two interdependent PRs
+# merge upstream. The module PINS trx-cpp, so testing the ITK v5 fix needs BOTH
+# plus a pin bump; itk-forest-integration carries all three:
+#   tee-ar-ex/ITKTractographyTRX#30 -- ITK v5/v6 build-glue (zlib/Eigen targets)
+#   tee-ar-ex/trx-cpp#52            -- get_ext reads the final path component
+#   + a pin bump: TRX_CPP_GIT_TAG -> hjmjohnson/trx-cpp@itk-forest-integration (11d0c81)
+# Verified: builds + 9/9 module tests on both ITK 5.4.6 and 6.0.0. Delete these
+# two scenarios once #30 and #52 land and the pin is bumped to a merged trx-cpp SHA.
+# (quote the dotted suffix so "5.4" is not parsed as a TOML key separator)
+["scenarios"."itk-release-5.4"."TractographyTRX"]
+url    = "https://github.com/hjmjohnson/ITKTractographyTRX.git"
+branch = "itk-forest-integration"
+
+[scenarios.itk-main.TractographyTRX]
+url    = "https://github.com/hjmjohnson/ITKTractographyTRX.git"
+branch = "itk-forest-integration"
 
 # --- Slicer's vendored ITK: one variant per forest, derived from that forest's
 # ITK base + the Slicer patches for that ITK major. Mint per
