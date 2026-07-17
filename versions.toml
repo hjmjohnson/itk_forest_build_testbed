@@ -302,6 +302,18 @@ branch = "itk-forest-integration"
 url    = "https://github.com/hjmjohnson/ITKTractographyTRX.git"
 branch = "itk-forest-integration"
 
+# --- BRAINSTools: TEMPORARY integration branch, itk-main (v6) ONLY.
+#   BRAINSia/BRAINSTools#616 -- regenerate MIH baselines for ITK's corrected
+#   JointHistogramMutualInformation metric (ITK#6569, merged).
+# The new baselines match the v6-corrected metric, so they PASS on ITK 6.0.0 and
+# FAIL on ITK 5.4.6 (whose metric still produces the old answer). This is the
+# canonical per-forest case: the fix is correct for one forest and wrong for the
+# other, so it is wired for itk-main and NOT for itk-release-5.4, which keeps the
+# upstream 2018 baselines that still pass on v5. Delete this once #616 merges.
+[scenarios.itk-main.BRAINSTools]
+url    = "https://github.com/hjmjohnson/BRAINSTools.git"
+branch = "itk-forest-integration"
+
 # --- Slicer's vendored ITK: one variant per forest, derived from that forest's
 # ITK base + the Slicer patches for that ITK major. Mint per
 # docs/slicer-itk-policy.md; never point two forests at one branch.
