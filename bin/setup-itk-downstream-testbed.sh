@@ -432,10 +432,16 @@ ants_system_args(){
   done
   [ -n "${c}" ] || return 0
   # ANTSConfig's set_and_check requires <prefix>/include/ANTs to exist, but the
-  # build-tree export mis-computes <prefix> (BRAINSia/BRAINSTools#606). Create
-  # the dir so find_package(ANTS) succeeds; real headers come from the
+  # build-tree export mis-computes <prefix> (BRAINSia/BRAINSTools#606) as
+  # ${CMAKE_CURRENT_LIST_DIR}/../../.. -- install-tree arithmetic applied to a
+  # build tree. Create whatever that resolves to, computed the SAME way rather
+  # than guessed: the old hardcoded paths silently stopped matching when build
+  # trees moved to ${FOREST}/${PKG}/build, and BRAINSTools then failed to
+  # configure against the forest's ANTs. Real headers come from the
   # ANTS::antsUtilities target's interface includes, not this legacy variable.
-  mkdir -p "${FOREST}/ANTs/include/ANTs" "${c}/include/ANTs"
+  local _ants_prefix; _ants_prefix="$(cd "${c}/../../.." 2>/dev/null && pwd)"
+  [ -n "${_ants_prefix}" ] && mkdir -p "${_ants_prefix}/include/ANTs"
+  mkdir -p "${c}/include/ANTs"
   printf '%s ' -DUSE_SYSTEM_ANTs=ON "-DANTS_DIR=${c}"
 }
 
