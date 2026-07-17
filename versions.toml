@@ -226,12 +226,18 @@ heavy = true
 # ----------------------------------------------------------------------------
 [subbuild.Slicer]
 # Slicer always builds its own vendored ITK branch; never the system ITK.
-# Successor of the ITK ref under test (test/svdc-plus-dcmtkfix) + the 2 Slicer
-# patches (custom ITK namespace, itkFileTools build fix) cherry-picked on top,
-# so the Slicer branch of the forest validates the current/svd ITK instead of a
-# stale snapshot. Regenerate as <svd-base> + slicer patches when the base moves.
+#
+# RULE: the vendored branch DERIVES FROM THE FOREST'S OWN ITK BASE -- forest on
+# release-5.4 => Slicer ITK = release-5.4 + itk5 Slicer patches; forest on main
+# => Slicer ITK = main + itk6 Slicer patches. So ITK_GIT_TAG is PER-FOREST and
+# lives in [scenarios.<suffix>.Slicer] below. See docs/slicer-itk-policy.md for
+# the rule and the minting recipe.
+#
+# No global ITK_GIT_TAG on purpose: a forest without a declared variant must
+# FAIL (config.py subbuild-get exits non-zero) rather than silently inherit
+# another forest's ITK. A wrong Slicer ITK surfaces hours later as an unrelated
+# link error -- see docs/slicer-itk-policy.md "How this fails silently".
 ITK_GIT_REPOSITORY = "https://github.com/hjmjohnson/ITK"
-ITK_GIT_TAG        = "slicer-v6.0.0-svdc-c1a4cecfab7"
 
 [subbuild.BRAINSTools]
 # Consumed via the overridable BRAINSTools_ANTs_GIT_* vars (BRAINSia/BRAINSTools#605).
@@ -275,3 +281,22 @@ slicer_qt_version = "6.9.1"        # Qt version the Slicer SuperBuild requires
 [scenarios.itk-main.elastix]
 url    = "https://github.com/hjmjohnson/elastix.git"
 branch = "demo-itkv6_main"        # PR #1452 MatrixExponential fix on latest main
+
+# --- Slicer's vendored ITK: one variant per forest, derived from that forest's
+# ITK base + the Slicer patches for that ITK major. Mint per
+# docs/slicer-itk-policy.md; never point two forests at one branch.
+# Naming: slicer-v<ITK version>-<YYYY-MM-DD>-<base short sha>
+
+# NOTE the quotes: a bare [scenarios.itk-release-5.4.Slicer] would parse the
+# dot in "5.4" as a TOML key separator (scenarios.itk-release-5.4.Slicer ->
+# scenarios/itk-release-5/4/Slicer) and silently never match this forest.
+["scenarios"."itk-release-5.4"."Slicer"]
+# upstream/release-5.4 @ 9cd63da191e (ITK 5.4.6) + itk5 Slicer patches:
+#   custom ITK namespace, itkFileTools build fix
+ITK_GIT_TAG = "slicer-v5.4.6-2026-07-17-9cd63da191e"
+
+[scenarios.itk-main.Slicer]
+# upstream/main @ 350ae6b0897 (ITK 6.0.0) + itk6 Slicer patches:
+#   custom ITK namespace only -- the itkFileTools fix is already upstream in
+#   main, so cherry-picking it there is correctly empty.
+ITK_GIT_TAG = "slicer-v6.0.0-2026-07-17-350ae6b0897"

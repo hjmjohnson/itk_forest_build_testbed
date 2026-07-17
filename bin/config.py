@@ -457,6 +457,30 @@ def cmd_scenario(suffix, component):
         print(f"{spec['url']}|{spec['branch']}")
 
 
+def cmd_subbuild_get(suffix, pkg, key):
+    """Print [scenarios.<suffix>.<pkg>].<key>, else [subbuild.<pkg>].<key>.
+
+    Slicer's vendored ITK must derive from the FOREST's ITK base (see
+    docs/slicer-itk-policy.md), so its tag is per-forest, not global. Exits
+    non-zero when neither is set: a wrong Slicer ITK costs hours and reports
+    the failure as an unrelated link error, so a missing key must be loud.
+    """
+    vers = load_versions()
+    scoped = (vers.get("scenarios") or {}).get(suffix, {}).get(pkg, {})
+    if isinstance(scoped, dict) and key in scoped:
+        print(scoped[key])
+        return 0
+    val = (vers.get("subbuild") or {}).get(pkg, {}).get(key)
+    if val is None:
+        sys.exit(
+            f"config.py subbuild-get: no [scenarios.{suffix}.{pkg}].{key} and no "
+            f"[subbuild.{pkg}].{key}. For Slicer's ITK_GIT_TAG this means the forest "
+            f"'{suffix}' has no vendored ITK variant; mint one per docs/slicer-itk-policy.md."
+        )
+    print(val)
+    return 0
+
+
 def cmd_get(dotted):
     node = load_versions()
     for part in dotted.split("."):
@@ -618,6 +642,10 @@ if __name__ == "__main__":
         if len(args) < 3:
             sys.exit("usage: config.py scenario <suffix> <component>")
         sys.exit(cmd_scenario(args[1], args[2]))
+    if cmd == "subbuild-get":
+        if len(args) < 4:
+            sys.exit("usage: config.py subbuild-get <suffix> <pkg> <key>")
+        sys.exit(cmd_subbuild_get(args[1], args[2], args[3]))
     if cmd == "resolve-overlay":
         if len(args) < 6:
             sys.exit("usage: config.py resolve-overlay <preset> <src> <bin> <forest> <consumer> [KEY=VAL ...]")

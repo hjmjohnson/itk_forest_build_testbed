@@ -974,6 +974,18 @@ configure_one(){ require_pixi_toolchain configure
                  # dedicated Slicer-vendored ITK branch (hjmjohnson/ITK @ slicer-itk-*)
                  # via -DSlicer_ITK_GIT_TAG below. See docs/slicer-itk-policy.md.
                  [ -d "${SLICER_QT_PREFIX}/lib/cmake/Qt6" ] || die "Qt6 not found at ${SLICER_QT_PREFIX} (set SLICER_QT_PREFIX/SLICER_QT_VERSION)"
+                 # Resolve Slicer's per-forest vendored ITK tag HERE, not inline
+                 # in do_overlay: a $(...) failure inside a command argument is
+                 # NOT fatal under set -e (bash errexit exception), so an
+                 # undeclared forest would silently pass an empty tag. Assigning
+                 # to a local with || die makes the miss abort the build.
+                 local _slicer_itk_tag
+                 if [ -n "${SLICER_ITK_GIT_TAG:-}" ]; then
+                   _slicer_itk_tag="${SLICER_ITK_GIT_TAG}"
+                 else
+                   _slicer_itk_tag="$(cfg subbuild-get "${FOREST_REFERENCE_SUFFIX:-}" Slicer ITK_GIT_TAG)" \
+                     || die "No Slicer-vendored ITK for forest '${FOREST_REFERENCE_SUFFIX:-<bare>}'. Declare [scenarios.<suffix>.Slicer].ITK_GIT_TAG and mint the variant per docs/slicer-itk-policy.md."
+                 fi
                  # Slicer forwards -DCMAKE_<LANG>_COMPILER to every ExternalProject
                  # (VTK/ITK/Python/...) but NOT the ccache *launcher*, so a launcher
                  # flag would skip ccache for those EPs. Point the compiler at ccache's
@@ -985,8 +997,12 @@ configure_one(){ require_pixi_toolchain configure
                  do_overlay Slicer itk-forest-slicer "$s" "$b" \
                    "CMAKE_C_COMPILER=${SLICER_CC:-${CC}}" \
                    "CMAKE_CXX_COMPILER=${SLICER_CXX:-${CXX}}" \
+                   `# Slicer's ITK is a per-forest variant of THIS forest's ITK` \
+                   `# base (docs/slicer-itk-policy.md). subbuild-get reads` \
+                   `# [scenarios.<suffix>.Slicer].ITK_GIT_TAG and EXITS NON-ZERO` \
+                   `# when a forest has none -- no silent global fallback.` \
                    "Slicer_ITK_GIT_REPOSITORY=${SLICER_ITK_GIT_REPOSITORY:-$(cfg get subbuild.Slicer.ITK_GIT_REPOSITORY)}" \
-                   "Slicer_ITK_GIT_TAG=${SLICER_ITK_GIT_TAG:-$(cfg get subbuild.Slicer.ITK_GIT_TAG)}" \
+                   "Slicer_ITK_GIT_TAG=${_slicer_itk_tag}" \
                    `# python EP = python-cmake-buildsystem; pin to the fork branch` \
                    `# carrying the libintl link fix (upstream PR #450) until merged.` \
                    "Slicer_python_GIT_REPOSITORY=${SLICER_PYTHON_GIT_REPOSITORY:-https://github.com/hjmjohnson/python-cmake-buildsystem.git}" \
