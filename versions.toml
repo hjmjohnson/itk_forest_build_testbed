@@ -24,7 +24,14 @@ branch = "itk-downstream"
 
 [components.ANTs]
 url    = "https://github.com/ANTsX/ANTs.git"
-ref    = "origin/main"
+# TEMPORARY until ANTsX/ANTs#2008 merges (expected 2026-07-17/18), then restore
+# "origin/main". #2008 pins --random-seed 1 on antsRegistrationTest_AffineScaleMasks,
+# which otherwise fails ~17% of runs (5/30 measured) on ANY ITK version -- a
+# sweep reads that as a downstream breakage, and a single-run v5-vs-v6 compare
+# reads it as an ITK regression. Forests that take the fork path get the same
+# commit via subbuild.ANTs.fork_ref; this ref covers the fork-skipping forest
+# (skip_suffix), so both paths carry it.
+ref    = "hjmjohnson/pin-seed-affinescalemasks"
 branch = "ants-itk-downstream"
 
 [components.BRAINSTools]
