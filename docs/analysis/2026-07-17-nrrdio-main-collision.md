@@ -162,19 +162,30 @@ existence guard was confirmed to fire by injecting a bogus entry.
 Fix D is the ASAP unblock; A (+B) is the upstream correctness fix; C removes the
 enabling condition; E prevents recurrence.
 
-## Open item (separate finding, same run)
-
-Independent of the above, and **not** yet root-caused:
+## Separate finding, same run — root-caused 2026-07-17
 
 ```
 BRAINSFitTest_MIHAffineRotationMasks            ITK 5.4.6: 10/10 PASS   ITK 6.0.0: 0/10 PASS
 BRAINSFitTest_MIHScaleSkewVersorRotationMasks   ITK 5.4.6: 10/10 PASS   ITK 6.0.0: 0/10 PASS
 ```
 
-Deterministic (10 runs each, not a flake — checked explicitly because a sibling ANTs
-masked-registration test *was* a ~17% flake). Fails with `ImageError = 1756` differing
-pixels against the baseline. MI-histogram + masks registration produces a different
-result under ITKv6. Tracked separately.
+**Not an ITK defect.** ITK PR #6569 (merged 2026-07-16) corrected two coupled bugs in
+`JointHistogramMutualInformationImageToImageMetricv4` — the metric `--costMetric MIH`
+selects. BRAINSTools' baselines were generated in **2018** against the buggy metric, so
+they encode a wrong answer. The tests fail by disagreeing with a stale snapshot; the
+action is regenerating the baselines, not changing ITK.
+
+Full analysis: **`2026-07-17-jhmi-metric-correction.md`**.
+
+The two findings are instructive as a pair — same run, opposite polarity:
+
+| | this doc (NrrdIO) | JHMI |
+|---|---|---|
+| suite says | **green** | **red** |
+| reality | 17 tests silently absent | upstream fix working as intended |
+| action | fix the library | regenerate the baseline |
+
+Neither "passed" nor "failed" is interpretable without knowing what the test measures.
 
 ## Verification log
 
