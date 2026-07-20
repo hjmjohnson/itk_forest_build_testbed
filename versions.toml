@@ -24,14 +24,7 @@ branch = "itk-downstream"
 
 [components.ANTs]
 url    = "https://github.com/ANTsX/ANTs.git"
-# TEMPORARY until ANTsX/ANTs#2008 merges (expected 2026-07-17/18), then restore
-# "origin/main". #2008 pins --random-seed 1 on antsRegistrationTest_AffineScaleMasks,
-# which otherwise fails ~17% of runs (5/30 measured) on ANY ITK version -- a
-# sweep reads that as a downstream breakage, and a single-run v5-vs-v6 compare
-# reads it as an ITK regression. Forests that take the fork path get the same
-# commit via subbuild.ANTs.fork_ref; this ref covers the fork-skipping forest
-# (skip_suffix), so both paths carry it.
-ref    = "hjmjohnson/pin-seed-affinescalemasks"
+ref    = "origin/main"
 branch = "ants-itk-downstream"
 
 [components.BRAINSTools]
@@ -245,7 +238,7 @@ ITK_GIT_REPOSITORY = "https://github.com/hjmjohnson/ITK"
 [subbuild.BRAINSTools]
 # Consumed via the overridable BRAINSTools_ANTs_GIT_* vars (BRAINSia/BRAINSTools#605).
 ANTs_GIT_REPOSITORY = "https://github.com/ANTsX/ANTs.git"
-ANTs_GIT_TAG        = "d2fbf8bd525f0b9f907b9c6ebd35ab26a4d8927a"
+ANTs_GIT_TAG        = "2a25b6b032b01680a558b6fbc767f056ccd144e1"
 
 [subbuild.PlusLib]
 # Test data (TestImages/ConfigFiles/CADModels) the PlusLib tests read from;
@@ -257,15 +250,6 @@ data_url = "https://github.com/PlusToolkit/PlusLibData.git"
 fork_remote = "hjmjohnson"
 fork_url    = "git@gitlab.com:hjmjohnson/plastimatch.git"
 fork_ref    = "itkv6-support"
-
-[subbuild.ANTs]
-# Non-itkv5 forests build from a fork integration branch bundling the ITKv6
-# fix PRs (ANTsX/ANTs #1987/#1989/#1990/#1991). The itkv5 forest is exempt and
-# keeps its pinned pre-ITK6 ANTs (9d0ecf098). Drop this once the PRs merge.
-fork_remote  = "hjmjohnson"
-fork_url     = "git@github.com:hjmjohnson/ANTs.git"
-fork_ref     = "integration/itkv6-ants-fixes"
-skip_suffix  = "itk-release-5.4"
 
 # ----------------------------------------------------------------------------
 # Toolchain knobs that gate version-sensitive consumers
@@ -281,10 +265,6 @@ slicer_qt_version = "6.9.1"        # Qt version the Slicer SuperBuild requires
 #   [scenarios.<FOREST_REFERENCE_SUFFIX>.<ComponentName>]
 #   url = "<fork git url>" ; branch = "demo-<suffix>"
 # ----------------------------------------------------------------------------
-[scenarios.itk-main.elastix]
-url    = "https://github.com/hjmjohnson/elastix.git"
-branch = "demo-itkv6_main"        # PR #1452 MatrixExponential fix on latest main
-
 # --- TractographyTRX: TEMPORARY integration branch until two interdependent PRs
 # merge upstream. The module PINS trx-cpp, so testing the ITK v5 fix needs BOTH
 # plus a pin bump; itk-forest-integration carries all three:
@@ -328,7 +308,7 @@ branch = "itk-forest-integration"
 ITK_GIT_TAG = "slicer-v5.4.6-2026-07-17-9cd63da191e"
 
 [scenarios.itk-main.Slicer]
-# upstream/main @ 350ae6b0897 (ITK 6.0.0) + itk6 Slicer patches:
+# upstream/main @ 42134211832 (ITK 6.0.0) + itk6 Slicer patches:
 #   custom ITK namespace only -- the itkFileTools fix is already upstream in
 #   main, so cherry-picking it there is correctly empty.
-ITK_GIT_TAG = "slicer-v6.0.0-2026-07-17-350ae6b0897"
+ITK_GIT_TAG = "slicer-v6.0.0-2026-07-20-42134211832"

@@ -480,12 +480,12 @@ PLM_FORK_REMOTE="${PLM_FORK_REMOTE:-$(cfg get subbuild.Plastimatch.fork_remote)}
 PLM_FORK_URL="${PLM_FORK_URL:-$(cfg get subbuild.Plastimatch.fork_url)}"
 PLM_FORK_REF="${PLM_FORK_REF:-$(cfg get subbuild.Plastimatch.fork_ref)}"
 
-# ANTs (non-itkv5 forests) builds from a fork integration branch bundling the
-# ITKv6 fix PRs; the skip_suffix forest keeps its own pinned ANTs. Override via env.
-ANTS_FORK_REMOTE="${ANTS_FORK_REMOTE:-$(cfg get subbuild.ANTs.fork_remote)}"
-ANTS_FORK_URL="${ANTS_FORK_URL:-$(cfg get subbuild.ANTs.fork_url)}"
-ANTS_FORK_REF="${ANTS_FORK_REF:-$(cfg get subbuild.ANTs.fork_ref)}"
-ANTS_FORK_SKIP_SUFFIX="${ANTS_FORK_SKIP_SUFFIX:-$(cfg get subbuild.ANTs.skip_suffix)}"
+# ANTs may be built from a fork integration branch while ITKv6 fixes are in
+# review; absent [subbuild.ANTs] means upstream, so these lookups are optional.
+ANTS_FORK_REMOTE="${ANTS_FORK_REMOTE:-$(cfg get subbuild.ANTs.fork_remote 2>/dev/null || true)}"
+ANTS_FORK_URL="${ANTS_FORK_URL:-$(cfg get subbuild.ANTs.fork_url 2>/dev/null || true)}"
+ANTS_FORK_REF="${ANTS_FORK_REF:-$(cfg get subbuild.ANTs.fork_ref 2>/dev/null || true)}"
+ANTS_FORK_SKIP_SUFFIX="${ANTS_FORK_SKIP_SUFFIX:-$(cfg get subbuild.ANTs.skip_suffix 2>/dev/null || true)}"
 
 # Ensure the Plastimatch fork remote exists in the central clone and the
 # ITKv6-support ref is fetched; returns the base ref the worktree should use.
@@ -534,7 +534,10 @@ checkout_one(){
       log "${name}: scenario ${FOREST_REFERENCE_SUFFIX} -> ${ov_url} @ ${ov_branch}"
       git -C "${repo}" fetch --force "${ov_url}" "${ov_branch}:refs/demo/${name}-${ov_branch}" \
         || { warn "${name}: fetch demo branch ${ov_branch} from ${ov_url} failed"; return 1; }
-      git -C "${repo}" worktree add -B "${ov_branch}" "${dest}" "refs/demo/${name}-${ov_branch}"
+      # Suffix the local branch like the normal path: a branch lives in exactly
+      # one worktree, so two forests overriding the same component would collide.
+      git -C "${repo}" worktree add -B "${ov_branch}${FOREST_REFERENCE_SUFFIX:+-${FOREST_REFERENCE_SUFFIX}}" \
+        "${dest}" "refs/demo/${name}-${ov_branch}"
       return 0
     fi
   fi
