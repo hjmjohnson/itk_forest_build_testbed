@@ -23,14 +23,26 @@ if(DEFINED ENV{CONDA_PREFIX} AND NOT "$ENV{CONDA_PREFIX}/lib" IN_LIST CMAKE_BUIL
   list(APPEND CMAKE_BUILD_RPATH "$ENV{CONDA_PREFIX}/lib")
 endif()
 
-# 3. Force CMake's FindIconv to the conda libiconv. The conda compiler's default
-#    include has conda's GNU iconv.h, which macro-renames iconv->libiconv_*; the
-#    matching symbols live in conda's libiconv, not the macOS SDK libiconv.tbd
-#    (plain _iconv) that FindIconv would otherwise pick. Without this, GDCM's
-#    mec_mr3_io.c (and any iconv user) fails to link with undefined _libiconv_*.
-if(APPLE AND DEFINED ENV{CONDA_PREFIX} AND EXISTS "$ENV{CONDA_PREFIX}/lib/libiconv.dylib")
-  set(Iconv_INCLUDE_DIR "$ENV{CONDA_PREFIX}/include" CACHE PATH "conda iconv (matches compiler default header)" FORCE)
-  set(Iconv_LIBRARY "$ENV{CONDA_PREFIX}/lib/libiconv.dylib" CACHE FILEPATH "conda iconv (has libiconv_* symbols)" FORCE)
+# 3. Force CMake's FindIconv to the macOS SDK libiconv, matching the header the
+#    compile actually sees. The forest unsets CPATH (see the engine), so conda's
+#    GNU iconv.h -- which macro-renames iconv->libiconv_* -- is no longer on the
+#    search path and compiles resolve the SDK's plain iconv.h. Consumers such as
+#    GDCM's mec_mr3_io.c never receive Iconv_INCLUDE_DIR on their compile line,
+#    so the header in use is the SDK one no matter what this variable says; the
+#    library must therefore be the SDK's (plain _iconv) rather than conda's
+#    (libiconv_*), or the link fails with undefined _iconv/_iconv_open.
+if(APPLE)
+  if(NOT _forest_macos_sdk)
+    execute_process(
+      COMMAND xcrun --show-sdk-path
+      OUTPUT_VARIABLE _forest_macos_sdk
+      OUTPUT_STRIP_TRAILING_WHITESPACE
+      ERROR_QUIET)
+  endif()
+  if(_forest_macos_sdk AND EXISTS "${_forest_macos_sdk}/usr/lib/libiconv.tbd")
+    set(Iconv_INCLUDE_DIR "${_forest_macos_sdk}/usr/include" CACHE PATH "SDK iconv (plain _iconv)" FORCE)
+    set(Iconv_LIBRARY "${_forest_macos_sdk}/usr/lib/libiconv.tbd" CACHE FILEPATH "SDK iconv (plain _iconv)" FORCE)
+  endif()
 endif()
 
 # 4. Linux: conda binutils (new-dtags) does not search -rpath when resolving a

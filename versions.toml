@@ -240,6 +240,15 @@ ITK_GIT_REPOSITORY = "https://github.com/hjmjohnson/ITK"
 ANTs_GIT_REPOSITORY = "https://github.com/ANTsX/ANTs.git"
 ANTs_GIT_TAG        = "2a25b6b032b01680a558b6fbc767f056ccd144e1"
 
+[subbuild.SlicerANTs]
+# netstim/SlicerANTs defaults its ANTs EP to 8c4e2077 (2024.09.10) -- ~2 years
+# stale, so the extension exercises an ANTs that predates the ITKv6 fixes the
+# forest tests against. Its External_ANTs.cmake uses
+# ExternalProject_SetIfNotDefined, so SlicerANTs_ANTs_GIT_* overrides it without
+# patching the extension. Kept in step with subbuild.BRAINSTools above.
+ANTs_GIT_REPOSITORY = "https://github.com/ANTsX/ANTs.git"
+ANTs_GIT_TAG        = "2a25b6b032b01680a558b6fbc767f056ccd144e1"
+
 [subbuild.PlusLib]
 # Test data (TestImages/ConfigFiles/CADModels) the PlusLib tests read from;
 # cloned shallow into forest_git_repos/PlusLibData and passed as PLUSLIB_DATA_DIR.
@@ -308,7 +317,8 @@ branch = "itk-forest-integration"
 ITK_GIT_TAG = "slicer-v5.4.6-2026-07-17-9cd63da191e"
 
 [scenarios.itk-main.Slicer]
-# upstream/main @ 42134211832 (ITK 6.0.0) + itk6 Slicer patches:
-#   custom ITK namespace only -- the itkFileTools fix is already upstream in
-#   main, so cherry-picking it there is correctly empty.
-ITK_GIT_TAG = "slicer-v6.0.0-2026-07-20-42134211832"
+# integration/itk-main (main + ITK #6667 tweak-version + tweak bump to 20260716,
+# base e161a8a612d) + itk6 Slicer patches: custom ITK namespace only -- the
+# itkFileTools fix is already upstream in main. Re-minted off the integration
+# branch so Slicer's ITK is a variant of THIS forest's actual ITK base.
+ITK_GIT_TAG = "slicer-v6.0.0-2026-07-20-e161a8a612d"

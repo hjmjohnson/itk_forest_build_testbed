@@ -219,6 +219,12 @@ export CMAKE_TOOLCHAIN_FILE="${TESTBED}/cmake/forest-toolchain.cmake"
 # silently shadow the header set a project explicitly configures against
 # (e.g. Slicer's curl EP compiled vs conda OpenSSL 3 while linking the
 # OpenSSL 1.1 EP). Drop it; CMake projects locate headers via find_package.
+# Also shadows Slicer's symbol-prefixed zlib: ITK's GDCM/znz would compile
+# unprefixed declarations against a slicer_zlib_* archive and fail to link.
+# NOTE: CPATH is an environment variable, absent from the compile command, so
+# neither ninja nor a build-tree wipe invalidates objects compiled while it
+# leaked. Such objects survive as stale and keep breaking the link; find them
+# by scanning for unprefixed symbols (nm | grep ' U _crc32') and delete them.
 unset CPATH
 
 # Forest-level build/install tree locations. Task-2 flips these two bodies to
@@ -1123,9 +1129,23 @@ build_one(){ require cmake ninja ccache; require_pixi_toolchain build
   # Slicer's bundled TBB (tbbbind) and other EPs include env-provided headers
   # (hwloc.h, ...) that the conda compiler only finds via CPATH (no -I is added
   # otherwise). The conflicting jpeg headers are already hidden above.
+  # Expose ONLY those headers on CPATH. CPATH outranks every -isystem, so the
+  # whole conda include dir would shadow headers a project configures
+  # explicitly -- notably Slicer's symbol-prefixed zlib (slicer_zlib_*), whose
+  # unprefixed conda twin makes ITK's GDCM/NIFTI/GIPL compile declarations that
+  # do not match the archive they link (undefined _crc32/_gz*). Symlink the few
+  # env-provided headers into a private dir and put that on CPATH instead.
   case "$name" in
     Slicer|SlicerExtensions)
-      export CPATH="${PIXI_PROJECT_ROOT:-${TESTBED}}/.pixi/envs/default/include${CPATH:+:${CPATH}}" ;;
+      local _envinc="${PIXI_PROJECT_ROOT:-${TESTBED}}/.pixi/envs/default/include"
+      local _shim="${FOREST}/.cpath-shim"
+      mkdir -p "${_shim}"
+      local _h
+      for _h in hwloc.h hwloc; do
+        [ -e "${_envinc}/${_h}" ] && [ ! -e "${_shim}/${_h}" ] \
+          && ln -s "${_envinc}/${_h}" "${_shim}/${_h}"
+      done
+      export CPATH="${_shim}${CPATH:+:${CPATH}}" ;;
   esac
   # Plastimatch's force-include shim must exist before configure (CMake's
   # compiler checks use CMAKE_CXX_FLAGS, which references it).
