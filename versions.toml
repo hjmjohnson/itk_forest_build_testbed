@@ -235,12 +235,24 @@ heavy = true
 # link error -- see docs/slicer-itk-policy.md "How this fails silently".
 ITK_GIT_REPOSITORY = "https://github.com/hjmjohnson/ITK"
 
-# SlicerExecutionModel generates the CLI wrappers against ITK headers; Slicer's
-# own default pin is 91b921bd (2025-01-20), ~1.5 yr behind an actively fixed
-# repo and predating the ITKv6 release. Overridable via the Slicer-side
-# ExternalProject_SetIfNotDefined vars, no consumer patch needed.
+# SlicerExecutionModel is deliberately NOT bumped off Slicer's own 91b921bd
+# (2025-01-20) default. Bumping to 56ed0944 (2026-06-16) breaks the Slicer
+# build: that revision's vendored tclap declares
+#   CmdLineOutput.h:39  const char PATH_SEPARATOR = ...
+# while DCMTK's osconfig.h:436 does
+#   #define PATH_SEPARATOR '/'
+# so any TU including both -- e.g. BRAINSTools/DWIConvert/DWIConvert.cxx via
+# DWIConvertCLP.h -- expands the macro into the declaration:
+#   error: expected unqualified-id
+# "Stale" was not a sufficient reason to move it; landing this needs the
+# name collision resolved upstream in SlicerExecutionModel or DCMTK first.
+#
+# Pinned EXPLICITLY to Slicer's own default rather than left unset: once a
+# forest has configured with a different tag, that value lives in Slicer's
+# CMake cache, and an unset pin gives the drift check nothing to compare, so
+# the cache silently wins. Declaring the intended value is what pulls it back.
 SlicerExecutionModel_GIT_REPOSITORY = "https://github.com/Slicer/SlicerExecutionModel.git"
-SlicerExecutionModel_GIT_TAG        = "56ed094440f867f5d697951f1a164cd1420f4b65"
+SlicerExecutionModel_GIT_TAG        = "91b921bd5977c3384916ba4b03705d87b26067f7"
 
 [subbuild.BRAINSTools]
 # Consumed via the overridable BRAINSTools_ANTs_GIT_* vars (BRAINSia/BRAINSTools#605).
