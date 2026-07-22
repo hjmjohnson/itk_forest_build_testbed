@@ -457,6 +457,27 @@ def cmd_scenario(suffix, component):
         print(f"{spec['url']}|{spec['branch']}")
 
 
+_EXT_DESC_KEYS = {"url": "scm_url", "revision": "scm_revision", "scm_type": "scm_type"}
+
+
+def cmd_extension_scenario(suffix, name):
+    """Print a JSON object of Slicer-extension descriptor overrides, else nothing.
+
+    Reads [scenarios.<suffix>.extensions.<name>]; keys url/revision/scm_type map
+    onto the descriptor's scm_url/scm_revision/scm_type. Extensions are cloned by
+    Slicer's ExtensionsIndex descriptor, not by a forest worktree, so
+    [scenarios.<suffix>.<Component>] cannot reach them.
+    """
+    spec = ((load_versions().get("scenarios") or {}).get(suffix, {})
+            .get("extensions", {}).get(name))
+    if not isinstance(spec, dict):
+        return 0
+    out = {_EXT_DESC_KEYS[k]: v for k, v in spec.items() if k in _EXT_DESC_KEYS}
+    if out:
+        print(json.dumps(out))
+    return 0
+
+
 def cmd_subbuild_get(suffix, pkg, key):
     """Print [scenarios.<suffix>.<pkg>].<key>, else [subbuild.<pkg>].<key>.
 
@@ -642,6 +663,10 @@ if __name__ == "__main__":
         if len(args) < 3:
             sys.exit("usage: config.py scenario <suffix> <component>")
         sys.exit(cmd_scenario(args[1], args[2]))
+    if cmd == "extension-scenario":
+        if len(args) < 3:
+            sys.exit("usage: config.py extension-scenario <suffix> <extension-name>")
+        sys.exit(cmd_extension_scenario(args[1], args[2]))
     if cmd == "subbuild-get":
         if len(args) < 4:
             sys.exit("usage: config.py subbuild-get <suffix> <pkg> <key>")

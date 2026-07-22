@@ -88,7 +88,7 @@ for p in paths:
         d = json.load(open(p))
     except Exception:
         continue
-    if d.get("scm", "git") != "git":
+    if d.get("scm_type", "git") != "git":
         continue
     url = d.get("scm_url")
     if not url:

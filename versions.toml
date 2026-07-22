@@ -235,6 +235,13 @@ heavy = true
 # link error -- see docs/slicer-itk-policy.md "How this fails silently".
 ITK_GIT_REPOSITORY = "https://github.com/hjmjohnson/ITK"
 
+# SlicerExecutionModel generates the CLI wrappers against ITK headers; Slicer's
+# own default pin is 91b921bd (2025-01-20), ~1.5 yr behind an actively fixed
+# repo and predating the ITKv6 release. Overridable via the Slicer-side
+# ExternalProject_SetIfNotDefined vars, no consumer patch needed.
+SlicerExecutionModel_GIT_REPOSITORY = "https://github.com/Slicer/SlicerExecutionModel.git"
+SlicerExecutionModel_GIT_TAG        = "56ed094440f867f5d697951f1a164cd1420f4b65"
+
 [subbuild.BRAINSTools]
 # Consumed via the overridable BRAINSTools_ANTs_GIT_* vars (BRAINSia/BRAINSTools#605).
 ANTs_GIT_REPOSITORY = "https://github.com/ANTsX/ANTs.git"
@@ -244,10 +251,33 @@ ANTs_GIT_TAG        = "2a25b6b032b01680a558b6fbc767f056ccd144e1"
 # netstim/SlicerANTs defaults its ANTs EP to 8c4e2077 (2024.09.10) -- ~2 years
 # stale, so the extension exercises an ANTs that predates the ITKv6 fixes the
 # forest tests against. Its External_ANTs.cmake uses
-# ExternalProject_SetIfNotDefined, so SlicerANTs_ANTs_GIT_* overrides it without
-# patching the extension. Kept in step with subbuild.BRAINSTools above.
+# ExternalProject_SetIfNotDefined, so the environment variable inner_ANTs_GIT_*
+# overrides it without patching the extension (extension CMakeCache args are a
+# closed whitelist; only the environment gets through). Kept in step with
+# subbuild.BRAINSTools above.
 ANTs_GIT_REPOSITORY = "https://github.com/ANTsX/ANTs.git"
 ANTs_GIT_TAG        = "2a25b6b032b01680a558b6fbc767f056ccd144e1"
+
+[subbuild.BoneTextureExtension]
+# Two ITK remote modules pinned by BoneTextureExtension via
+# ExternalProject_SetIfNotDefined, overridden through inner_<proj>_GIT_*
+# environment variables (see the SlicerExtensions block in
+# bin/setup-itk-downstream-testbed.sh). Both defaults predate ITKv6, so the
+# extension built green while proving nothing about the ITK under test.
+# ITKTextureFeature default: 7643fb34 (2019-08-22); ITKBoneMorphometry: 7d4314f1 (2020-03-01).
+#
+# NOT pinned to upstream tip: both modules were ingested into ITK proper and
+# their repos archived, which DELETES CMakeLists.txt. Pinning at tip yields
+#   CMake Error: The source directory ... does not appear to contain CMakeLists.txt
+# so each pin is the last commit before its archival commit.
+#   ITKTextureFeatures  archived 7ef56458 (2026-05-13) -> use 06571a93 (2026-04-22)
+#   ITKBoneMorphometry  archived 218ece21 (2026-05-27) -> use bbd753fe (2026-04-29)
+# The real fix is upstream in BoneTextureExtension: drop both ExternalProjects
+# and use ITK's now-built-in modules. These pins keep it building until then.
+ITKTextureFeature_GIT_REPOSITORY  = "https://github.com/InsightSoftwareConsortium/ITKTextureFeatures.git"
+ITKTextureFeature_GIT_TAG         = "06571a93cfed79930cba30920e5fa0c665b05049"
+ITKBoneMorphometry_GIT_REPOSITORY = "https://github.com/InsightSoftwareConsortium/ITKBoneMorphometry.git"
+ITKBoneMorphometry_GIT_TAG        = "bbd753fe1977319783ffa6b1cef5ecf061873ca5"
 
 [subbuild.PlusLib]
 # Test data (TestImages/ConfigFiles/CADModels) the PlusLib tests read from;
@@ -315,6 +345,15 @@ branch = "itk-forest-integration"
 # upstream/release-5.4 @ 9cd63da191e (ITK 5.4.6) + itk5 Slicer patches:
 #   custom ITK namespace, itkFileTools build fix
 ITK_GIT_TAG = "slicer-v5.4.6-2026-07-17-9cd63da191e"
+# Same integration branch as itk-main: both forests build Slicer from the same
+# upstream tip, and the BRAINSTools bump is not ITK-version specific -- it moves
+# an 8-month-old pin to a current one. ITK 5.4 does not NEED it (the DCMTK
+# reader header is still public there), but building both forests against the
+# same BRAINSTools keeps this a controlled comparison: an extension that
+# differs between forests then differs because of ITK, not because one side
+# built a 2025-11 BRAINSTools and the other a 2026-07 one.
+url    = "https://github.com/hjmjohnson/Slicer.git"
+branch = "itk-forest-integration"
 
 [scenarios.itk-main.Slicer]
 # integration/itk-main (main + ITK #6667 tweak-version + tweak bump to 20260716,
@@ -322,3 +361,13 @@ ITK_GIT_TAG = "slicer-v5.4.6-2026-07-17-9cd63da191e"
 # itkFileTools fix is already upstream in main. Re-minted off the integration
 # branch so Slicer's ITK is a variant of THIS forest's actual ITK base.
 ITK_GIT_TAG = "slicer-v6.0.0-2026-07-20-e161a8a612d"
+# Slicer's SuperBuild.cmake pins BRAINSTools at ced799ad (2025-11-10), which
+# predates BRAINSTools vendoring ITK's now-private itkDCMTKFileReader.h, so
+# DWIConvert fails to compile against ITK main. Slicer_Remote_Add hardcodes
+# GIT_TAG (no ExternalProject_SetIfNotDefined), so there is no engine-side
+# override -- the bump to dbb02b6a rides an integration branch instead.
+# PENDING: mint+push hjmjohnson/Slicer@itk-forest-integration (= origin/main +
+# that one-line pin bump) before the next Slicer checkout; the branch does not
+# exist yet.
+url    = "https://github.com/hjmjohnson/Slicer.git"
+branch = "itk-forest-integration"

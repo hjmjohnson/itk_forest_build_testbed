@@ -417,6 +417,22 @@ common_cmake_args(){
 #   Resolve the kit preset chain into a flattened, self-contained
 #   CMakeUserPresets.json in SRC (no include back to the kit) and a matching
 #   [config.NAME] record in the forest manifest, then configure via cmake.
+# Dependency-pin overrides for Slicer extensions. Exported from BOTH
+# configure_one and build_one: ExternalProject_SetIfNotDefined reads these when
+# the extension's own SuperBuild configures, which happens during the build
+# phase, so a configure-only export is silently lost.
+_export_extension_dep_pins(){
+  # LOWERCASE "ants": the var is ${SUPERBUILD_TOPLEVEL_PROJECT}_${proj}_*, and
+  # SlicerANTs/SuperBuild/External_ants.cmake declares set(proj ants) -- the
+  # token is the EP name, not the repo name. inner_ANTs_* is silently ignored.
+  export inner_ants_GIT_REPOSITORY="${SLICERANTS_ANTS_GIT_REPOSITORY:-$(cfg get subbuild.SlicerANTs.ANTs_GIT_REPOSITORY 2>/dev/null || true)}"
+  export inner_ants_GIT_TAG="${SLICERANTS_ANTS_GIT_TAG:-$(cfg get subbuild.SlicerANTs.ANTs_GIT_TAG 2>/dev/null || true)}"
+  export inner_ITKTextureFeature_GIT_REPOSITORY="$(cfg get subbuild.BoneTextureExtension.ITKTextureFeature_GIT_REPOSITORY 2>/dev/null || true)"
+  export inner_ITKTextureFeature_GIT_TAG="$(cfg get subbuild.BoneTextureExtension.ITKTextureFeature_GIT_TAG 2>/dev/null || true)"
+  export inner_ITKBoneMorphometry_GIT_REPOSITORY="$(cfg get subbuild.BoneTextureExtension.ITKBoneMorphometry_GIT_REPOSITORY 2>/dev/null || true)"
+  export inner_ITKBoneMorphometry_GIT_TAG="$(cfg get subbuild.BoneTextureExtension.ITKBoneMorphometry_GIT_TAG 2>/dev/null || true)"
+}
+
 do_overlay(){
   local name="$1" preset="$2" src="$3" bin="$4"; shift 4
   cfg resolve-overlay "${preset}" "${src}" "${bin}" "${FOREST}" "${name}" "$@"
@@ -1014,6 +1030,10 @@ configure_one(){ require_pixi_toolchain configure
                    "Slicer_ITK_GIT_TAG=${_slicer_itk_tag}" \
                    `# python EP = python-cmake-buildsystem; pin to the fork branch` \
                    `# carrying the libintl link fix (upstream PR #450) until merged.` \
+                   `# SlicerExecutionModel generates the CLI wrappers against ITK;` \
+                   `# Slicer's default pin is 91b921bd (2025-01-20).` \
+                   "Slicer_SlicerExecutionModel_GIT_REPOSITORY=${SLICER_SEM_GIT_REPOSITORY:-$(cfg get subbuild.Slicer.SlicerExecutionModel_GIT_REPOSITORY)}" \
+                   "Slicer_SlicerExecutionModel_GIT_TAG=${SLICER_SEM_GIT_TAG:-$(cfg get subbuild.Slicer.SlicerExecutionModel_GIT_TAG)}" \
                    "Slicer_python_GIT_REPOSITORY=${SLICER_PYTHON_GIT_REPOSITORY:-https://github.com/hjmjohnson/python-cmake-buildsystem.git}" \
                    "Slicer_python_GIT_TAG=${SLICER_PYTHON_GIT_TAG:-fix/link-libintl-localemodule-macos}" \
                    "Slicer_REQUIRED_QT_VERSION=${SLICER_QT_VERSION}" \
@@ -1029,10 +1049,49 @@ configure_one(){ require_pixi_toolchain configure
                  [ -f "${slicer_inner}/SlicerConfig.cmake" ] || die "Slicer not built; run: pixi run build-Slicer"
                  local descdir="${FOREST}/SlicerExtensions-descriptions"
                  rm -rf "${descdir}"; mkdir -p "${descdir}"
+                 # Per-extension integration branches ride the descriptor, not a
+                 # forest worktree: [scenarios.<suffix>.extensions.<Name>] keys
+                 # url/revision/scm_type rewrite scm_url/scm_revision/scm_type.
                  for e in "${SLICER_EXTENSIONS[@]}"; do
-                   if [ -f "${s}/${e}.json" ]; then cp "${s}/${e}.json" "${descdir}/"
-                   else warn "extension descriptor not found in index: ${e}.json"; fi
+                   if [ ! -f "${s}/${e}.json" ]; then
+                     warn "extension descriptor not found in index: ${e}.json"; continue
+                   fi
+                   local _ovr
+                   _ovr="$(cfg extension-scenario "${FOREST_REFERENCE_SUFFIX:-}" "${e}" 2>/dev/null || true)"
+                   if [ -n "${_ovr}" ]; then
+                     log "extension override: ${e} <- ${_ovr}"
+                     python3 -c 'import json,sys
+d=json.load(open(sys.argv[1])); d.update(json.loads(sys.argv[3]))
+json.dump(d, open(sys.argv[2],"w"), indent=2, sort_keys=True)' \
+                       "${s}/${e}.json" "${descdir}/${e}.json" "${_ovr}" \
+                       || die "extension descriptor rewrite failed: ${e}"
+                   else
+                     cp "${s}/${e}.json" "${descdir}/"
+                   fi
                  done
+                 # Extension subbuild pins are stale (2019-2024) and default via
+                 # ExternalProject_SetIfNotDefined, whose ONLY external hook here
+                 # is the ENVIRONMENT: the extension's CMakeCache is written from
+                 # a closed whitelist in SlicerBlockBuildPackageAndUploadExtension
+                 # .cmake, so -D on this configure never reaches an extension.
+                 # The var prefix is ${SUPERBUILD_TOPLEVEL_PROJECT}, which every
+                 # extension sets to the literal "inner" -- hence inner_<proj>_*,
+                 # shared across extensions but unambiguous (each <proj> is unique).
+                 # Build-only by default: the test phase launches Slicer.app per
+                 # extension, and a crash there leaves a modal macOS "reopen
+                 # windows?" dialog that blocks the machine until dismissed by
+                 # hand. Packaging is off with it -- it only produces CPack
+                 # bundle-fixup noise here -- and submit needs a CDash this
+                 # forest does not have. SLICER_EXT_RUN_TESTS=1 re-enables.
+                 # Honored via _set_if_env_not_defined (SlicerBlockUploadExtension.cmake:44).
+                 if [ "${SLICER_EXT_RUN_TESTS:-0}" = 1 ]; then
+                   export run_extension_ctest_with_test=TRUE
+                 else
+                   export run_extension_ctest_with_test=FALSE
+                 fi
+                 export run_extension_ctest_with_packages="${SLICER_EXT_RUN_PACKAGES:-FALSE}"
+                 export run_extension_ctest_submit=FALSE
+                 _export_extension_dep_pins
                  do_overlay SlicerExtensions itk-forest-base \
                    "${FOREST}/Slicer/Extensions/CMake" "$b" \
                    "Slicer_DIR=${slicer_inner}" \
@@ -1147,6 +1206,28 @@ build_one(){ require cmake ninja ccache; require_pixi_toolchain build
       done
       export CPATH="${_shim}${CPATH:+:${CPATH}}" ;;
   esac
+  # Dependency-pin overrides must be live during BUILD, not just configure:
+  # ExternalProject_SetIfNotDefined reads $ENV{inner_<proj>_GIT_TAG} when the
+  # extension's OWN SuperBuild configures, which happens inside this phase.
+  # (RUN_CTEST_* differ -- those are baked into <Ext>-test-command-args.cmake
+  # at outer-configure time, so exporting them there is enough.)
+  [ "$name" = SlicerExtensions ] && _export_extension_dep_pins
+  # Slicer's EP pins are -D cache entries, so a pin changed in versions.toml is
+  # invisible until Slicer reconfigures -- build_one otherwise reuses the cache
+  # and the old dependency is rebuilt while the declaration claims otherwise.
+  # Force a reconfigure when a declared pin differs from (or is missing in) the
+  # cache. SLICER_NO_PIN_DRIFT_CHECK=1 skips this.
+  if [ "$name" = Slicer ] && [ "${SLICER_NO_PIN_DRIFT_CHECK:-0}" != 1 ] && [ -f "${b}/CMakeCache.txt" ]; then
+    local _sem_want _sem_have
+    _sem_want="${SLICER_SEM_GIT_TAG:-$(cfg get subbuild.Slicer.SlicerExecutionModel_GIT_TAG 2>/dev/null || true)}"
+    if [ -n "${_sem_want}" ]; then
+      _sem_have="$(sed -n 's/^Slicer_SlicerExecutionModel_GIT_TAG:[^=]*=//p' "${b}/CMakeCache.txt" | head -1)"
+      if [ "${_sem_want}" != "${_sem_have}" ]; then
+        warn "Slicer SlicerExecutionModel pin drift (cache='${_sem_have:-<unset>}' declared='${_sem_want}'); reconfiguring"
+        rm -f "${b}/build.ninja"
+      fi
+    fi
+  fi
   # Plastimatch's force-include shim must exist before configure (CMake's
   # compiler checks use CMAKE_CXX_FLAGS, which references it).
   [ "$name" = Plastimatch ] && { _patch_plastimatch_vcl_aliases; _patch_plastimatch_ransac_test; }

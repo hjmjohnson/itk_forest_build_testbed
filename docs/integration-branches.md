@@ -62,6 +62,32 @@ there. One override, not two — the per-forest keying does the rest.
 
 A fix incompatible with a forest is simply **not wired into that forest**.
 
+## Slicer extensions: override the descriptor, not a worktree
+
+`[scenarios.<suffix>.<Component>]` reaches forest worktrees only. A Slicer
+extension has no worktree — Slicer's ExtensionsIndex descriptor (`<Name>.json`,
+`scm_url` / `scm_revision` / `scm_type`) is what clones it. Use:
+
+```toml
+[scenarios.itk-main.extensions.SlicerElastix]
+url      = "https://github.com/hjmjohnson/SlicerElastix.git"
+revision = "itk-forest-integration"
+# scm_type = "local"   # optional; then url is a source dir
+```
+
+The setup script regenerates `${FOREST}/SlicerExtensions-descriptions` each run
+and rewrites the copied JSON through `config.py extension-scenario <suffix>
+<Name>`; extensions with no override are copied verbatim.
+
+**An extension's *dependency* pins are a different hook again.** Extension
+CMakeCache args are a closed whitelist
+(`Slicer/Extensions/CMake/SlicerBlockBuildPackageAndUploadExtension.cmake`), so
+`-D` on the SlicerExtensions configure never reaches them. The only path in is
+the **environment**, which `ExternalProject_SetIfNotDefined` honors. Every
+extension sets `SUPERBUILD_TOPLEVEL_PROJECT` to the literal `inner`, so the
+variable is `inner_<proj>_GIT_TAG` (e.g. `inner_ANTs_GIT_TAG`), exported by the
+`SlicerExtensions)` block from `[subbuild.<Extension>]`.
+
 ## Registry of active integration branches
 
 Keep this current. When a PR merges, do the retirement steps and delete its row.
@@ -71,6 +97,7 @@ Keep this current. When a PR merges, do the retirement steps and delete its row.
 | TractographyTRX | itk-main, itk-release-5.4 | `hjmjohnson/ITKTractographyTRX@itk-forest-integration` | tee-ar-ex/ITKTractographyTRX#30 **and** tee-ar-ex/trx-cpp#52 | both merge; bump module `TRX_CPP_GIT_TAG` to a merged trx-cpp SHA; drop both scenarios |
 | trx-cpp *(via TractographyTRX pin)* | — (fetched by the module) | `hjmjohnson/trx-cpp@itk-forest-integration` (11d0c81) | tee-ar-ex/trx-cpp#52 | #52 merges |
 | BRAINSTools | itk-main only | `hjmjohnson/BRAINSTools@itk-forest-integration` | BRAINSia/BRAINSTools#616 | #616 merges; drop the itk-main scenario |
+| Slicer | itk-main only | `hjmjohnson/Slicer@itk-forest-integration` *(not yet pushed)* | none yet — bump `SuperBuild.cmake` BRAINSTools pin `ced799ad` → `dbb02b6a` | Slicer upstream bumps its BRAINSTools pin past the itkDCMTKFileReader vendoring; drop the `url`/`branch` keys from `[scenarios.itk-main.Slicer]` (keep `ITK_GIT_TAG`) |
 | ANTs | non-itkv5 forests | `hjmjohnson/pin-seed-affinescalemasks` *(pre-convention; wired via `components.ANTs.ref` + `subbuild.ANTs.fork_ref`, not a scenario)* | ANTsX/ANTs#2008 | #2008 merges; restore `components.ANTs.ref = origin/main`, delete `subbuild.ANTs.fork_ref` |
 
 ITK#6655 (NrrdIO `sampleIO.c`) needed no integration branch — it **merged** into
