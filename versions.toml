@@ -333,6 +333,21 @@ branch = "itk-forest-integration"
 url    = "https://github.com/hjmjohnson/ITKTractographyTRX.git"
 branch = "itk-forest-integration"
 
+# --- SlicerFreeSurfer: build against PerkLab/SlicerFreeSurfer#23 until it merges.
+# The FreeSurferMarkups module segfaulted in its auto-generated WidgetGenericTest
+# (unguarded this->logic()->GetMRMLApplicationLogic()->GetModuleLogic() chain);
+# the fix branch is master + that one null-guard. Extension integration branches
+# ride the ExtensionsIndex DESCRIPTOR, not a forest worktree: url/revision here
+# rewrite the descriptor's scm_url/scm_revision. Version-independent, so wired
+# for both forests. Delete once #23 merges. (quote the dotted 5.4 suffix)
+["scenarios"."itk-release-5.4"."extensions"."SlicerFreeSurfer"]
+url      = "https://github.com/hjmjohnson/SlicerFreeSurfer.git"
+revision = "fix-freesurfermarkups-setup-null-guard"
+
+[scenarios.itk-main.extensions.SlicerFreeSurfer]
+url      = "https://github.com/hjmjohnson/SlicerFreeSurfer.git"
+revision = "fix-freesurfermarkups-setup-null-guard"
+
 # BRAINSTools#616 (MIH baselines for ITK's corrected JointHistogramMutualInformation
 # metric, ITK#6569) merged 2026-07-21. The integration-branch scenario is retired;
 # both forests now track origin/main, whose selector is ITK_VERSION VERSION_LESS 6.0
