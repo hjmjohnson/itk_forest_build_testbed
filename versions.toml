@@ -348,18 +348,9 @@ revision = "fix-freesurfermarkups-setup-null-guard"
 url      = "https://github.com/hjmjohnson/SlicerFreeSurfer.git"
 revision = "fix-freesurfermarkups-setup-null-guard"
 
-# --- ModelClip: build against jamesobutler/ModelClip#3 until it merges. The
-# widget constructor segfaulted in its WidgetGenericTest (unguarded
-# app->layoutManager()->threeDWidget(0)->threeDView() chain, null with no main
-# window); the fix branch is main + per-hop null guards. Version-independent,
-# so wired for both forests. Delete once #3 merges. (quote the dotted 5.4 suffix)
-["scenarios"."itk-release-5.4"."extensions"."ModelClip"]
-url      = "https://github.com/hjmjohnson/ModelClip.git"
-revision = "fix-modelclip-widget-ctor-null-guard"
-
-[scenarios.itk-main.extensions.ModelClip]
-url      = "https://github.com/hjmjohnson/ModelClip.git"
-revision = "fix-modelclip-widget-ctor-null-guard"
+# ModelClip: the widget-ctor null-guard (jamesobutler/ModelClip#3) merged
+# 2026-07-23 (merge f061cc0b, now the main tip), so the integration-branch
+# scenario is retired and both forests track upstream main again.
 
 # BRAINSTools#616 (MIH baselines for ITK's corrected JointHistogramMutualInformation
 # metric, ITK#6569) merged 2026-07-21. The integration-branch scenario is retired;
