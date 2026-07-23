@@ -1,6 +1,6 @@
 ---
 name: itk-convert-to-gtest
-version: 1.0.0
+version: 1.1.0
 purpose: Mechanically convert no-argument ITK CTests in one module to GoogleTest, one test per commit, preserving behavior and git history, following N-Dekker's "one commit, one change" reviewer standard.
 description: Convert no-argument ITK CTests (itk_add_test with no trailing args) to GoogleTest format. Strictly mechanical, one test per git-mv-tracked commit, with assertion-macro mapping, CMakeLists rewiring, and mandatory per-commit build+test. Use when migrating an ITK module's legacy CTest functions to the GTest driver.
 triggers:
@@ -193,6 +193,29 @@ operands. Apply during the initial conversion, not as review feedback.
 rule applies to `ASSERT_TRUE`. Only add assertions corresponding to a real
 check in the original — never invent assertions.
 
+#### Match literal signedness in `EXPECT_EQ`/`ASSERT_EQ`
+
+When an `if (a != b)` check converts to `EXPECT_EQ(a, b)` and one operand is an
+**unsigned** expression (`.size()`, `.GetNumberOfComponents()`,
+`GetIndexDimension()`, `rank()`, `itk::Math::Absolute(int)`, container counts)
+while the other is a **signed** integer literal, GCC `-Wextra` emits
+`-Wsign-compare` from inside GoogleTest's `CmpHelperEQ` template. It is
+attributed to the test `.cxx` and is *not* suppressed by gtest's `-isystem`
+include (template-instantiation warnings surface at the instantiation site).
+Match the literal's signedness at conversion time so it never re-surfaces:
+
+| Don't write | Write instead |
+|---|---|
+| `EXPECT_EQ(v.size(), 0)` | `EXPECT_EQ(v.size(), 0u)` |
+| `EXPECT_EQ(3, obj->GetNumberOfComponents())` | `EXPECT_EQ(3u, obj->GetNumberOfComponents())` |
+
+In a helper or `TEST` template body instantiated for **both** signed and
+unsigned element types, a bare `u` suffix only moves the warning to the signed
+instantiation — cast the literal to the operand type instead:
+`EXPECT_EQ(pt.back(), static_cast<std::decay_t<decltype(pt.back())>>(7))`. For a
+signed `std::count(...)` result compared with an unsigned `size`, cast the
+count: `static_cast<std::size_t>(std::count(...))`.
+
 Template:
 
 ```cpp
@@ -286,6 +309,10 @@ then follow steps 2c–2e.
 - Do **not** add a `main()` — GTest provides its own.
 - Do **not** use `EXIT_SUCCESS`/`EXIT_FAILURE` returns — use `EXPECT_*`/`ASSERT_*`.
 - Do **not** wrap a comparison in `EXPECT_TRUE` — use the matching binary macro.
+- Match literal signedness in `EXPECT_EQ`/`ASSERT_EQ` against unsigned getters
+  (`size()`, counts, dimensions): write `0u`/`3u`, or
+  `static_cast<std::decay_t<decltype(expr)>>` in mixed-signedness template
+  bodies, so converted tests do not re-introduce `-Wsign-compare`.
 - Do **not** combine multiple CTest files into one `*GTest.cxx`.
 - Do **not** remove scope-explaining comments.
 - The old driver called `itkFooTest(int argc, char* argv[])`; the GTest file is
