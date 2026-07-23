@@ -1065,6 +1065,19 @@ d=json.load(open(sys.argv[1])); d.update(json.loads(sys.argv[3]))
 json.dump(d, open(sys.argv[2],"w"), indent=2, sort_keys=True)' \
                        "${s}/${e}.json" "${descdir}/${e}.json" "${_ovr}" \
                        || die "extension descriptor rewrite failed: ${e}"
+                     # The ExtensionsIndex ExternalProject does NOT re-point an
+                     # existing clone to a new GIT_REPOSITORY, so a changed
+                     # scm_url silently builds stale source. Clear the clone tree
+                     # when its origin no longer matches the override URL.
+                     local _cl="${b}/${e}" _newurl _oldurl
+                     _newurl="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["scm_url"])' "${descdir}/${e}.json" 2>/dev/null || true)"
+                     if [ -d "${_cl}/.git" ]; then
+                       _oldurl="$(git -C "${_cl}" remote get-url origin 2>/dev/null || true)"
+                       if [ -n "${_newurl}" ] && [ "${_oldurl}" != "${_newurl}" ]; then
+                         warn "extension ${e}: clone origin '${_oldurl}' != override '${_newurl}'; clearing for re-clone"
+                         rm -rf "${_cl}" "${_cl}-build" "${_cl}-prefix" "${_cl}-download-prefix"
+                       fi
+                     fi
                    else
                      cp "${s}/${e}.json" "${descdir}/"
                    fi
