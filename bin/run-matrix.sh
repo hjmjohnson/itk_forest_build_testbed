@@ -42,6 +42,18 @@ SUMMARY=""
 #   CTEST_TARGET_TIMEOUT=S  overall per-target wall-clock cap (default 1800)
 #   CTEST_INCLUDE=regex     only run tests matching it (ctest -R) to scope long suites
 RUN_CTEST="${RUN_CTEST:-1}"
+# RUN_CTEST=0 means "no tests anywhere", including Slicer extensions. The
+# extension dashboard driver runs its own ctest_test that launches Slicer.app
+# per extension; a crash there leaves a modal macOS dialog that blocks an
+# unattended build. The engine reads SLICER_EXT_RUN_TESTS, but the per-extension
+# args files are regenerated during the BUILD, so the flag must be live in this
+# process's environment -- not only inside configure_one. Export it here.
+if [ "${RUN_CTEST}" = 0 ]; then
+  export SLICER_EXT_RUN_TESTS=0
+  export run_extension_ctest_with_test=FALSE
+  export run_extension_ctest_with_packages="${run_extension_ctest_with_packages:-FALSE}"
+  export run_extension_ctest_submit=FALSE
+fi
 _ncpu(){ nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4; }
 CTEST_JOBS="${CTEST_JOBS:-$(( $(_ncpu) / 2 ))}"; [ "${CTEST_JOBS}" -lt 2 ] && CTEST_JOBS=2
 CTEST_TIMEOUT="${CTEST_TIMEOUT:-300}"
@@ -119,6 +131,13 @@ build_target(){
   local n="$1" tstat=""
   echo "==================== BUILD ${n} ===================="
   bash "${ENG}" build "${n}" >"${LOGDIR}/matrix-${n}${LOG_TAG}.log" 2>&1
+  # Verify tests actually stayed off for extensions -- the args files bake
+  # RUN_CTEST_TEST at their own configure time, so an env slip re-enables the
+  # Slicer.app-launching test phase silently. Assert by artifact, not intent.
+  if [ "${n}" = SlicerExtensions ] && [ "${RUN_CTEST}" = 0 ]; then
+    local _on; _on="$(grep -l 'RUN_CTEST_TEST "TRUE"' "${FOREST}/SlicerExtensions/build/"*-test-command-args.cmake 2>/dev/null | wc -l | tr -d ' ')"
+    [ "${_on:-0}" != 0 ] && echo "WARN ${n}: ${_on} extension(s) still have tests ENABLED despite RUN_CTEST=0 (Slicer.app may launch)"
+  fi
   if artifact_ok "${n}"; then
     echo "RESULT ${n}: build PASS"
     if [ "${RUN_CTEST}" = 1 ]; then
