@@ -2,28 +2,17 @@
 # Find container size-vs-zero emptiness tests that should use empty().
 # Candidates only: type-aware filtering is clang-tidy's job (see SKILL.md).
 set -uo pipefail
-
-repo="${1:-.}"
-if ! git -C "$repo" rev-parse --git-dir >/dev/null 2>&1; then
-  echo "error: '$repo' is not a git repository" >&2
-  exit 2
-fi
+. "$(dirname "${BASH_SOURCE[0]}")/../lib/detect-common.sh"
 
 # Emptiness-equivalent comparisons only:
 #   ... vs 0 :  == 0 , != 0 , <= 0 , > 0 , >= 0  (>= 0 is trivially true; tidy ignores)
 #   ... vs 1 :  < 1   , >= 1
 # Deliberately excludes == 1, > 1, <= 1, etc. (those are NOT emptiness tests).
-pattern='\.(size|length)\(\)[[:space:]]*(([=!]=|<=|>=?)[[:space:]]*0|(<|>=)[[:space:]]*1)\b'
+PATTERN='\.(size|length)\(\)[[:space:]]*(([=!]=|<=|>=?)[[:space:]]*0|(<|>=)[[:space:]]*1)\b'
 
-hits=$(git -C "$repo" grep -nE "$pattern" -- \
-        ':!*ThirdParty*' ':!*thirdparty*' \
-        ':!*.git*' 2>/dev/null)
+itk_detect_init "${1:-.}"
 
-if [ -n "$hits" ]; then
-  printf '%s\n' "$hits"
-fi
+hits="$(itk_detect_grep "$PATTERN" "${ITK_DETECT_SOURCES[@]}")"
+[ -n "$hits" ] && printf '%s\n' "$hits"
 
-count=$(printf '%s' "$hits" | grep -c . || true)
-echo "----"
-echo "match_count: $count"
-[ "$count" -gt 0 ]
+itk_detect_report "$(itk_detect_count "$hits")"

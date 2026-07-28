@@ -4,53 +4,42 @@
 # candidates. Review-gated: files with both a decl AND a GetIndex call are
 # reported as REVIEW (may mix index-using and index-free iterators).
 set -uo pipefail
-
-REPO="${1:-.}"
-cd "$REPO" || { echo "not a directory: $REPO" >&2; exit 2; }
-git rev-parse --git-dir >/dev/null 2>&1 || { echo "not a git repo: $REPO" >&2; exit 2; }
+. "$(dirname "${BASH_SOURCE[0]}")/../lib/detect-common.sh"
 
 # Declaration sites: "...IteratorWithIndex<...> name(" or "= ...IteratorWithIndex<...>;"
-# Exclude ThirdParty and doc-comment cross-reference lines.
 DECL_RE='ImageRegion(Const)?IteratorWithIndex<'
 
-mapfile -t HITS < <(
-  git grep -nE "$DECL_RE" -- \
-    '*.h' '*.hxx' '*.cxx' '*.txx' \
-    ':!*ThirdParty*' ':!*/ThirdParty/*' \
-  | grep -vE '\\sa|^\S+:[0-9]+:[[:space:]]*\*|^\S+:[0-9]+:[[:space:]]*//'
-)
+itk_detect_init "${1:-.}"
 
+# Drop doc-comment cross-reference lines.
+hits="$(itk_detect_grep "$DECL_RE" "${ITK_DETECT_SOURCES[@]}" \
+        | grep -vE '\\sa|^\S+:[0-9]+:[[:space:]]*\*|^\S+:[0-9]+:[[:space:]]*//')" || true
+
+decls=0
 candidate=0
 review=0
-declare -A SEEN_FILE
+seen_files=""
 
-print_file_class() {
-  local file="$1"
-  if git grep -qE '\.GetIndex(Internal)?\(' -- "$file"; then
-    echo "REVIEW (file also calls GetIndex; check per-variable)"
-    return 1
-  fi
-  echo "CANDIDATE (no GetIndex in file)"
-  return 0
-}
-
-for line in "${HITS[@]}"; do
-  file="${line%%:*}"
-  echo "$line"
-  if [[ -z "${SEEN_FILE[$file]:-}" ]]; then
-    SEEN_FILE[$file]=1
+while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    decls=$((decls + 1))
+    file="${line%%:*}"
+    echo "$line"
+    case " ${seen_files} " in
+        *" ${file} "*) continue ;;
+    esac
+    seen_files="${seen_files} ${file}"
     printf '    -> '
-    if print_file_class "$file"; then
-      candidate=$((candidate + 1))
+    if git grep -qE '\.GetIndex(Internal)?\(' -- "$file"; then
+        echo "REVIEW (file also calls GetIndex; check per-variable)"
+        review=$((review + 1))
     else
-      review=$((review + 1))
+        echo "CANDIDATE (no GetIndex in file)"
+        candidate=$((candidate + 1))
     fi
-  fi
-done
+done <<< "$hits"
 
 echo
-echo "WithIndex declaration lines: ${#HITS[@]}"
-echo "CANDIDATE files (no GetIndex, safe to rewrite): ${candidate}"
-echo "REVIEW files (mixed; manual per-variable check): ${review}"
-
-[[ "${#HITS[@]}" -gt 0 ]]
+itk_detect_report "$decls" \
+    "CANDIDATE files (no GetIndex, safe to rewrite): ${candidate}" \
+    "REVIEW files (mixed; manual per-variable check): ${review}"
