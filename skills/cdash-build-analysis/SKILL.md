@@ -9,11 +9,19 @@ description: >
   CTestConfig.cmake. Use when: addressing CDash nightly failures, fixing
   compiler warnings, triaging build errors, or the user says "fix CDash
   warnings", "CDash shows errors", "nightly build failures", "check CDash",
-  "what warnings are on CDash", "triage nightly builds".
-  Replaces the BRAINSTools-specific fix-cdash-warnings skill.
+  "what warnings are on CDash", "triage nightly builds". Also diagnoses CI
+  failures end to end: fetches Azure DevOps pipeline logs for a PR, correlates
+  them with the CDash build, and reproduces a failing test locally — use when
+  a PR has failing checks, a pipeline is red, or the user says "why is CI
+  failing", "Azure DevOps failure", "reproduce this test failure".
+  Supersedes fix-cdash-warnings, fix-nightly-warnings, and diagnose-ci-failures.
 triggers:
   - cdash-build-analysis
   - /cdash-build-analysis
+  - diagnose CI failures
+  - why is CI failing
+  - Azure DevOps failure
+  - nightly build failures
 user_invocable: true
 cmd: false
 argument_hint: "Which warnings or errors should be analyzed? (default: triage latest nightly)"
@@ -45,7 +53,13 @@ dependencies:
   skills: []
   external_tools: []
   python_packages: []
-  scripts: []
+  scripts:
+    - scripts/triage_builds.py
+    - scripts/list_builds.py
+    - scripts/get_build_warnings.py
+    - scripts/cdash_config.py
+    - scripts/fetch_cdash_build.py
+    - scripts/fetch_azure_log.py
 deployment:
   tier: always
   target_projects: []
@@ -99,8 +113,60 @@ the CDash GraphQL API (no authentication required for reads).
 | `list_builds.py` | List recent CDash builds with their warning/error counts. |
 | `get_build_warnings.py` | Fetch detailed warning/error messages for a specific build ID. |
 | `cdash_config.py` | Auto-detect CDash configuration from CTestConfig.cmake (also usable as a library). |
+| `fetch_cdash_build.py` | Fetch one CDash build's full record (configure/build/test blocks) by build ID or PR. |
+| `fetch_azure_log.py` | Fetch the Azure DevOps pipeline log for a build/PR — the only source for failures CDash never receives. |
 
 Run any script with `--help` for full usage. All support `--json` output.
+
+## Diagnosing a CI failure (absorbed from `diagnose-ci-failures`)
+
+Warnings and errors on a dashboard are one flavour of dashboard work; a red PR
+check is the other. Start from whatever coordinate you have:
+
+| Input | How to use |
+|---|---|
+| PR number | `gh pr checks <PR> --repo <owner>/<repo>` — status + URLs for every check |
+| CDash build ID | `scripts/fetch_cdash_build.py <BUILD_ID>` |
+| CDash build URL | extract the build ID from the URL, then as above |
+| Azure DevOps URL | extract org / project / buildId, then `scripts/fetch_azure_log.py` |
+| Branch, or nothing | `gh pr checks $(gh pr view --json number --jq .number)` |
+
+### Classify before investigating
+
+| Category | Symptom | Path |
+|---|---|---|
+| Build error | compile or link fails | fetch error detail from CDash; read the **first** error (template errors cascade) |
+| Test failure | non-zero exit, SEGFAULT, assertion | fetch test output; reproduce locally |
+| Warning threshold | build passes, CDash still red | compare count against `CTEST_CUSTOM_MAXIMUM_NUMBER_OF_WARNINGS` in `CMake/CTestCustom.cmake.in` |
+| CI environment | failure unrelated to the change | check whether it reproduces on other platforms |
+| Timeout | exceeds the limit | look for an infinite loop or deadlock |
+
+### Azure DevOps
+
+Some failures never reach CDash — the Azure log is the only record.
+
+```bash
+python3 scripts/fetch_azure_log.py --org <org> --project <project-guid> --build-id <buildId>
+```
+
+Read org and project GUID out of
+`https://dev.azure.com/<ORG>/<PROJECT_GUID>/_build/results?buildId=<BUILD_ID>`.
+ITK's pipeline orgs: `itkrobotlinux`, `itkrobotlinuxpython`, `itkrobotmacos`,
+`itkrobotmacospython`, `itkrobotwindow`, `itkrobotwindowpython` (C++ and Python
+per platform).
+
+### Search order
+
+1. **CDash** — the actual build/test result
+2. **GitHub** issues and PRs — known bugs and fixes
+3. **Discourse** — community reports, workarounds, design context
+   (`rules/itk-discourse-search.md` has the API)
+4. **Azure DevOps / GitHub Actions logs** — raw CI output
+
+```bash
+curl -s "https://discourse.itk.org/search.json?q=TEST_NAME+OR+ERROR_MSG" | \
+  python3 -c "import json,sys; [print(f'  [{t[\"id\"]}] {t[\"title\"]}') for t in json.load(sys.stdin).get('topics',[])]"
+```
 
 ## Quick Start
 
