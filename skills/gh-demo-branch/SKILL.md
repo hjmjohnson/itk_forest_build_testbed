@@ -1,5 +1,7 @@
 ---
 name: gh-demo-branch
+version: 1.0.0
+purpose: Assemble and maintain a demo-<suffix> staging branch on a fork that aggregates future-PR commits onto the latest upstream main, so a forest scenario can build a downstream project green before its fixes land.
 description: >-
   Use when a forest build scenario (a FOREST_REFERENCE_SUFFIX, e.g. itkv6_main)
   needs a downstream project patched to build green and the fix may already
@@ -9,6 +11,55 @@ description: >-
   sibling demo-* branches for candidate fixes, and wiring a consumer's checkout
   to that branch. Keywords: demo branch, staging branch, build-staging-branch,
   inter-project reliability, aggregate PRs, cherry-pick fork, per-scenario override.
+triggers:
+  - gh-demo-branch
+  - /gh-demo-branch
+  - demo branch
+  - staging branch
+  - aggregate PRs
+user_invocable: true
+cmd: false
+argument_hint: "<init|survey|incorporate|reconcile|push|status> <project> [suffix]"
+contract:
+  inputs:
+    - argument
+    - env
+  outputs:
+    - stdout
+  side_effects:
+    writes_to_repo: false
+    writes_to_repo_paths: []
+    writes_outside_repo: true
+    writes_outside_repo_paths:
+      - "$DEMO_STAGING_DIR (default ~/.cache/git-demo-branch)"
+    modifies_working_tree: true
+    network_required: true
+    git_required: true
+    user_confirmation_required: true
+  determinism: hybrid
+  cache:
+    has_cache: false
+    cache_root:
+    schema_version: 0
+    rebuildable: true
+  derivation:
+    has_ai_derived_layer: false
+    derivation_version: 0
+dependencies:
+  skills: []
+  external_tools:
+    - git
+    - gh
+  python_packages: []
+  scripts:
+    - scripts/git_demo_branch.sh
+deployment:
+  tier: project
+  target_projects:
+    - itk
+  needs_loader_dir: true
+  adapters:
+    - claude-code
 ---
 
 # gh-demo-branch
