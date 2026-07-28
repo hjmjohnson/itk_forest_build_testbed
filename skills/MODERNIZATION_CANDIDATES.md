@@ -6,12 +6,20 @@ general STYLE:/PERF: across all authors). 40 raw candidates → 14 new skills (d
 against the 10 existing `itk-*` skills, 15 itk5to6 tasks, and the `cxx14_updates`
 script trove).
 
-Each skill lives in `skills/<name>/` with `SKILL.md` + a glob-safe `detect.sh`
-(ThirdParty/ excluded), and — where safely automatable — a `transform.sh`
-(dry-run by default, `--apply` to write, never commits). "review" skills are
+These fourteen were collapsed into the single `itk-mechanical-cleanup` skill.
+Each now lives at `skills/itk-mechanical-cleanup/patterns/<name>/` with a
+`PATTERN.md` + a glob-safe `detect.sh`, and — where safely automatable — a
+`transform.sh` (dry-run by default, `--apply` to write, never commits).
+Pattern names dropped the `itk-` prefix; the table below keeps the original
+skill names as the historical record of what was generated. "review" skills are
 medium-mechanizability: detection is the deliverable, transformation needs human
 judgement. All `detect.sh` were run against the live ITK tree; match counts below
 are in-ITK sites (downstream consumers have far more).
+
+> **Counts are pre-normalization.** They were measured before
+> `lib/detect-common.sh` unified the pathspecs, which widened several scans:
+> ctad-iterator 44 -> 90 and constexpr-if-constant 8 -> 28 among them. Re-run
+> the detector for a current number.
 
 ## Generated skills
 

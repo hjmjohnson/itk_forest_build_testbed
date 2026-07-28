@@ -7,8 +7,8 @@ description: >-
   candidate sites, then repeatedly pick ONE pattern class, transform just that
   class, verify it compiles, review the hunks, and commit that class alone —
   until the payload's detector reports zero sites. Preserves one-class-per-commit
-  discipline. Eligible payloads are the detect.sh/transform.sh cleanup skills
-  plus script-based multi-class refactors like itk-declare-then-init. Use when
+  discipline. Eligible payloads are itk-mechanical-cleanup's fourteen patterns
+  plus script-based refactors like itk-declare-then-init. Use when
   applying a mechanical cleanup across many sites. Trigger on:
   "itk-incremental-refactor-loop", "/itk-incremental-refactor-loop",
   "incremental refactor loop", "one class at a time", "loop until dry".
@@ -19,7 +19,7 @@ triggers:
   - loop until dry
 user_invocable: true
 cmd: false
-argument_hint: "<pattern-skill> [scope]"
+argument_hint: "<payload> [scope]"
 contract:
   inputs:
     - argument
@@ -46,9 +46,7 @@ contract:
     derivation_version: 0
 dependencies:
   skills:
-    # payload refactor skill chosen at runtime: the detect.sh/transform.sh
-    # family (see itk-cleanup-pr-lifecycle/list-cleanup-patterns.sh) plus
-    # script-based multi-class refactors like itk-declare-then-init.
+    - itk-mechanical-cleanup
   external_tools:
     - git
     - clang-format
@@ -73,15 +71,16 @@ NOT create a worktree; run it inside an existing sandbox (see itk-start-worktree
 
 ## Argument
 
-`/itk-incremental-refactor-loop <pattern-skill> [scope]`
+`/itk-incremental-refactor-loop <payload> [scope]`
 
-- `<pattern-skill>` — the refactor skill to apply (the payload). Eligible
-  payloads: the detect.sh/transform.sh cleanup skills (run
-  `~/.claude/skills/itk-cleanup-pr-lifecycle/list-cleanup-patterns.sh` for the
-  set) plus script-based multi-class refactors such as `itk-declare-then-init`.
-  Treat the payload interface as **opaque** — read its `SKILL.md` for how it
-  detects, enumerates pattern classes, and applies one class. No argument →
-  print the eligible set and stop.
+- `<payload>` — the refactor to apply. Two forms, both emitted by
+  `~/.claude/skills/itk-cleanup-pr-lifecycle/list-cleanup-patterns.sh`:
+  `itk-mechanical-cleanup:<pattern>` for the fourteen detect.sh/transform.sh
+  patterns, or a bare skill name for a script-based multi-class refactor such
+  as `itk-declare-then-init`. Treat the payload interface as **opaque** — read
+  `itk-mechanical-cleanup/patterns/<pattern>/PATTERN.md` (or the skill's
+  `SKILL.md`) for how it detects, enumerates pattern classes, and applies one
+  class. No argument → print the eligible set and stop.
 - `[scope]` — optional narrowing passed through to the payload (a module path,
   or a payload-specific filter like `--varname size`).
 
@@ -91,7 +90,7 @@ NOT create a worktree; run it inside an existing sandbox (see itk-start-worktree
    finder-script dry-run). Record the candidate count. Every `detect.sh` ends on
    a `----` rule and one `match_count: <N>` line — that N is the count, and a
    clean tree is `match_count: 0` with exit 0 (exit 2 means the scan could not
-   run). See `skills/lib/detect-common.sh`.
+   run). See `itk-mechanical-cleanup/lib/detect-common.sh`.
 2. **Pick ONE pattern class** — the smallest coherent unit the payload exposes:
    one `--pattern`, one `--varname`/`--vartype` filter, or one clang-tidy check.
 3. **Transform that class only** — the payload's `transform.sh --apply` /
