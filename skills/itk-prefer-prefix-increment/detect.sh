@@ -3,21 +3,9 @@
 # Two shapes only:
 #   1. standalone statement:   IDENT++;   IDENT--;
 #   2. for-increment clause:    for(...; ...; IDENT++)   IDENT--)
-# ThirdParty/ excluded. Value-consuming postfix (a[i++], *p++, x=it++) NOT matched.
+# Value-consuming postfix (a[i++], *p++, x=it++) is NOT matched.
 set -uo pipefail
-
-REPO="${1:-.}"
-cd "$REPO" || { echo "no such dir: $REPO" >&2; exit 2; }
-
-if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  echo "not a git work tree: $REPO" >&2
-  exit 2
-fi
-
-PATHSPECS=(
-  '*.cxx' '*.hxx' '*.h' '*.cpp' '*.txx'
-  ':!:*ThirdParty/*' ':!:*third_party/*' ':!:*/Modules/ThirdParty/*'
-)
+. "$(dirname "${BASH_SOURCE[0]}")/../lib/detect-common.sh"
 
 # Shape 1: an identifier immediately followed by ++ or -- that is the whole
 # statement (optional leading whitespace, terminating ';'). Excludes a[i]++;
@@ -28,15 +16,13 @@ RE_STMT='^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*(\+\+|--)[[:space:]]*;[[:space:]]*$'
 # (or --). Requires two ';' inside the for(...) before the IDENT++/-- token.
 RE_FOR='for[[:space:]]*\([^;]*;[^;]*;[^;()]*[A-Za-z_][A-Za-z0-9_]*(\+\+|--)[[:space:]]*\)'
 
-stmt_hits="$(git grep -nE "$RE_STMT" -- "${PATHSPECS[@]}" 2>/dev/null)"
-for_hits="$(git grep -nE "$RE_FOR" -- "${PATHSPECS[@]}" 2>/dev/null)"
+itk_detect_init "${1:-.}"
 
-all="$(printf '%s\n%s\n' "$stmt_hits" "$for_hits" | grep -vE '^$' | sort -u)"
+hits="$(
+    itk_detect_grep "$RE_STMT" "${ITK_DETECT_SOURCES[@]}"
+    itk_detect_grep "$RE_FOR" "${ITK_DETECT_SOURCES[@]}"
+)"
+hits="$(printf '%s\n' "$hits" | grep -vE '^$' | sort -u)" || true
+[ -n "$hits" ] && printf '%s\n' "$hits"
 
-if [ -n "$all" ]; then
-  printf '%s\n' "$all"
-fi
-
-count="$(printf '%s' "$all" | grep -cE '.' )"
-echo "----"
-echo "candidate discarded-value postfix sites: $count"
+itk_detect_report "$(itk_detect_count "$hits")"

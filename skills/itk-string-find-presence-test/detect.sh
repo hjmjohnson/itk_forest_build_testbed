@@ -1,24 +1,14 @@
 #!/usr/bin/env bash
 # Detect the legacy substring-presence idiom  str.find(sub) < str.(length|size)()
-# in ITK-ecosystem C++ sources. ThirdParty/ excluded. Glob-safe (git grep pathspecs).
+# in ITK-ecosystem C++ sources.
 set -uo pipefail
+. "$(dirname "${BASH_SOURCE[0]}")/../lib/detect-common.sh"
 
-REPO="${1:-.}"
-PAT='\.find\([^)]*\)[[:space:]]*<[[:space:]]*[A-Za-z_][A-Za-z0-9_.]*\.(length|size)\(\)'
+PATTERN='\.find\([^)]*\)[[:space:]]*<[[:space:]]*[A-Za-z_][A-Za-z0-9_.]*\.(length|size)\(\)'
 
-if ! git -C "$REPO" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    echo "error: '$REPO' is not a git work tree" >&2
-    exit 2
-fi
+itk_detect_init "${1:-.}"
 
-hits=$(git -C "$REPO" grep -nE "$PAT" -- \
-        '*.cxx' '*.hxx' '*.h' '*.cpp' '*.cc' \
-        ':(exclude)*ThirdParty*' 2>/dev/null)
+hits="$(itk_detect_grep "$PATTERN" "${ITK_DETECT_SOURCES[@]}")"
+[ -n "$hits" ] && printf '%s\n' "$hits"
 
-if [ -n "$hits" ]; then
-    printf '%s\n' "$hits"
-fi
-
-count=$(printf '%s' "$hits" | grep -c . || true)
-echo "----"
-echo "match_count: $count"
+itk_detect_report "$(itk_detect_count "$hits")"

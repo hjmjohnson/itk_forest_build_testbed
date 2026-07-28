@@ -88,7 +88,10 @@ NOT create a worktree; run it inside an existing sandbox (see itk-start-worktree
 ## The loop (default: supervised, sequential)
 
 1. **Detect** — run the payload's detector over `[scope]` (its `detect.sh`, or a
-   finder-script dry-run). Record the candidate count.
+   finder-script dry-run). Record the candidate count. Every `detect.sh` ends on
+   a `----` rule and one `match_count: <N>` line — that N is the count, and a
+   clean tree is `match_count: 0` with exit 0 (exit 2 means the scan could not
+   run). See `skills/lib/detect-common.sh`.
 2. **Pick ONE pattern class** — the smallest coherent unit the payload exposes:
    one `--pattern`, one `--varname`/`--vartype` filter, or one clang-tidy check.
 3. **Transform that class only** — the payload's `transform.sh --apply` /
