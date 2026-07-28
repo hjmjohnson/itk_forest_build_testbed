@@ -51,6 +51,7 @@ libcblas = ">=3.9,<4"  # cblas.h for OpenBLAS consumers
 liblapacke = ">=3.9,<4"  # lapacke.h for OpenBLAS consumers
 python = ">=3.11,<3.15"
 textual = ">=1.0"
+pytest = ">=8.0"  # skills/*/tests — run via `pixi run test`
 
 # ccache tuning for cross-machine, path-independent reuse. CCACHE_DIR is left at
 # the user default (~/.ccache) so it is shared with other local builds.
@@ -79,6 +80,14 @@ description = "Clone/worktree every consumer + remote module"
 [tasks.checkout-extensions]
 cmd = "bash ./bin/checkout-slicer-extensions.sh"
 description = "Deep-clone + worktree every Slicer extension source (for code search) into SlicerExtensions-src/"
+
+[tasks.test]
+cmd = "pytest -v skills"
+description = "Run the Python test suites that ship with skills/"
+[tasks.test.env]
+# Each skill vendors its support modules under <skill>/lib; put them on the
+# path so `import agent_skills.<mod>` resolves to the vendored copy under test.
+PYTHONPATH = "skills/gh-comment-cache/lib"
 
 [tasks.status]
 cmd = "bash ./bin/setup-itk-downstream-testbed.sh status"
