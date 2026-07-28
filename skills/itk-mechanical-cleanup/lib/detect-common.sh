@@ -24,12 +24,16 @@ ITK_DETECT_SOURCES=('*.h' '*.hxx' '*.hpp' '*.cxx' '*.cpp' '*.cc' '*.txx')
 # Headers only — for scans whose pattern can only occur in a class definition.
 ITK_DETECT_HEADERS=('*.h' '*.hxx' '*.hpp')
 
-# Vendored trees are never ours to rewrite.
+# Vendored code is never ours to rewrite. The directory patterns catch the
+# ThirdParty/ convention; the named files are upstream libraries that sit in a
+# module's own include/ and so escape it (verify with:
+# `git ls-files '*.hpp' '*.cc' | grep -v ThirdParty`).
 ITK_DETECT_EXCLUDES=(
     ':(exclude)*ThirdParty/*'
     ':(exclude)*/ThirdParty/*'
     ':(exclude)*third_party/*'
     ':(exclude)*/third_party/*'
+    ':(exclude)*nanoflann.hpp'
 )
 
 # itk_detect_init <repo-path>
