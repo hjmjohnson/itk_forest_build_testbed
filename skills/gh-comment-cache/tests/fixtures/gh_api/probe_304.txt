@@ -1,0 +1,4 @@
+HTTP/2.0 304 Not Modified
+etag: "abc123"
+x-ratelimit-remaining: 4990
+x-ratelimit-reset: 1712880000
