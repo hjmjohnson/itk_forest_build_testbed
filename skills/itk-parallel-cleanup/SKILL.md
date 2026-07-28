@@ -74,10 +74,10 @@ gate — **parallel work, serial PR creation.**
 
 `/itk-parallel-cleanup <pattern-1> [<pattern-2> ...] [--scope PATH]`
 
-- each `<pattern-N>` — an eligible cleanup skill (the payload). Validate against
-  `~/.claude/skills/itk-cleanup-pr-lifecycle/list-cleanup-patterns.sh` (the
-  detect.sh/transform.sh family) plus script-based refactors like
-  `itk-declare-then-init`. No/one arg → print the eligible set and stop.
+- each `<pattern-N>` — an eligible payload. Validate against
+  `~/.claude/skills/itk-cleanup-pr-lifecycle/list-cleanup-patterns.sh`, which
+  emits `itk-mechanical-cleanup:<pattern>` for the fourteen patterns plus bare
+  names for script-based refactors like `itk-declare-then-init`. No/one arg → print the eligible set and stop.
 - `--scope PATH` — optional, applied to every arm (a module path or payload filter).
 
 ## Procedure

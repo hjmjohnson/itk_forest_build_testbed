@@ -11,9 +11,12 @@ check() { # check <description> <condition-exit-code>
 # --- list-cleanup-patterns.sh ---
 out="$(bash "$skill_dir/list-cleanup-patterns.sh")"; rc=$?
 check "list-cleanup-patterns.sh exits 0"                 "$([ $rc -eq 0 ] && echo 0 || echo 1)"
-grep -qx "itk-container-size-to-empty" <<<"$out"; check "lists itk-container-size-to-empty" $?
-grep -qx "itk-emplace-back-construct"  <<<"$out"; check "lists itk-emplace-back-construct"  $?
-if grep -qx "itk-start-worktree" <<<"$out"; then check "excludes itk-start-worktree (no detect.sh)" 1; else check "excludes itk-start-worktree (no detect.sh)" 0; fi
+grep -qx "itk-mechanical-cleanup:container-size-to-empty" <<<"$out"; check "lists container-size-to-empty pattern" $?
+grep -qx "itk-mechanical-cleanup:emplace-back-construct"  <<<"$out"; check "lists emplace-back-construct pattern"  $?
+grep -qx "itk-declare-then-init"                          <<<"$out"; check "lists the script-based payload"        $?
+# Every mechanical-cleanup payload is qualified; a bare pattern name is a bug.
+if grep -qx "container-size-to-empty" <<<"$out"; then check "payload names are qualified" 1; else check "payload names are qualified" 0; fi
+if grep -qx "itk-start-worktree" <<<"$out"; then check "excludes itk-start-worktree (not a payload)" 1; else check "excludes itk-start-worktree (not a payload)" 0; fi
 if grep -qx "itk-cleanup-pr-lifecycle" <<<"$out"; then check "excludes self" 1; else check "excludes self" 0; fi
 
 # --- validate-lifecycle-refs.sh ---
