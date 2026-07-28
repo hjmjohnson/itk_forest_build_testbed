@@ -1,5 +1,7 @@
 ---
 name: itk-compare-refs
+version: 1.0.0
+purpose: Quantify what an ITK version bump changes by building two ITK trees, running both full CTest suites, and emitting one Markdown report of warning, error, and per-test status deltas.
 description: >-
   Use when comparing two ITK build trees — typically the release-5.4 branch
   against the latest upstream main — to quantify what an ITK version bump
@@ -10,6 +12,59 @@ description: >-
   Markdown comparison report. Keywords: ITK release-5.4 vs main, compare ITK
   refs, build warnings comparison, test regression, ctest status diff, ITK
   upgrade impact, warning/error capture.
+triggers:
+  - itk-compare-refs
+  - /itk-compare-refs
+  - compare ITK refs
+  - ITK upgrade impact
+  - warning delta
+user_invocable: true
+cmd: false
+argument_hint: "[<labelA>:<buildA> <labelB>:<buildB> [outdir]]"
+contract:
+  inputs:
+    - argument
+    - env
+  outputs:
+    - stdout
+    - file
+  side_effects:
+    writes_to_repo: false
+    writes_to_repo_paths: []
+    writes_outside_repo: true
+    writes_outside_repo_paths:
+      - "<outdir> (build logs, Test.xml, comparison report)"
+    modifies_working_tree: false
+    network_required: false
+    git_required: true
+    user_confirmation_required: false
+  determinism: deterministic
+  cache:
+    has_cache: false
+    cache_root:
+    schema_version: 0
+    rebuildable: true
+  derivation:
+    has_ai_derived_layer: false
+    derivation_version: 0
+dependencies:
+  skills: []
+  external_tools:
+    - cmake
+    - ctest
+    - ninja
+    - git
+  python_packages: []
+  scripts:
+    - compare-itk-refs.sh
+    - analyze_results.py
+deployment:
+  tier: project
+  target_projects:
+    - itk
+  needs_loader_dir: true
+  adapters:
+    - claude-code
 ---
 
 # itk-compare-refs
