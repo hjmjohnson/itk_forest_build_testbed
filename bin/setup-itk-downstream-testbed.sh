@@ -374,8 +374,10 @@ fi
 # --- ITK remote modules, built EXTERNALLY against system ITK (name | URL | heavy?)
 #     from versions.toml (kind = "remote")
 mapfile -t REMOTES < <(cfg remotes)
-# MITK is omitted: its Qt6 configure fails FindThreads under the conda toolchain.
-# Still buildable on demand via `build MITK`; re-add here once that is resolved.
+# MITK is omitted from the default sweep pending a first green build: it is now
+# configured headless (MITK_BUILD_CONFIGURATION=PythonWheel -- no Qt6, so the
+# FindThreads failure under the conda toolchain is out of the picture), but has
+# never been built against forest ITK. Build on demand via `build MITK`.
 BUILD_ORDER=(ITK ANTs BRAINSTools Slicer SlicerExtensions elastix c3d SimpleITK)
 
 log(){ printf '\033[1;34m==>\033[0m %s\n' "$*"; }
@@ -1111,9 +1113,19 @@ json.dump(d, open(sys.argv[2],"w"), indent=2, sort_keys=True)' \
                    "Slicer_EXTENSION_DESCRIPTION_DIR=${descdir}" \
                    "Qt6_DIR=${SLICER_QT_PREFIX}/lib/cmake/Qt6" \
                    "CMAKE_PREFIX_PATH=${SLICER_QT_PREFIX}" ;;
-    MITK)        warn "MITK SuperBuild is long"
-                 do_overlay MITK itk-forest-base "$s" "$b" \
-                   "MITK_USE_SYSTEM_ITK=ON" "ITK_DIR=$(itk_dir)" ;;
+    MITK)        warn "MITK SuperBuild is long (builds its own VTK, DCMTK, Boost)"
+                 # ITK_DIR alone diverts the ITK ExternalProject: CMakeExternals/
+                 # ITK.cmake guards on if(NOT DEFINED ITK_DIR). Upstream otherwise
+                 # pins the MITK/ITK fork at branch v5.4.6-patched, so this is the
+                 # only path that puts forest ITK under MITK.
+                 local _mitk_kvs=("ITK_DIR=$(itk_dir)")
+                 # MITK CMakeLists.txt:213 regexes a version out of the SDK dir
+                 # name; an unversioned MacOSX.sdk yields "MacOSX.sdk.0" and every
+                 # try_compile then dies on -mmacosx-version-min. Setting it trips
+                 # the if(NOT CMAKE_OSX_DEPLOYMENT_TARGET) guard.
+                 [ "$(uname -s)" = Darwin ] && \
+                   _mitk_kvs+=("CMAKE_OSX_DEPLOYMENT_TARGET=$(xcrun --show-sdk-version)")
+                 do_overlay MITK itk-forest-mitk "$s" "$b" "${_mitk_kvs[@]}" ;;
     elastix)     do_overlay elastix itk-forest-base "$s" "$b" "ITK_DIR=$(itk_dir)" ;;
     c3d)         do_overlay c3d itk-forest-base "$s" "$b" "ITK_DIR=$(itk_dir)" ;;
     Plastimatch) # ITK is built with the ITKDCMTK module, so find_package(ITK)

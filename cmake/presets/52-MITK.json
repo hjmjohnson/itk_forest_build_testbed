@@ -1,0 +1,17 @@
+{
+  "configurePresets": [
+    {
+      "cacheVariables": {
+        "CMAKE_CXX_SCAN_FOR_MODULES": "OFF",
+        "MITK_BUILD_CONFIGURATION": "PythonWheel"
+      },
+      "hidden": true,
+      "inherits": "itk-forest-base",
+      "name": "itk-forest-mitk"
+    }
+  ],
+  "include": [
+    "00-base.json"
+  ],
+  "version": 8
+}

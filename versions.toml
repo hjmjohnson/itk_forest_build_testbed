@@ -49,7 +49,7 @@ branch = "elastix-itk-downstream"
 
 [components.MITK]
 url    = "https://github.com/MITK/MITK.git"
-ref    = "origin/main"
+ref    = "origin/master"
 branch = "mitk-itk-downstream"
 
 [components.c3d]
