@@ -141,6 +141,7 @@ description = "Plastimatch (radiotherapy registration) against system ITK; CUDA/
 [tasks.build-MITK]
 cmd = "bash ./bin/setup-itk-downstream-testbed.sh build MITK"
 depends-on = ["build-ITK"]
+description = "MITK headless (MITK_BUILD_CONFIGURATION=PythonWheel: no Qt6/CTK/BlueBerry) against system ITK; long SuperBuild"
 
 [tasks.build-SimpleITK]
 cmd = "bash ./bin/setup-itk-downstream-testbed.sh build SimpleITK"
@@ -221,7 +222,7 @@ depends-on = ["build-ITK"]
 # ---- aggregate ------------------------------------------------------------
 [tasks.build-consumers]
 depends-on = ["build-ANTs", "build-BRAINSTools", "build-Slicer", "build-elastix", "build-c3d", "build-SimpleITK"]
-description = "Build all main consumers (MITK omitted: Qt6 FindThreads fails under the conda toolchain; run build-MITK explicitly)"
+description = "Build all main consumers (MITK omitted pending a first green headless build; run build-MITK explicitly)"
 
 [tasks.build-all]
 depends-on = ["build-consumers", "build-remotes"]
