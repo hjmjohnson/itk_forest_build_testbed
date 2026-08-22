@@ -2,7 +2,7 @@
 """ghtp_fetch.py — Fetch and classify all PR triage state.
 
 Produces a JSON report with three priority buckets so the caller can
-process them in the strict order: human > CI > greptile.
+process them in the strict order: human > CI > AI review.
 
 Usage:
     python3 ghtp_fetch.py --owner OWNER --repo REPO --num NNNN
@@ -17,18 +17,41 @@ import re
 import subprocess
 import sys
 
-# Bot logins that are non-blocking (not surfaced in human_comments)
+# AI review providers, keyed by bot login. Their comments carry findings that
+# Phase 3 must act on, so they get their own bucket rather than being lumped in
+# with infrastructure bots.
+#
+#   trigger      how a review is requested; "auto" means it reviews on push
+#   rereview     comment that forces a fresh review of an already-reviewed head
+#   detect_files repo files whose presence indicates the provider is configured
+AI_REVIEW_PROVIDERS = {
+    "greptile-apps[bot]": {
+        "name": "greptile",
+        "trigger": "@greptileai review this draft before I make it official",
+        "rereview": "@greptileai review",
+        "detect_files": [],
+    },
+    "coderabbitai[bot]": {
+        "name": "coderabbit",
+        "trigger": "auto",  # reviews automatically on push
+        "rereview": "@coderabbitai full review",
+        "detect_files": [".coderabbit.yaml", ".coderabbit.yml"],
+    },
+}
+
+# Infrastructure bots that never carry review findings. Anything ending in
+# "[bot]" that is in neither this set nor AI_REVIEW_PROVIDERS lands in
+# "bot_unknown" so a new review bot cannot be silently ignored.
 NON_BLOCKING_BOTS = {
-    "greptile-apps[bot]",  # handled in its own bucket
     "github-actions[bot]",  # CI, surfaced via checks
     "codecov[bot]",
     "cla-bot[bot]",
     "stale[bot]",
     "dependabot[bot]",
     "renovate[bot]",
+    "pre-commit-ci[bot]",
+    "deepsource-autofix[bot]",
 }
-
-GREPTILE_LOGIN = "greptile-apps[bot]"
 
 
 def gh(args, check=True):
@@ -190,29 +213,136 @@ def is_bot(login):
 
 
 def classify_comment(author_login):
-    """Return one of: 'human', 'greptile', 'bot_other'."""
-    if author_login == GREPTILE_LOGIN:
-        return "greptile"
-    if is_bot(author_login):
+    """Return one of: 'human', 'ai_review', 'bot_other', 'bot_unknown'.
+
+    An unrecognised bot is 'bot_unknown', not 'bot_other'. The two buckets are
+    handled differently by the caller: 'bot_other' is documented as ignorable,
+    while 'bot_unknown' means "a bot nobody has classified — look at it". A new
+    review bot appearing in a repo must not disappear into the ignore pile.
+    """
+    if author_login in AI_REVIEW_PROVIDERS:
+        return "ai_review"
+    if author_login in NON_BLOCKING_BOTS:
         return "bot_other"
+    if is_bot(author_login):
+        return "bot_unknown"
     return "human"
 
 
-def parse_greptile_findings(body):
-    """Extract structured findings from a greptile comment body.
+# Normalised severity. Phase 3 acts on P1/P2 regardless of provider vocabulary.
+CODERABBIT_SEVERITY_TO_PRIORITY = {
+    "critical": "P1",
+    "major": "P2",
+    "minor": "P3",
+    "trivial": "P3",
+}
 
-    Greptile tags findings with P1/P2/P3 badges. This returns a list of
-    {priority, title} dicts — the full body is still retained elsewhere.
+
+def parse_greptile_findings(body):
+    """Extract findings from a greptile comment body.
+
+    Greptile tags findings with P1/P2/P3 image badges.
     """
     findings = []
-    # Matches <img alt="P1"> or <img alt="P2"> or <img alt="P3">
+    # The badge is an <img> wrapped in an <a>, so the closing </a> sits between
+    # the badge and the bold title. Without tolerating it, inline findings —
+    # which is most of them — never match.
     pattern = re.compile(
-        r'alt="(P[123])"[^>]*>\s*\*\*([^*]+)\*\*',
+        r'alt="(P[123])"[^>]*>\s*(?:</a>)?\s*\*\*([^*]+)\*\*',
         re.IGNORECASE,
     )
     for match in pattern.finditer(body or ""):
-        findings.append({"priority": match.group(1), "title": match.group(2).strip()})
+        findings.append(
+            {"priority": match.group(1), "severity": match.group(1), "title": match.group(2).strip()}
+        )
     return findings
+
+
+def parse_coderabbit_findings(body):
+    """Extract findings from a CodeRabbit comment body.
+
+    CodeRabbit heads each finding with an italic badge row, e.g.
+
+        _📐 Maintainability & Code Quality_ | _🟡 Minor_ | _⚡ Quick win_
+
+        **Add the required Google-style docstring to the new test.**
+
+    The severity word is mapped onto Greptile's P1/P2/P3 so the phase logic
+    speaks one vocabulary.
+    """
+    body = body or ""
+    findings = []
+    pattern = re.compile(
+        r"_[^_\n]*_\s*\|\s*_[^A-Za-z\n]*(Critical|Major|Minor|Trivial)_[^\n]*\n+\*\*([^*]+)\*\*",
+        re.IGNORECASE,
+    )
+    for match in pattern.finditer(body):
+        severity = match.group(1).lower()
+        findings.append(
+            {
+                "priority": CODERABBIT_SEVERITY_TO_PRIORITY.get(severity, "P3"),
+                "severity": severity,
+                "title": match.group(2).strip(),
+            }
+        )
+    return findings
+
+
+def parse_coderabbit_signals(body):
+    """Pull CodeRabbit's PR-level signals out of its walkthrough comment.
+
+    Returns {"merge_risk": str|None, "failed_pre_merge_checks": [str]}. Both are
+    PR-level verdicts with no Greptile equivalent: merge_risk is CodeRabbit's own
+    blocking assessment, and a failed pre-merge check is a gate visible on the PR
+    that Phase 4 should not silently pass over.
+    """
+    body = body or ""
+    signals = {"merge_risk": None, "failed_pre_merge_checks": []}
+
+    risk = re.search(r"\*\*Merge Risk:\*\*\s*_[^A-Za-z\n]*([A-Za-z]+)", body)
+    if risk:
+        signals["merge_risk"] = risk.group(1).strip()
+
+    # Table rows look like: | Docstring Coverage | ⚠️ Warning | ... |
+    for row in re.finditer(r"^\|\s*([^|\n]+?)\s*\|\s*[^|\n]*(?:Warning|Failed)[^|\n]*\|", body, re.M):
+        name = row.group(1).strip()
+        if name and not name.startswith(":") and name.lower() != "check name":
+            signals["failed_pre_merge_checks"].append(name)
+    return signals
+
+
+def parse_findings(author_login, body):
+    """Dispatch to the right provider parser."""
+    provider = AI_REVIEW_PROVIDERS.get(author_login, {}).get("name")
+    if provider == "greptile":
+        return parse_greptile_findings(body)
+    if provider == "coderabbit":
+        return parse_coderabbit_findings(body)
+    return []
+
+
+def detect_configured_providers(owner, repo):
+    """Report which providers the target repo has config files for.
+
+    Queried against the repo being triaged rather than the working directory,
+    which may be a different checkout entirely when triaging owner/repo#N.
+
+    Presence is advisory: a provider can be installed org-wide with no in-repo
+    config, so absence here does not mean it is inactive.
+    """
+    found = []
+    for spec in AI_REVIEW_PROVIDERS.values():
+        for path in spec["detect_files"]:
+            result = subprocess.run(
+                ["gh", "api", f"repos/{owner}/{repo}/contents/{path}", "--jq", ".name"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                found.append(spec["name"])
+                break
+    return found
 
 
 def mark_addressed(comments, addressed_set):
@@ -265,14 +395,27 @@ def main():
 
     # 5. Classify and bucket
     human_comments = []
-    greptile_comments = []
+    ai_review_comments = []
     bot_other_comments = []
+    bot_unknown_comments = []
+    ai_signals = {"merge_risk": None, "failed_pre_merge_checks": []}
+
+    def bucket(kind, entry):
+        if kind == "human":
+            human_comments.append(entry)
+        elif kind == "ai_review":
+            ai_review_comments.append(entry)
+        elif kind == "bot_unknown":
+            bot_unknown_comments.append(entry)
+        else:
+            bot_other_comments.append(entry)
 
     def add_inline(c):
-        kind = classify_comment(c["user"]["login"])
+        login = c["user"]["login"]
+        kind = classify_comment(login)
         entry = {
             "id": c["id"],
-            "author": c["user"]["login"],
+            "author": login,
             "kind": "inline",
             "path": c.get("path"),
             "line": c.get("line") or c.get("original_line"),
@@ -281,21 +424,20 @@ def main():
             "created_at": c.get("created_at"),
             "thread_state": thread_state.get(c["id"], {"is_resolved": None, "thread_id": None}),
         }
-        if kind == "human":
-            human_comments.append(entry)
-        elif kind == "greptile":
-            greptile_comments.append(entry)
-        else:
-            bot_other_comments.append(entry)
+        if kind == "ai_review":
+            entry["provider"] = AI_REVIEW_PROVIDERS[login]["name"]
+            entry["findings"] = parse_findings(login, entry["body"])
+        bucket(kind, entry)
 
     for c in inline:
         add_inline(c)
 
     def add_top_level(c, source):
-        kind = classify_comment(c["user"]["login"])
+        login = c["user"]["login"]
+        kind = classify_comment(login)
         entry = {
             "id": c["id"],
-            "author": c["user"]["login"],
+            "author": login,
             "kind": source,
             "path": None,
             "line": None,
@@ -303,14 +445,17 @@ def main():
             "created_at": c.get("created_at"),
             "thread_state": {"is_resolved": None, "thread_id": None},
         }
-        if kind == "human":
-            human_comments.append(entry)
-        elif kind == "greptile":
-            # Greptile top-level comments contain its finding list
-            entry["findings"] = parse_greptile_findings(c.get("body", ""))
-            greptile_comments.append(entry)
-        else:
-            bot_other_comments.append(entry)
+        if kind == "ai_review":
+            entry["provider"] = AI_REVIEW_PROVIDERS[login]["name"]
+            entry["findings"] = parse_findings(login, entry["body"])
+            if entry["provider"] == "coderabbit":
+                found = parse_coderabbit_signals(entry["body"])
+                if found["merge_risk"]:
+                    ai_signals["merge_risk"] = found["merge_risk"]
+                for name in found["failed_pre_merge_checks"]:
+                    if name not in ai_signals["failed_pre_merge_checks"]:
+                        ai_signals["failed_pre_merge_checks"].append(name)
+        bucket(kind, entry)
 
     for c in issue_comments:
         add_top_level(c, "issue_comment")
@@ -365,6 +510,26 @@ def main():
     # 8. Latest CHANGES_REQUESTED review that hasn't been superseded
     changes_requested = [r for r in reviews if r.get("state") == "CHANGES_REQUESTED"]
 
+    # 9. AI-review findings still open. An inline finding whose thread is
+    # resolved is done; top-level findings have no thread, so they stay listed.
+    unresolved_ai_findings = []
+    for c in ai_review_comments:
+        if (c.get("thread_state") or {}).get("is_resolved"):
+            continue
+        for f in c.get("findings", []):
+            unresolved_ai_findings.append(
+                {
+                    "provider": c["provider"],
+                    "priority": f["priority"],
+                    "severity": f["severity"],
+                    "title": f["title"],
+                    "path": c.get("path"),
+                    "line": c.get("line"),
+                    "comment_id": c["id"],
+                }
+            )
+    blocking_ai_findings = [f for f in unresolved_ai_findings if f["priority"] in ("P1", "P2")]
+
     report = {
         "pr": {
             "owner": owner,
@@ -391,13 +556,31 @@ def main():
             "failures": ci_failures,
             "pending": ci_pending,
         },
+        "phase_3_ai_review": {
+            "providers_seen": sorted({c["provider"] for c in ai_review_comments}),
+            "providers_configured_in_repo": detect_configured_providers(owner, repo),
+            "total_comments": len(ai_review_comments),
+            "unresolved_findings": unresolved_ai_findings,
+            "blocking_findings": blocking_ai_findings,
+            "merge_risk": ai_signals["merge_risk"],
+            "failed_pre_merge_checks": ai_signals["failed_pre_merge_checks"],
+            "comments": ai_review_comments,
+        },
+        # Retained so callers written against the greptile-only report keep working.
         "phase_3_greptile": {
-            "total_comments": len(greptile_comments),
-            "comments": greptile_comments,
+            "total_comments": len([c for c in ai_review_comments if c["provider"] == "greptile"]),
+            "comments": [c for c in ai_review_comments if c["provider"] == "greptile"],
         },
         "bot_other": {
             "total": len(bot_other_comments),
             "comments": bot_other_comments,
+        },
+        # Bots matching no known provider or infra bot. NOT safe to ignore:
+        # inspect these, then add them to AI_REVIEW_PROVIDERS or NON_BLOCKING_BOTS.
+        "bot_unknown": {
+            "total": len(bot_unknown_comments),
+            "logins": sorted({c["author"] for c in bot_unknown_comments}),
+            "comments": bot_unknown_comments,
         },
     }
 

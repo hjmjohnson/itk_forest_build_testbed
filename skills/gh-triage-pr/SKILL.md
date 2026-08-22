@@ -1,12 +1,12 @@
 ---
 name: gh-triage-pr
-version: 1.0.0
-purpose: 'Triage one or more GitHub pull requests in a strict priority order: (1) address human reviewer comments first, (2) fix CI failures second, (3) request and address a @greptileai draft review third — only after all draft CI builds are green, (4) finally recommend marking the PR ready for review.'
+version: 1.1.0
+purpose: 'Triage one or more GitHub pull requests in a strict priority order: (1) address human reviewer comments first, (2) fix CI failures second, (3) address the AI-reviewer findings for the repo (greptile or coderabbit) third — only after all CI builds are green, (4) finally recommend marking the PR ready for review.'
 description: >-
   Triage one or more GitHub pull requests in a strict priority order:
   (1) address human reviewer comments first, (2) fix CI failures second,
-  (3) request and address a @greptileai draft review third — only after
-  all draft CI builds are green, (4) finally recommend marking the PR
+  (3) address the AI-reviewer findings for the repo (greptile or
+  coderabbit) third — only after all CI builds are green, (4) finally recommend marking the PR
   ready for review. Use this skill whenever the user says: "gh-triage-PR",
   "gh-triage-PR #NNNN", "gh-triage-PR my", "gh-triage-PR all-draft",
   "triage PR", "triage my PRs", "triage all drafts", "clean up my PRs",
@@ -74,7 +74,7 @@ If the user invokes `/gh-triage-pr` with no arguments or an ambiguous
 request, print this usage hint and ask what they'd like to triage:
 
 ```
-gh-triage-pr — Progressive PR triage (humans → CI → greptile → ready)
+gh-triage-pr — Progressive PR triage (humans → CI → AI review → ready)
 
 Usage:
   /gh-triage-pr #6040              Triage one PR (current repo)
@@ -86,7 +86,7 @@ Usage:
 Phases (strict order — do not skip):
   1. Human comments    Address reviewer feedback, fixup commits
   2. CI failures       Fix red checks on HEAD
-  3. Greptile review   Request @greptileai review, address P1/P2
+  3. AI review         Address P1/P2 from greptile / coderabbit
   4. Metadata + ready  Check title/body, recommend gh pr ready
 ```
 
@@ -106,8 +106,8 @@ Phases (strict order — do not skip):
 
 These four phases are deterministic. Do not advance a phase until the
 prior phase is fully clean. This is the whole point of the skill —
-greptile's review is noisy and context-dependent, so we only ask for it
-after humans and CI are settled.
+AI review is noisy and context-dependent, so we only ask for it after
+humans and CI are settled.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -119,10 +119,10 @@ after humans and CI are settled.
 │          Red checks on the current HEAD commit.             │
 │          Do not proceed to Phase 3 with any red check.      │
 ├─────────────────────────────────────────────────────────────┤
-│ Phase 3  GREPTILE DRAFT REVIEW                              │
-│          Post "@greptileai review this draft before I make  │
-│          it official" and wait for its response. Address    │
-│          every P1/P2 finding. Iterate until clean.          │
+│ Phase 3  AI REVIEW                                          │
+│          Whichever provider the repo runs (greptile,        │
+│          coderabbit, ...). Request or force a review, then  │
+│          address every P1/P2. Iterate until clean.          │
 ├─────────────────────────────────────────────────────────────┤
 │ Phase 4  PR METADATA + READY-FOR-REVIEW RECOMMENDATION      │
 │          Re-read PR title + body + final diff. Recommend    │
@@ -278,7 +278,7 @@ was done. Example reply bodies:
 After replying, resolve the thread via GraphQL (REST has no resolve
 endpoint). See `scripts/ghtp_reply.py` which handles both in one call.
 
-### Format of PR bodies, comments, and greptile-review summaries
+### Format of PR bodies, comments, and AI-review summaries
 
 **All text posted to GitHub must follow `~/.claude/rules/pr-message-format.md`.**
 Inline review replies via `ghtp_reply.py` are usually one-liners and don't
@@ -402,8 +402,14 @@ This prints a JSON report with three buckets:
 - `human_comments` — real-user comments, grouped by thread; each has
   `is_resolved`, `commit_line_blame` (if inline), and a `priority` hint
 - `ci_failures` — non-success checks on the HEAD commit
-- `greptile_findings` — greptile review findings (parsed from its
-  markdown body), tagged P1/P2/P3 where greptile has indicated
+- `phase_3_ai_review` — findings from whichever AI reviewer the repo
+  runs, normalised to P1/P2/P3 regardless of provider vocabulary. Also
+  carries `providers_seen`, `blocking_findings` (unresolved P1/P2),
+  and, where the provider supplies them, `merge_risk` and
+  `failed_pre_merge_checks`
+- `bot_unknown` — bots matching no known provider or infra bot.
+  **Not ignorable**: inspect these, then classify them in
+  `AI_REVIEW_PROVIDERS` or `NON_BLOCKING_BOTS`
 
 Also fetches the PR title, body, draft/ready state, and commit list.
 
@@ -510,74 +516,88 @@ post a brief PR comment explaining the failure is a known flake before
 re-triggering. This prevents reviewers from thinking the PR has real
 issues.
 
-### Step 4 — Phase 3: greptile draft review
+### Step 4 — Phase 3: AI review
 
 Only after Phase 1 and Phase 2 are fully clean.
 
-**Pre-check: Greptile availability**
+Repos run different AI reviewers, and they differ in how a review is
+obtained, not just in output format. `ghtp_fetch.py` normalises the
+findings; this table covers the parts you have to drive by hand.
 
-Before requesting a review, verify Greptile is reachable:
+| | **Greptile** | **CodeRabbit** |
+|---|---|---|
+| login | `greptile-apps[bot]` | `coderabbitai[bot]` |
+| in-repo config | — | `.coderabbit.yaml` |
+| how a review starts | you request it | **automatic on every push** |
+| request comment | `@greptileai review this draft before I make it official` | none needed |
+| force a re-review | re-post the request | `@coderabbitai full review` |
+| severity vocabulary | `P1` / `P2` / `P3` badges | Critical / Major / Minor / Trivial |
+| extra PR-level signals | — | merge-risk rating, pre-merge checks |
 
-```bash
-# Check if GREPTILE_API_KEY is set
-if [ "$GREPTILE_API_KEY" = "SKIP" ]; then
-    echo "Greptile review skipped (GREPTILE_API_KEY=SKIP)"
-    # Advance directly to Phase 4
-fi
+`ghtp_fetch.py` maps CodeRabbit's Critical→P1, Major→P2, Minor/Trivial→P3
+and reports everything under `phase_3_ai_review`, so the rule below is one
+rule for all providers.
 
-if [ -z "$GREPTILE_API_KEY" ]; then
-    echo "⚠ GREPTILE_API_KEY not set. Cannot run local review."
-    echo ""
-    echo "To configure:"
-    echo "  1. Sign up at https://greptile.com"
-    echo "  2. Get API key from https://app.greptile.com/settings/api"
-    echo "  3. Add to ~/.zshrc: export GREPTILE_API_KEY=\"your-key\""
-    echo "  4. Restart Claude Code"
-    echo ""
-    echo "To permanently skip: export GREPTILE_API_KEY=\"SKIP\""
-    echo ""
-    echo "Falling back to GitHub @greptileai bot comment..."
-fi
-```
+**Which provider is in play:** read `phase_3_ai_review.providers_seen`
+(who has actually commented) and `providers_configured_in_repo` (who the
+repo is configured for). A provider can be installed org-wide with no
+in-repo config, so `providers_seen` is the authority. Both may be present
+at once; handle every provider's findings.
 
-**If `GREPTILE_API_KEY=SKIP`:** Skip Phase 3 entirely. Advance to Phase 4.
+**If `bot_unknown` is non-empty, stop and look.** That bucket means a bot
+commented that is neither a known reviewer nor a known infra bot. Read its
+comments before continuing, then add its login to `AI_REVIEW_PROVIDERS`
+(with a parser) or to `NON_BLOCKING_BOTS`. Leaving it unclassified is how
+a real finding gets lost.
 
-**If `GREPTILE_API_KEY` is set and MCP tools available:** Use the
-`trigger_code_review` MCP tool for a local review before posting to GitHub.
-This is faster and doesn't create noise on the PR.
+**Procedure**
 
-**If MCP tools are not available:** Fall back to the GitHub bot approach:
-
-1. Post the review-request comment:
-   ```bash
-   gh pr comment "$NUM" --repo "$OWNER/$REPO" \
-     --body "@greptileai review this draft before I make it official"
-   ```
-2. Wait for greptile to respond (typically 1-3 minutes). Poll via
-   `ghtp_fetch.py` until the response arrives.
-
-**Handling findings (both local and GitHub approaches):**
-
-3. Address each P1/P2 finding using the same fixup pattern.
-4. Reply to each greptile inline comment in-thread (greptile threads
-   can be resolved the same way as human threads).
-5. **ITK style conformance is always in scope** — fix naming, include
-   order, assertion quality, `using` vs `typedef`, etc. regardless of
-   Greptile priority level.
+1. **Get a review for the current HEAD.**
+   - *Greptile*: post the request comment, then poll `ghtp_fetch.py`
+     until it responds (typically 1-3 minutes).
+   - *CodeRabbit*: it has usually already reviewed. If it replies
+     *"Already reviewed the last commit"* — which it does after a
+     force-push it has seen — post `@coderabbitai full review` to force
+     a fresh pass over the whole changeset.
+   - Either way, confirm the review covers the current HEAD. A review of
+     a pre-force-push commit is stale even when its inline comments carry
+     forward.
+2. **Address every unresolved P1/P2** (`blocking_findings`) using the
+   fixup pattern from Phase 1.
+3. **Reply in-thread and resolve** via `ghtp_reply.py --resolve`. This is
+   provider-agnostic — thread IDs work the same for both.
+4. **Project style conformance is always in scope** regardless of the
+   provider's priority level: naming, include order, assertion quality,
+   `using` vs `typedef`.
+5. **False positives**: reply with a brief justification rather than
+   changing code to silence the bot. When declining, cite evidence from
+   the repo — measured prevalence of the pattern, or why the request is
+   unreachable within the PR's scope — not just a preference.
 6. **Non-trivial or out-of-scope suggestions** (algorithm restructuring,
-   new features, API redesign) → present to user for manual decision:
+   new features, API redesign) → present to the user:
    ```
-   Greptile suggests (P2): "<suggestion>"
+   <provider> suggests (P2): "<suggestion>"
    This appears out of scope for this PR. Options:
      1. Skip (recommended)
      2. Address as follow-up PR
      3. Implement now
    ```
-7. If greptile flags a false positive, reply with a brief justification
-   — do not force a fix just to silence it.
-8. Iterate: force-push, request another greptile review, address new
-   findings, until greptile reports clean or only has P3/nitpicks you
-   choose to accept.
+7. **CodeRabbit-only signals**, both PR-level and worth reading before
+   declaring Phase 3 done:
+   - `merge_risk` — its own blocking assessment. A "High" rating with no
+     inline findings still deserves a look at the walkthrough.
+   - `failed_pre_merge_checks` — gates visible on the PR page. Some are
+     unreachable within a PR's scope (e.g. a docstring-coverage threshold
+     that counts pre-existing functions); when so, say why in the thread
+     rather than expanding scope to satisfy it.
+8. Iterate until there are no unresolved P1/P2 findings.
+
+**Optional: Greptile local review.** If `$GREPTILE_API_KEY` is set and
+not `SKIP`, the `trigger_code_review` MCP tool runs a review locally
+without posting to the PR. If it is `SKIP`, skip the Greptile half of
+this phase. If it is unset, fall back to the GitHub bot comment above.
+There is no local-review equivalent for CodeRabbit.
+
 
 ### Step 5 — Phase 4: PR metadata and ready-for-review
 
@@ -586,7 +606,7 @@ This is faster and doesn't create noise on the PR.
    `gh pr edit "$NUM" --title "..."`.
 2. Re-read the PR body. Same check. Update if needed. **Any rewrite
    must follow the format in `~/.claude/rules/pr-message-format.md`
-   and the "Format of PR bodies, comments, and greptile-review
+   and the "Format of PR bodies, comments, and AI-review
    summaries" section above** — short visible summary, long-form
    analysis inside `<details>`, machine-readable provenance inside
    HTML comments. If the existing body is a pre-format wall of text,
@@ -681,16 +701,28 @@ Before making any commit in the PR branch:
 
 ## Bot classification
 
-Treat these bots as non-blocking (skip unless explicitly asked):
+Three buckets, defined in `ghtp_fetch.py`:
 
-- `greptile-apps[bot]` — handled explicitly in Phase 3
-- `github-actions[bot]` — CI status, surfaced in Phase 2
-- `codecov[bot]` — coverage comments, informational only
-- `dependabot[bot]`, `renovate[bot]` — usually not on your PRs
-- `cla-bot[bot]`, `stale[bot]` — process bots, ignore
+**AI reviewers** (`AI_REVIEW_PROVIDERS`) — carry findings, handled in Phase 3:
+`greptile-apps[bot]`, `coderabbitai[bot]`.
 
-Everything else with `user.type == "User"` is a human and belongs in
-Phase 1.
+**Infrastructure bots** (`NON_BLOCKING_BOTS`) — never carry findings, skip
+unless explicitly asked: `github-actions[bot]` (CI, surfaced in Phase 2),
+`codecov[bot]`, `dependabot[bot]`, `renovate[bot]`, `cla-bot[bot]`,
+`stale[bot]`, `pre-commit-ci[bot]`, `deepsource-autofix[bot]`.
+
+**Unknown bots** (`bot_unknown`) — anything else ending in `[bot]`.
+**These are not ignorable.** A bot that is in neither list is one nobody
+has classified yet, which is exactly how a new review bot's findings get
+dropped. Read the comments, then add the login to one of the two lists.
+
+Everything not ending in `[bot]` is a human and belongs in Phase 1.
+
+**Adding a provider:** add an entry to `AI_REVIEW_PROVIDERS` (login,
+`trigger`, `rereview`, `detect_files`), write a `parse_*_findings` body
+parser returning `{priority, severity, title}` with priority normalised to
+P1/P2/P3, and dispatch it from `parse_findings()`. Nothing in
+`ghtp_reply.py` needs changing — replying and resolving are provider-agnostic.
 
 ## Quality checks after triage
 
@@ -698,7 +730,8 @@ Before reporting success on a PR:
 
 - [ ] All human threads marked resolved on GitHub
 - [ ] CI is green on the HEAD commit
-- [ ] Greptile review posted and all P1/P2 findings addressed
+- [ ] AI review covers the current HEAD and all P1/P2 findings are addressed
+- [ ] `bot_unknown` is empty (every commenting bot is classified)
 - [ ] PR title still accurate
 - [ ] PR body still accurate
 - [ ] Commit history is clean (no `fixup!` commits remain — autosquash ran)
