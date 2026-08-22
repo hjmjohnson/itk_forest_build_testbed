@@ -12,6 +12,9 @@
 BIN_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(dirname "${BIN_DIR}")"            # repo root = parent of bin/
 ENG="${BIN_DIR}/setup-itk-downstream-testbed.sh"
+# Artifact filenames and the conda env layout differ per platform; platform.sh
+# is the single authority for both (see docs/windows.md).
+. "${BIN_DIR}/platform.sh"
 # The engine is the single authority on the forest name; ask it rather than
 # recomputing the composition here and risking drift.
 # No `set -e` here (the matrix continues past build failures), so an engine that
@@ -25,7 +28,13 @@ LOG_TAG="${FOREST_REFERENCE_SUFFIX:+-${FOREST_REFERENCE_SUFFIX}}"
 # too old for Slicer's >=3.28 requirement). This is NOT equivalent to `pixi run`:
 # the compilers ($CC/$CXX) and the ccache hash policy come from the activation
 # env, not from PATH. Run under `pixi run`; the engine enforces it.
-[ -d "${ROOT}/.pixi/envs/default/bin" ] && PATH="${ROOT}/.pixi/envs/default/bin:$PATH"
+# A conda env's executables are in bin/ on Unix but in the env root +
+# Library/bin + Scripts on Windows, so ask platform.sh rather than hardcoding
+# bin/ (which simply does not exist on win-64 and made this a silent no-op).
+# upath: $PATH is colon-separated, so entries must be shell form, not "C:/...".
+while IFS= read -r _d; do
+  [ -d "${_d}" ] && PATH="$(upath "${_d}"):$PATH"
+done < <(pixi_env_bindirs "${ROOT}/.pixi/envs/default")
 TB="${FOREST}"
 LOGDIR="${FOREST}/logs"
 case "${1:-}" in
@@ -105,34 +114,60 @@ run_ctest(){
   echo "T:$((total - failed))/${total}"
 }
 
+# Artifact predicates. The FILENAME SHAPES are platform-specific (MSVC emits
+# Foo.lib/Foo.dll and foo.exe, with no "lib" prefix, where Unix emits
+# libFoo.a/libFoo.so|dylib and foo), so they come from platform.sh and only the
+# per-target STEMS live here. Before this split every check below was
+# Unix-shaped and a fully-built Windows tree scored as a build FAILURE --
+# which, for ITK, aborted the whole matrix on its first target.
+_find_any(){                    # <dir> <glob>... -> 0 if any file matches
+  local d="$1"; shift
+  [ -d "$d" ] || return 1
+  local g; local -a args=()
+  for g in "$@"; do [ ${#args[@]} -gt 0 ] && args+=(-o); args+=(-iname "$g"); done
+  find "$d" \( "${args[@]}" \) 2>/dev/null | grep -q .
+}
+# Read the globs into an array rather than splitting $(...): unquoted expansion
+# would let the shell glob them against the CWD before find ever sees them.
+has_lib(){                      # <dir> <stem-without-lib-prefix>
+  local g; local -a gl=()
+  while IFS= read -r g; do gl+=("$g"); done < <(lib_globs "$2")
+  _find_any "$1" "${gl[@]}"; }
+has_any_lib(){                  # <dir>
+  local g; local -a gl=()
+  while IFS= read -r g; do gl+=("$g"); done < <(any_lib_globs)
+  _find_any "$1" "${gl[@]}"; }
+has_exe(){ _find_any "$1" "${2}${EXE_SUFFIX}"; }   # <dir> <name-without-suffix>
+
 artifact_ok(){
   local n="$1" b
   b="$(bdir "$n")"
   case "$n" in
-    ITK)       ls "${b}"/lib/libITKCommon-*.a >/dev/null 2>&1 ;;  # version-agnostic (6.0, 5.4, ...)
-    elastix)   [ -x "${b}/bin/elastix" ] ;;
-    c3d)       find "${b}" -name 'c?d' -o -name 'libConvert3D*' 2>/dev/null | grep -q . ;;
-    RTK)       [ -x "${b}/bin/rtkamsterdamshroud" ] ;;
-    SimpleITK) find "${b}" -name 'libSimpleITK*' 2>/dev/null | grep -q . ;;
-    ANTs)        find "${b}" -name 'antsRegistration' 2>/dev/null | grep -q . ;;
-    BRAINSTools) find "${b}" -name 'BRAINSFit' 2>/dev/null | grep -q . ;;
-    OpenIGTLink)   find "${b}" -iname 'libOpenIGTLink*' 2>/dev/null | grep -q . ;;
-    OpenIGTLinkIO) find "${b}" \( -iname 'libigtlio*' -o -iname 'libOpenIGTLinkIO*' \) 2>/dev/null | grep -q . ;;
-    vtkAddon)    find "${b}" -iname 'libvtkAddon*' 2>/dev/null | grep -q . ;;
-    IGSIO)       find "${b}" -iname 'libvtkIGSIO*' 2>/dev/null | grep -q . ;;
-    PlusLib)     find "${b}" \( -iname 'libvtkPlus*' -o -iname 'libPlus*' \) 2>/dev/null | grep -q . ;;
-    Slicer)      find "$(bdir Slicer)/Slicer-build" \( -name 'SlicerApp-real' -o -name 'libMRMLCore*' \) 2>/dev/null | grep -q . ;;
-    SlicerExtensions) find "${b}" \( -name '*.so' -o -name '*.dylib' \) 2>/dev/null | grep -q . ;;
+    ITK)       has_lib "${b}/lib" 'ITKCommon-*' ;;  # version-agnostic (6.0, 5.4, ...)
+    elastix)   has_exe "${b}/bin" elastix ;;
+    c3d)       has_exe "${b}" 'c?d' || has_lib "${b}" 'Convert3D*' ;;
+    RTK)       has_exe "${b}/bin" rtkamsterdamshroud ;;
+    SimpleITK) has_lib "${b}" 'SimpleITK*' ;;
+    ANTs)        has_exe "${b}" antsRegistration ;;
+    BRAINSTools) has_exe "${b}" BRAINSFit ;;
+    OpenIGTLink)   has_lib "${b}" 'OpenIGTLink*' ;;
+    OpenIGTLinkIO) has_lib "${b}" 'igtlio*' || has_lib "${b}" 'OpenIGTLinkIO*' ;;
+    vtkAddon)    has_lib "${b}" 'vtkAddon*' ;;
+    IGSIO)       has_lib "${b}" 'vtkIGSIO*' ;;
+    PlusLib)     has_lib "${b}" 'vtkPlus*' || has_lib "${b}" 'Plus*' ;;
+    Slicer)      has_exe "$(bdir Slicer)/Slicer-build" 'SlicerApp-real' \
+                 || has_lib "$(bdir Slicer)/Slicer-build" 'MRMLCore*' ;;
+    SlicerExtensions) has_any_lib "${b}" ;;
     *)  # external ITK modules link their lib into the ITK tree, not their own
-        { find "${b}" \( -name '*.a' -o -name '*.dylib' -o -name '*.so' \) 2>/dev/null | grep -q . ; } \
-        || find "$(bdir ITK)/lib" -iname "libitk${n}-*.a" 2>/dev/null | grep -q . ;;
+        has_any_lib "${b}" || has_lib "$(bdir ITK)/lib" "itk${n}-*" ;;
   esac
 }
-
 build_target(){
   local n="$1" tstat=""
   echo "==================== BUILD ${n} ===================="
+  local _t0 _el; _t0=$(date +%s)
   bash "${ENG}" build "${n}" >"${LOGDIR}/matrix-${n}${LOG_TAG}.log" 2>&1
+  _el=$(( $(date +%s) - _t0 ))
   # Verify tests actually stayed off for extensions -- the args files bake
   # RUN_CTEST_TEST at their own configure time, so an env slip re-enables the
   # Slicer.app-launching test phase silently. Assert by artifact, not intent.
@@ -141,16 +176,16 @@ build_target(){
     [ "${_on:-0}" != 0 ] && echo "WARN ${n}: ${_on} extension(s) still have tests ENABLED despite RUN_CTEST=0 (Slicer.app may launch)"
   fi
   if artifact_ok "${n}"; then
-    echo "RESULT ${n}: build PASS"
+    echo "RESULT ${n}: build PASS  (${_el}s)"
     if [ "${RUN_CTEST}" = 1 ]; then
       echo "-------------------- CTEST ${n} --------------------"
       tstat="$(run_ctest "${n}")"
       echo "RESULT ${n}: ${tstat}  (${LOGDIR}/ctest-${n}${LOG_TAG}.log)"
     fi
-    SUMMARY="${SUMMARY}$(printf 'PASS  %-20s %s' "${n}" "${tstat}")"$'\n'
+    SUMMARY="${SUMMARY}$(printf 'PASS  %-20s %7ss  %s' "${n}" "${_el}" "${tstat}")"$'\n'
   else
-    SUMMARY="${SUMMARY}$(printf 'FAIL  %-20s %s' "${n}" '(build failed)')"$'\n'
-    echo "RESULT ${n}: build FAIL  (${LOGDIR}/matrix-${n}${LOG_TAG}.log)"
+    SUMMARY="${SUMMARY}$(printf 'FAIL  %-20s %7ss  %s' "${n}" "${_el}" '(build failed)')"$'\n'
+    echo "RESULT ${n}: build FAIL  (${_el}s)  (${LOGDIR}/matrix-${n}${LOG_TAG}.log)"
     grep -iE 'error:|CMake Error|library not found|No such module|undefined sym' "${LOGDIR}/matrix-${n}${LOG_TAG}.log" | head -3
   fi
 }
@@ -171,6 +206,21 @@ TARGETS=(ITK elastix SimpleITK RTK Cleaver
          OpenIGTLink Slicer SlicerExtensions
          OpenIGTLinkIO vtkAddon IGSIO PlusLib)
 
+# QT_FREE_TARGETS — the subset that needs no Qt6. Slicer and SlicerExtensions
+# link Qt directly; OpenIGTLinkIO/vtkAddon/IGSIO/PlusLib need vtk_dir(), whose
+# only providers are the forest's Qt-enabled VTK or Slicer's VTK, and both go
+# through qt6_or_die. Useful on a node with no usable Qt6 kit:
+#   MATRIX_TARGETS="$(bash bin/run-matrix.sh --list-qt-free)" pixi run bash bin/run-matrix.sh
+QT_FREE_TARGETS=(ITK elastix SimpleITK RTK Cleaver
+                 PerformanceBenchmarking SimpleITKFilters
+                 TractographyTRX VkFFTBackend ANTs BRAINSTools
+                 OpenIGTLink)
+
+# MATRIX_TARGETS (space-separated) overrides the built-in list, so a scoped
+# sweep is a normal matrix run -- same artifact scoring, same logs, same
+# summary -- rather than an ad-hoc loop that re-implements them.
+[ -n "${MATRIX_TARGETS:-}" ] && read -r -a TARGETS <<<"${MATRIX_TARGETS}"
+
 # Deferred targets (see docs/DEFERRED-FAILURES.md) as machine-readable rows.
 DEFERRED_TARGETS=(
   $'TubeTK\tneeds its own module/data deps'
@@ -188,6 +238,7 @@ DEFERRED_TARGETS=(
 case "${1:-}" in
   --list-targets)   printf '%s\n' "${TARGETS[@]}"; exit 0 ;;
   --list-deferred)  printf '%s\n' "${DEFERRED_TARGETS[@]}"; exit 0 ;;
+  --list-qt-free)   printf '%s\n' "${QT_FREE_TARGETS[@]}"; exit 0 ;;
   --check-artifact) artifact_ok "${2:?usage: --check-artifact <target>}"; exit $? ;;
   --ctest-dir)      ctest_dir "${2:?usage: --ctest-dir <target>}"; exit 0 ;;
   --run-ctest)      run_ctest "${2:?usage: --run-ctest <target>}"; exit 0 ;;
