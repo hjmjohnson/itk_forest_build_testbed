@@ -265,8 +265,8 @@ SlicerExecutionModel_GIT_TAG        = "91b921bd5977c3384916ba4b03705d87b26067f7"
 
 [subbuild.BRAINSTools]
 # Consumed via the overridable BRAINSTools_ANTs_GIT_* vars (BRAINSia/BRAINSTools#605).
-ANTs_GIT_REPOSITORY = "https://github.com/ANTsX/ANTs.git"
-ANTs_GIT_TAG        = "2a25b6b032b01680a558b6fbc767f056ccd144e1"
+ANTs_GIT_REPOSITORY = "https://github.com/hjmjohnson/ANTs.git"
+ANTs_GIT_TAG        = "integration/itk-forest-2026-08-22"
 
 [subbuild.SlicerANTs]
 # netstim/SlicerANTs defaults its ANTs EP to 8c4e2077 (2024.09.10) -- ~2 years
@@ -276,8 +276,8 @@ ANTs_GIT_TAG        = "2a25b6b032b01680a558b6fbc767f056ccd144e1"
 # overrides it without patching the extension (extension CMakeCache args are a
 # closed whitelist; only the environment gets through). Kept in step with
 # subbuild.BRAINSTools above.
-ANTs_GIT_REPOSITORY = "https://github.com/ANTsX/ANTs.git"
-ANTs_GIT_TAG        = "2a25b6b032b01680a558b6fbc767f056ccd144e1"
+ANTs_GIT_REPOSITORY = "https://github.com/hjmjohnson/ANTs.git"
+ANTs_GIT_TAG        = "integration/itk-forest-2026-08-22"
 
 [subbuild.BoneTextureExtension]
 # Two ITK remote modules pinned by BoneTextureExtension via
@@ -380,7 +380,7 @@ revision = "fix-freesurfermarkups-setup-null-guard"
 ["scenarios"."itk-release-5.4"."Slicer"]
 # upstream/release-5.4 @ 9cd63da191e (ITK 5.4.6) + itk5 Slicer patches:
 #   custom ITK namespace, itkFileTools build fix
-ITK_GIT_TAG = "slicer-v5.4.6-2026-07-17-9cd63da191e"
+ITK_GIT_TAG = "slicer-v5.4.7-2026-08-21-7fefad582bf"
 # Same integration branch as itk-main: both forests build Slicer from the same
 # upstream tip, and the BRAINSTools bump is not ITK-version specific -- it moves
 # an 8-month-old pin to a current one. ITK 5.4 does not NEED it (the DCMTK
@@ -396,7 +396,7 @@ branch = "itk-forest-integration"
 # base e161a8a612d) + itk6 Slicer patches: custom ITK namespace only -- the
 # itkFileTools fix is already upstream in main. Re-minted off the integration
 # branch so Slicer's ITK is a variant of THIS forest's actual ITK base.
-ITK_GIT_TAG = "slicer-v6.0.0-2026-07-20-e161a8a612d"
+ITK_GIT_TAG = "slicer-v6.0.0-2026-08-22-fee22c1e224"
 # Slicer's SuperBuild.cmake pins BRAINSTools at ced799ad (2025-11-10), which
 # predates BRAINSTools vendoring ITK's now-private itkDCMTKFileReader.h, so
 # DWIConvert fails to compile against ITK main. Slicer_Remote_Add hardcodes
