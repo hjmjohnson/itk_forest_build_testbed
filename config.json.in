@@ -2,12 +2,12 @@
   "_README": "Template for the node-specific build config. Do NOT edit config.json directly for portable changes; edit this template (tracked) and regenerate. 'pixi run config' (or python3 bin/config.py generate) writes config.json (git-ignored) by resolving each key on THIS machine. Keys with 'candidates' pick the first existing path (globs allowed; 'verify' is a required sub-path); 'required' keys with no match are written as '__SET_MANUALLY__' and must be filled in. Keys with 'value' are literal defaults. Env vars (e.g. QT6_DIR=...) always override config.json at run time.",
 
   "QT6_DIR": {
-    "doc": "Qt6 prefix for the Slicer SuperBuild; must contain lib/cmake/Qt6. macOS: ~/Qt/<ver>/macos. Linux: the pixi env (conda-forge qt6-main; official Qt binaries cannot link under the conda toolchain). Windows: the official installer's C:/Qt/<ver>/msvc2022_64, which is the Qt upstream Slicer builds and tests against and is MSVC-ABI (a conda qt6 is not what Slicer's Windows CI uses).",
+    "doc": "Qt6 prefix for the Slicer SuperBuild; must contain lib/cmake/Qt6. macOS: ~/Qt/<ver>/macos. Linux: the pixi env (conda-forge qt6-main; official Qt binaries cannot link under the conda toolchain). Windows: C:/Qt/<ver>/msvc2022_64 -- the single supported location, holding an OPEN-SOURCE official Qt built with MSVC, which is the Qt upstream Slicer builds and tests against and is MSVC-ABI (a conda qt6 is not what Slicer's Windows CI uses). Populate it with aqtinstall, not the online installer: the installer routes any Qt Account holding an evaluation entitlement into the commercial flow and silently delivers a time-limited trial instead. See docs/windows.md.",
     "candidates": ["${HOME}/Qt/6.9.1/macos", "${HOME}/Qt/6.*/macos", "${PIXI_PROJECT_ROOT}/.pixi/envs/default", "${HOME}/Qt/6.11.1/gcc_64", "${HOME}/Qt/6.*/gcc_64", "${HOME}/Qt/6.*"],
     "verify": "lib/cmake/Qt6",
     "required": true,
     "windows": {
-      "candidates": ["C:/Qt/6.9.1/msvc2022_64", "C:/Qt/6.*/msvc2022_64", "C:/Qt/6.*/msvc*_64"]
+      "candidates": ["C:/Qt/6.*/msvc2022_64", "C:/Qt/6.*/msvc*_64"]
     }
   },
 

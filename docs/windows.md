@@ -9,7 +9,7 @@ of presets; the places the three platforms genuinely differ resolve through
 | | |
 |---|---|
 | **Visual Studio 2022** | Community, Professional or Enterprise, **or** Build Tools 2022 — with the *Desktop development with C++* workload. MSVC is not optional: it is the only ABI Slicer, Qt's official binaries and the wider Windows C++ ecosystem share. |
-| **Qt 6 `msvc2022_64`** | The official Qt installer, into `C:\Qt` (so `C:/Qt/6.9.1/msvc2022_64`). **Slicer only** — ITK and the plain consumers do not need it. |
+| **Qt 6 `msvc2022_64`** | An **open-source** official Qt at `C:\Qt` (so `C:/Qt/6.11.2/msvc2022_64`) — the single supported location. **Slicer only** — ITK and the plain consumers do not need it. Install it with aqtinstall, *not* the online installer; see *Qt 6* below. |
 | **Git for Windows** | Supplies the MSYS2 bash the engine runs under. Already present if you cloned this repo. |
 | **pixi** | Supplies cmake, ninja, ccache, python, git. |
 
@@ -26,6 +26,44 @@ FOREST_REFERENCE_SUFFIX=itk-main pixi run build-ITK
 ```
 
 The forest lands in **`C:\S-itk-main`**, not under the repo — see *MAX_PATH*.
+
+## Qt 6 — get the open-source build, not an evaluation
+
+Qt's online installer **hides the open-source option entirely once your Qt
+Account holds any evaluation entitlement**. It then routes you into the
+commercial flow: no open-source license page, no plain MSVC kit selection, and
+what lands in `C:\Qt` is a time-limited trial that stops being licensed on a
+date you did not choose. Confirm which one you have:
+
+```bash
+qt=$(cygpath -u 'C:/Qt')          # never hardcode /c — see *Paths*, rule 3
+grep -E "License schema|License expiry" "$qt/InstallationLog.txt" | sort -u
+ls "$qt"/*/msvc*/bin/licheck.exe 2>/dev/null   # present => commercial build
+```
+
+`Supported Evaluation` plus an expiry date means the tree is a trial, and no
+amount of clicking in the installer will turn it into the open-source build —
+the entitlement is attached to the account, not the installation.
+
+Use **`utilities/qt-oss/`** instead: `aqtinstall` fetches the same official
+open-source archives straight from `download.qt.io` with no account, no
+`licheck`, and no expiry. Install it from **git master**, not PyPI — Qt split
+the download layout at 6.11.0 (`qt6_6112/qt6_6112_msvc2022_64/`), aqtinstall
+handles it as of PR #1000 (merged 2026-03-24), but the newest release predates
+that merge, so PyPI's aqtinstall fails every 6.11.x call:
+
+```bash
+py -3 -m venv /c/tmp/aqtvenv
+AQT=/c/tmp/aqtvenv/Scripts/python.exe
+$AQT -m pip install "git+https://github.com/miurahr/aqtinstall.git@master"
+$AQT -m aqt install-qt windows desktop 6.11.2 win64_msvc2022_64 -m qt5compat qtmultimedia qtpositioning qtshadertools qtscxml qtwebchannel qtwebengine qtwebsockets qtimageformats --outputdir 'C:/Qt'
+pixi run config
+```
+
+`utilities/qt-oss/README.md` explains that module set — it is exactly Slicer's
+`Slicer_REQUIRED_QT_MODULES` — and how to verify the result by artifact.
+`bin/setup-itk-downstream-testbed.sh` prints the same command if a Slicer build
+starts without a usable Qt.
 
 ## Why Ninja and not the Visual Studio generator
 

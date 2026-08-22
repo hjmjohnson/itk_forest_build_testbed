@@ -21,7 +21,10 @@ pixi run build-elastix   # -> ITK, then elastix (any consumer pulls ITK first)
 - **Windows:** Visual Studio 2022 (or Build Tools) with the *Desktop development
   with C++* workload — MSVC is the only ABI Slicer and Qt's official binaries
   link against — plus Git for Windows (supplies the bash the engine runs under).
-  For Slicer, Qt6 `msvc2022_64` from the official installer under `C:\Qt`.
+  For Slicer, an **open-source** Qt6 `msvc2022_64` under `C:\Qt` — installed
+  with aqtinstall, *not* the Qt online installer, which delivers an expiring
+  commercial trial to any account holding an evaluation entitlement. See
+  [../utilities/qt-oss/README.md](../utilities/qt-oss/README.md).
   Forests default to `C:\S-<suffix>` rather than the repo, for MAX_PATH
   headroom. See [windows.md](windows.md).
 

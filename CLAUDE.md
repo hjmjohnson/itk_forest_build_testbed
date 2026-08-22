@@ -105,6 +105,7 @@ forest-scoped commands with the suffix explicit:
 | Test a consumer with an in-flight upstream fix while its PR awaits review (the dominant cross-project pattern) — integration branches + per-forest scenario overrides | [docs/integration-branches.md](docs/integration-branches.md) |
 | Understand the repo layout, what's tracked, or the `bin/` scripts | [docs/layout.md](docs/layout.md) |
 | Build on **native Windows** (MSVC/Ninja/ccache, the path rules, MAX_PATH, Qt6) | [docs/windows.md](docs/windows.md) |
+| **Install Qt 6 for MSVC 2022 on Windows** — the open-source build, and why the Qt online installer hands you an expiring commercial trial instead | [utilities/qt-oss/README.md](utilities/qt-oss/README.md) |
 | Build Slicer (Qt6 / ccache / conda-flag / ITK-branch specifics on macOS) | [docs/slicer-macos.md](docs/slicer-macos.md) |
 | Pick / build the ITK that Slicer + SlicerExtensions consume — **Slicer's ITK is a per-forest variant of that forest's ITK base; there is no global default** | [docs/slicer-itk-policy.md](docs/slicer-itk-policy.md) |
 
