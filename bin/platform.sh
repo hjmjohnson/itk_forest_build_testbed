@@ -86,6 +86,31 @@ _forest_resolve_python(){
 _forest_resolve_python || { FOREST_PYTHON="python3"; FOREST_PYTHON_PRE=""; }
 export FOREST_PYTHON FOREST_PYTHON_PRE
 
+# --- build artifacts -------------------------------------------------------
+#
+# "Verify by artifact, not exit code" needs the platform's real filenames.
+# MSVC writes Foo.lib / Foo.dll / foo.exe where Unix writes libFoo.a /
+# libFoo.so | libFoo.dylib / foo -- note there is no "lib" prefix on Windows,
+# so a Unix-shaped glob ("libITKCommon-*.a") matches nothing there and a
+# fully-built tree is scored as a build FAILURE. Callers ask here instead of
+# testing $FOREST_OS at each of the ~20 per-target checks in run-matrix.sh.
+#
+#   lib_globs <stem>  filename globs for a library built from <stem>, where
+#                     <stem> is the Unix base name WITHOUT the "lib" prefix
+#                     and MAY itself contain globs (e.g. "ITKCommon-*").
+#   any_lib_globs     the same, for "any library at all".
+#   EXE_SUFFIX        "" on Unix, ".exe" on Windows.
+if [ "${FOREST_OS}" = windows ]; then
+  EXE_SUFFIX=".exe"
+  lib_globs(){     printf '%s\n' "${1}.lib" "${1}.dll"; }
+  any_lib_globs(){ printf '%s\n' '*.lib' '*.dll'; }
+else
+  EXE_SUFFIX=""
+  lib_globs(){     printf '%s\n' "lib${1}.a" "lib${1}.so" "lib${1}.dylib"; }
+  any_lib_globs(){ printf '%s\n' '*.a' '*.so' '*.dylib'; }
+fi
+export EXE_SUFFIX
+
 # --- conda/pixi environment layout -----------------------------------------
 #
 # A conda env puts executables in bin/ and headers in include/ on Unix, but in
