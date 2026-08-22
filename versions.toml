@@ -389,6 +389,14 @@ ITK_GIT_TAG = "slicer-v5.4.7-2026-08-21-7fefad582bf"
 # differs between forests then differs because of ITK, not because one side
 # built a 2025-11 BRAINSTools and the other a 2026-07 one.
 url    = "https://github.com/hjmjohnson/Slicer.git"
+# Re-minted 2026-08-22 onto Slicer/Slicer#9316's head (b22c1490) plus three
+# Windows-only build fixes that any Windows+Ninja Slicer build needs and that
+# are unrelated to the BRAINSTools pin under test:
+#   27c0ab17  $<CONFIG> in the issue-#1180 python-DLL copy (silent on Ninja)
+#   2ff7dd04  lazy vtk generator could not find TBB/Qt DLLs (Python >=3.8)
+#   3cb058d9  ninja response files (compile command exceeded 32767 chars)
+# The PR branch bump-brainstools-dcmtk-vendored stays clean for review; these
+# three ride here only, per docs/integration-branches.md.
 branch = "itk-forest-integration"
 
 [scenarios.itk-main.Slicer]
@@ -406,4 +414,12 @@ ITK_GIT_TAG = "slicer-v6.0.0-2026-08-22-fee22c1e224"
 # that one-line pin bump) before the next Slicer checkout; the branch does not
 # exist yet.
 url    = "https://github.com/hjmjohnson/Slicer.git"
+# Re-minted 2026-08-22 onto Slicer/Slicer#9316's head (b22c1490) plus three
+# Windows-only build fixes that any Windows+Ninja Slicer build needs and that
+# are unrelated to the BRAINSTools pin under test:
+#   27c0ab17  $<CONFIG> in the issue-#1180 python-DLL copy (silent on Ninja)
+#   2ff7dd04  lazy vtk generator could not find TBB/Qt DLLs (Python >=3.8)
+#   3cb058d9  ninja response files (compile command exceeded 32767 chars)
+# The PR branch bump-brainstools-dcmtk-vendored stays clean for review; these
+# three ride here only, per docs/integration-branches.md.
 branch = "itk-forest-integration"
