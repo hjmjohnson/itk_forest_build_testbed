@@ -573,6 +573,22 @@ _export_extension_dep_pins(){
   export inner_ITKBoneMorphometry_GIT_TAG="$(cfg get subbuild.BoneTextureExtension.ITKBoneMorphometry_GIT_TAG 2>/dev/null || true)"
 }
 
+# ctest phase switches for Slicer extensions. Exported from BOTH configure_one
+# and build_one for the same reason as the dep pins above: each extension's
+# <Ext>-test-command-args.cmake is written when that extension's own SuperBuild
+# runs, which is the BUILD phase. Exporting only at configure leaves
+# _set_if_env_not_defined to fall back to its TRUE default, and every extension
+# then launches Slicer.app -- whose unguarded modal dialogs block the machine.
+_export_extension_ctest_phases(){
+  if [ "${SLICER_EXT_RUN_TESTS:-0}" = 1 ]; then
+    export run_extension_ctest_with_test=TRUE
+  else
+    export run_extension_ctest_with_test=FALSE
+  fi
+  export run_extension_ctest_with_packages="${SLICER_EXT_RUN_PACKAGES:-FALSE}"
+  export run_extension_ctest_submit=FALSE
+}
+
 do_overlay(){
   local name="$1" preset="$2" src="$3" bin="$4"; shift 4
   cfg resolve-overlay "${preset}" "${src}" "${bin}" "${FOREST}" "${name}" "$@"
@@ -1281,13 +1297,7 @@ json.dump(d, open(sys.argv[2],"w", encoding="utf-8"), indent=2, sort_keys=True)'
                  # bundle-fixup noise here -- and submit needs a CDash this
                  # forest does not have. SLICER_EXT_RUN_TESTS=1 re-enables.
                  # Honored via _set_if_env_not_defined (SlicerBlockUploadExtension.cmake:44).
-                 if [ "${SLICER_EXT_RUN_TESTS:-0}" = 1 ]; then
-                   export run_extension_ctest_with_test=TRUE
-                 else
-                   export run_extension_ctest_with_test=FALSE
-                 fi
-                 export run_extension_ctest_with_packages="${SLICER_EXT_RUN_PACKAGES:-FALSE}"
-                 export run_extension_ctest_submit=FALSE
+                 _export_extension_ctest_phases
                  _export_extension_dep_pins
                  do_overlay SlicerExtensions itk-forest-base \
                    "${FOREST}/Slicer/Extensions/CMake" "$b" \
@@ -1421,9 +1431,10 @@ build_one(){ require cmake ninja ccache; require_pixi_toolchain build
   # Dependency-pin overrides must be live during BUILD, not just configure:
   # ExternalProject_SetIfNotDefined reads $ENV{inner_<proj>_GIT_TAG} when the
   # extension's OWN SuperBuild configures, which happens inside this phase.
-  # (RUN_CTEST_* differ -- those are baked into <Ext>-test-command-args.cmake
-  # at outer-configure time, so exporting them there is enough.)
-  [ "$name" = SlicerExtensions ] && _export_extension_dep_pins
+  # RUN_CTEST_* need the same treatment: <Ext>-test-command-args.cmake is
+  # written during THIS phase, so a configure-only export is lost and the
+  # TRUE default wins.
+  [ "$name" = SlicerExtensions ] && { _export_extension_dep_pins; _export_extension_ctest_phases; }
   # Slicer's EP pins are -D cache entries, so a pin changed in versions.toml is
   # invisible until Slicer reconfigures -- build_one otherwise reuses the cache
   # and the old dependency is rebuilt while the declaration claims otherwise.
