@@ -499,11 +499,38 @@ row_for(){ # name -> "kind|url|branch_or_heavy"
 }
 all_names(){ for r in "${CONSUMERS[@]}" "${REMOTES[@]}"; do echo "${r%%|*}"; done; }
 
-# Qt6 or a diagnosis. The bare "not found" is unhelpful in the one case that
-# actually happens on Windows: the Qt online installer defaults to the MinGW
-# kit, which installs happily and is then ABI-unusable, because MSVC's link.exe
-# cannot consume MinGW's libQt6*.a archives. Name that specifically rather than
-# letting it read as "you forgot to install Qt".
+# Qt6 or a diagnosis. A bare "not found" is unhelpful for the two cases that
+# actually happen on Windows, so name both and give the command that fixes them.
+#
+#   1. A MinGW kit is present. It installs happily and is then ABI-unusable:
+#      this forest builds with MSVC, and link.exe cannot consume MinGW's
+#      libQt6*.a import libraries.
+#   2. Nothing is there at all. Do NOT send anyone to the Qt online installer:
+#      it hides the open-source option outright once the Qt Account holds any
+#      evaluation entitlement, and silently delivers an expiring commercial
+#      trial instead. aqtinstall fetches the same official open-source archives
+#      with no account and no expiry.
+#
+# Both hints end in the same place: utilities/qt-oss/README.md.
+_qt_install_hint(){
+  cat <<'HINT'
+      Install the open-source Qt for MSVC 2022 (see utilities/qt-oss/README.md).
+      Do NOT use the Qt online installer: it hides the open-source option once
+      the Qt Account holds any evaluation entitlement, and ships an expiring
+      commercial trial instead. aqtinstall gets the same official open-source
+      archives with no account and no expiry -- but it must come from git
+      master, because the Qt 6.11+ repository-layout fix (PR #1000) is merged
+      upstream and not in any release yet.
+
+        py -3 -m venv /c/tmp/aqtvenv
+        AQT=/c/tmp/aqtvenv/Scripts/python.exe
+        $AQT -m pip install "git+https://github.com/miurahr/aqtinstall.git@master"
+        $AQT -m aqt install-qt windows desktop 6.11.2 win64_msvc2022_64 -m qt5compat qtmultimedia qtpositioning qtshadertools qtscxml qtwebchannel qtwebengine qtwebsockets qtimageformats --outputdir 'C:/Qt'
+
+      Then: pixi run config
+HINT
+}
+
 qt6_or_die(){
   [ -d "${SLICER_QT_PREFIX}/lib/cmake/Qt6" ] && return 0
   if [ "${FOREST_OS}" = windows ]; then
@@ -514,9 +541,10 @@ qt6_or_die(){
       ${_mingw}
       That kit CANNOT be used: this forest builds with MSVC, and link.exe
       cannot consume MinGW's libQt6*.a import libraries.
-      Run ${_QT_ROOT}/MaintenanceTool.exe -> Add or remove components and tick
-      'MSVC 2022 64-bit' under the same Qt version, then: pixi run config"
+$(_qt_install_hint)"
     fi
+    die "Qt6 not found at ${SLICER_QT_PREFIX}
+$(_qt_install_hint)"
   fi
   die "Qt6 not found at ${SLICER_QT_PREFIX} (set SLICER_QT_PREFIX/SLICER_QT_VERSION)"; }
 
@@ -1119,6 +1147,35 @@ require_pixi_toolchain(){
       Outside pixi the system compiler is picked and ccache hashes differ, so
       the build is neither pinned nor shareable with other forests."; }
 
+# --- python external project (python-cmake-buildsystem) ------------------
+#
+# Which ref Slicer should build its bundled CPython from, or empty to let
+# Slicer keep its own pin. SINGLE SOURCE OF TRUTH: configure_one passes this
+# as -DSlicer_python_GIT_TAG, and build_one compares it against the cache to
+# detect drift. Computing it in two places would let them disagree, and the
+# drift check would then either never fire or fire forever.
+#
+# macOS: Slicer's bundled CPython detects gettext and then omits -lintl
+#   (upstream PR #450).
+# Windows: Slicer's pin (5d8959631a7b) cannot build under a SINGLE-config
+#   generator -- it hands _testcapi a link path of CMakeBuild/libpython/
+#   $<CONFIG>, but only multi-config generators put the import library in a
+#   per-config subdir, so under Ninja python3.lib is one level up and the link
+#   dies with LNK1104. The kit is on Ninja because it is the only generator
+#   honoring CMAKE_<LANG>_COMPILER_LAUNCHER (ccache), so this is unavoidable.
+#   Fix: python-cmake-buildsystem#452 / PR #453; drop this arm once Slicer's
+#   pin advances past that merge.
+# Linux: no override; Slicer's own pin builds fine.
+_slicer_python_git_tag(){
+  if [ -n "${SLICER_PYTHON_GIT_TAG:-}" ]; then printf '%s' "${SLICER_PYTHON_GIT_TAG}"
+  else case "${FOREST_OS}" in
+    macos)   printf '%s' 'fix/link-libintl-localemodule-macos' ;;
+    windows) printf '%s' 'fix-testcapi-python3lib-single-config' ;;
+    *)       printf '' ;;
+  esac; fi; }
+_slicer_python_git_repository(){
+  printf '%s' "${SLICER_PYTHON_GIT_REPOSITORY:-https://github.com/hjmjohnson/python-cmake-buildsystem.git}"; }
+
 configure_one(){ require_pixi_toolchain configure
   local name="$1" meta; meta="$(row_for "$name")" || die "unknown project: $name"
   local s="${FOREST}/${name}" b="$(build_dir "$name")"
@@ -1239,19 +1296,14 @@ configure_one(){ require_pixi_toolchain configure
                    "Qt6_DIR=${SLICER_QT_PREFIX}/lib/cmake/Qt6"
                    "CMAKE_PREFIX_PATH=${SLICER_QT_PREFIX}"
                  )
-                 # python EP = python-cmake-buildsystem. The fork branch carries a
-                 # libintl link fix (upstream PR #450) for a *macOS-only* failure:
-                 # Slicer's bundled CPython there detects gettext and then omits
-                 # -lintl. Windows CPython has no libintl involvement at all, so
-                 # pinning the fork would swap Slicer's tested default for an
-                 # unrelated branch; let Slicer choose its own pin instead.
-                 # SLICER_PYTHON_GIT_TAG still overrides on any platform.
-                 if [ -n "${SLICER_PYTHON_GIT_TAG:-}" ]; then
-                   slicer_kvs+=("Slicer_python_GIT_REPOSITORY=${SLICER_PYTHON_GIT_REPOSITORY:-https://github.com/hjmjohnson/python-cmake-buildsystem.git}"
-                                "Slicer_python_GIT_TAG=${SLICER_PYTHON_GIT_TAG}")
-                 elif [ "${FOREST_OS}" != windows ]; then
-                   slicer_kvs+=("Slicer_python_GIT_REPOSITORY=${SLICER_PYTHON_GIT_REPOSITORY:-https://github.com/hjmjohnson/python-cmake-buildsystem.git}"
-                                "Slicer_python_GIT_TAG=fix/link-libintl-localemodule-macos")
+                 # python EP = python-cmake-buildsystem; the ref comes from
+                 # _slicer_python_git_tag() so configure_one (which passes it as
+                 # -D) and build_one (which detects drift against the cache)
+                 # cannot disagree.
+                 local _py_tag; _py_tag="$(_slicer_python_git_tag)"
+                 if [ -n "${_py_tag}" ]; then
+                   slicer_kvs+=("Slicer_python_GIT_REPOSITORY=$(_slicer_python_git_repository)"
+                                "Slicer_python_GIT_TAG=${_py_tag}")
                  fi
                  do_overlay Slicer itk-forest-slicer "$s" "$b" "${slicer_kvs[@]}" ;;
     SlicerExtensions)
@@ -1468,6 +1520,13 @@ build_one(){ require cmake ninja ccache; require_pixi_toolchain build
     _pin_drift "${b}/CMakeCache.txt" Slicer_ITK_GIT_TAG \
       "${SLICER_ITK_GIT_TAG:-$(cfg subbuild-get "${FOREST_REFERENCE_SUFFIX:-}" Slicer ITK_GIT_TAG 2>/dev/null || true)}" \
       "vendored ITK" || _drift=1
+    # The python EP pin. On Windows this points at the python-cmake-buildsystem
+    # branch carrying the single-config _testcapi/python3.lib fix (upstream
+    # #452 / PR #453). Without the check an already-configured tree keeps
+    # Slicer's own pin, ExternalProject's update step resets the source back to
+    # it, and the build dies with LNK1104 while the engine asked for the fix.
+    _pin_drift "${b}/CMakeCache.txt" Slicer_python_GIT_TAG \
+      "$(_slicer_python_git_tag)" python-cmake-buildsystem || _drift=1
     if [ "${_drift}" = 1 ]; then rm -f "${b}/build.ninja"; fi
   fi
   # Plastimatch's force-include shim must exist before configure (CMake's
