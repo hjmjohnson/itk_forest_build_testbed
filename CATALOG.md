@@ -17,6 +17,7 @@ a tree to a fixed tag by editing its row in `bin/setup-itk-downstream-testbed.sh
 | SlicerExtensions (index) | https://github.com/Slicer/ExtensionsIndex | `main` |
 | elastix | https://github.com/SuperElastix/elastix | `main` |
 | MITK | https://github.com/MITK/MITK | `master` |
+| CaPTk | https://github.com/CBICA/CaPTk | `master` (**reference only** — see note) |
 | c3d | https://github.com/pyushkevich/c3d | `master` |
 | ITKSNAP | https://github.com/pyushkevich/itksnap | `master` |
 | Plastimatch | https://gitlab.com/plastimatch/plastimatch | `hjmjohnson/itkv6-support` (fork; ITKv6 fixes) |
@@ -44,6 +45,35 @@ ANTs `master` builds **only against ITK v6+**. It dropped ITK5 in
 `build ANTs` / `configure ANTs` against an ITK<6 forest fails fast via
 `require_itk6_for_ants()` rather than wasting a build. To build ANTs against ITK5
 anyway, pin a pre-2026-03-15 ANTs tag via the SuperBuild `GIT_TAG`.
+
+### CaPTk is checked out but not built
+
+CaPTk (Cancer Imaging Phenomics Toolkit, CBICA/UPenn — ITK + VTK + Qt + OpenCV,
+NIH/NCI ITCR U24-CA189523) is a genuine ITK consumer and is recorded here so the
+ecosystem inventory is complete, but **no build wiring exists** and it is absent
+from `BUILD_ORDER`. `pixi run checkout` materializes the worktree; there is no
+`build-CaPTk` task.
+
+Nothing the forest produces can be injected under it without a port. From
+`CMakeLists.txt` and `cmake_modules/` at `master`:
+
+- `cmake_modules/External-ITK.cmake` pins `GIT_TAG v4.13.1` — eight years behind
+  the refs under test.
+- `find_package(Qt5 COMPONENTS … WebEngine WebEngineCore WebView … REQUIRED)` is
+  unconditional; the forest carries Qt6. `CAPTK_CLI_MODE` only adds a `-D`
+  define, so unlike MITK's `PythonWheel` configuration there is no headless path
+  that drops the Qt requirement.
+- The top level does `INCLUDE("${VTK_USE_FILE}")`, removed in VTK 9.
+- OpenCV is pinned at 3.4.7; `CMAKE_CXX_STANDARD 11`.
+- Its ITK build enables remote modules (`SkullStrip`, `TextureFeatures`,
+  `IsotropicWavelets`, `PrincipalComponentsAnalysis`, `RLEImage`, `MGHIO`,
+  `LesionSizingToolkit`), so a ported build would need those in forest ITK too.
+
+`ITK_USE_FILE` (`INCLUDE("${ITK_USE_FILE}")`) is *not* a blocker —
+`ITK/CMake/UseITK.cmake` still ships in ITK `main`.
+
+Upstream is dormant: last push 2023-12-09, last release 1.9.0 on 2022-05-31, so
+a port has no upstream to merge back into. Revisit if CBICA resumes development.
 
 ## ITK remote modules (built externally against the local ITK)
 

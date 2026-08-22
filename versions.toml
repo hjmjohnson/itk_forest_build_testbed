@@ -52,6 +52,15 @@ url    = "https://github.com/MITK/MITK.git"
 ref    = "origin/master"
 branch = "mitk-itk-downstream"
 
+# Checked out for reference only; no build wiring. Its superbuild pins ITK
+# 4.13.1, Qt 5.12.1 (WebEngine) and OpenCV 3.4.7, and the top-level CMakeLists
+# includes VTK_USE_FILE, so nothing in the forest can be injected under it
+# without a port. See CATALOG.md.
+[components.CaPTk]
+url    = "https://github.com/CBICA/CaPTk.git"
+ref    = "origin/master"
+branch = "captk-itk-downstream"
+
 [components.c3d]
 url    = "https://github.com/pyushkevich/c3d.git"
 ref    = "origin/main"
