@@ -589,6 +589,21 @@ _export_extension_ctest_phases(){
   export run_extension_ctest_submit=FALSE
 }
 
+# One Slicer EP pin vs the configured cache. Returns non-zero on drift so the
+# caller can force a reconfigure; a pin that is undeclared or already matching
+# is silently fine. Slicer's EP pins are -D cache entries, so a pin changed in
+# versions.toml is invisible until Slicer reconfigures -- build_one otherwise
+# reuses the cache and builds the old dependency while the declaration claims
+# otherwise.
+_pin_drift(){ # <cache-file> <cache-var> <declared-value> <label>
+  local cache="$1" var="$2" want="$3" label="$4" have
+  [ -n "${want}" ] || return 0
+  have="$(sed -n "s/^${var}:[^=]*=//p" "${cache}" | head -1)"
+  [ "${want}" = "${have}" ] && return 0
+  warn "Slicer ${label} pin drift (cache='${have:-<unset>}' declared='${want}'); reconfiguring"
+  return 1
+}
+
 do_overlay(){
   local name="$1" preset="$2" src="$3" bin="$4"; shift 4
   cfg resolve-overlay "${preset}" "${src}" "${bin}" "${FOREST}" "${name}" "$@"
@@ -1441,15 +1456,19 @@ build_one(){ require cmake ninja ccache; require_pixi_toolchain build
   # Force a reconfigure when a declared pin differs from (or is missing in) the
   # cache. SLICER_NO_PIN_DRIFT_CHECK=1 skips this.
   if [ "$name" = Slicer ] && [ "${SLICER_NO_PIN_DRIFT_CHECK:-0}" != 1 ] && [ -f "${b}/CMakeCache.txt" ]; then
-    local _sem_want _sem_have
-    _sem_want="${SLICER_SEM_GIT_TAG:-$(cfg get subbuild.Slicer.SlicerExecutionModel_GIT_TAG 2>/dev/null || true)}"
-    if [ -n "${_sem_want}" ]; then
-      _sem_have="$(sed -n 's/^Slicer_SlicerExecutionModel_GIT_TAG:[^=]*=//p' "${b}/CMakeCache.txt" | head -1)"
-      if [ "${_sem_want}" != "${_sem_have}" ]; then
-        warn "Slicer SlicerExecutionModel pin drift (cache='${_sem_have:-<unset>}' declared='${_sem_want}'); reconfiguring"
-        rm -f "${b}/build.ninja"
-      fi
-    fi
+    local _drift=0
+    # SlicerExecutionModel generates the CLI wrappers against ITK.
+    _pin_drift "${b}/CMakeCache.txt" Slicer_SlicerExecutionModel_GIT_TAG \
+      "${SLICER_SEM_GIT_TAG:-$(cfg get subbuild.Slicer.SlicerExecutionModel_GIT_TAG 2>/dev/null || true)}" \
+      SlicerExecutionModel || _drift=1
+    # Slicer's vendored ITK is the whole point of a ref forest: a stale cache
+    # here builds the wrong ITK while every other signal reads as current.
+    # subbuild-get exits non-zero for a forest with no declared variant; that
+    # is configure_one's error to raise, so an empty want just skips.
+    _pin_drift "${b}/CMakeCache.txt" Slicer_ITK_GIT_TAG \
+      "${SLICER_ITK_GIT_TAG:-$(cfg subbuild-get "${FOREST_REFERENCE_SUFFIX:-}" Slicer ITK_GIT_TAG 2>/dev/null || true)}" \
+      "vendored ITK" || _drift=1
+    if [ "${_drift}" = 1 ]; then rm -f "${b}/build.ninja"; fi
   fi
   # Plastimatch's force-include shim must exist before configure (CMake's
   # compiler checks use CMAKE_CXX_FLAGS, which references it).
