@@ -58,7 +58,10 @@ pytest = ">=8.0"  # skills/*/tests — run via `pixi run test`
 [activation.env]
 CCACHE_MAXSIZE = "75G"
 CCACHE_COMPILERCHECK = "content"
-CCACHE_SLOPPINESS = "time_macros,system_headers,pch_defines"
+# NOT system_headers: consumers include ITK via -isystem, so that flag hides
+# every ITK header change from the cache and serves objects built against a
+# different ITK -- silently invalidating the one thing this testbed measures.
+CCACHE_SLOPPINESS = "time_macros,pch_defines"
 # Forest-independent, so it belongs here; its partner CCACHE_BASEDIR is
 # per-forest and stays the engine's to export (see setup-itk-downstream-testbed.sh).
 CCACHE_NOHASHDIR = "true"
