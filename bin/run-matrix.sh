@@ -42,18 +42,20 @@ SUMMARY=""
 #   CTEST_TARGET_TIMEOUT=S  overall per-target wall-clock cap (default 1800)
 #   CTEST_INCLUDE=regex     only run tests matching it (ctest -R) to scope long suites
 RUN_CTEST="${RUN_CTEST:-1}"
-# RUN_CTEST=0 means "no tests anywhere", including Slicer extensions. The
-# extension dashboard driver runs its own ctest_test that launches Slicer.app
-# per extension; a crash there leaves a modal macOS dialog that blocks an
-# unattended build. The engine reads SLICER_EXT_RUN_TESTS, but the per-extension
-# args files are regenerated during the BUILD, so the flag must be live in this
-# process's environment -- not only inside configure_one. Export it here.
-if [ "${RUN_CTEST}" = 0 ]; then
-  export SLICER_EXT_RUN_TESTS=0
+# Slicer extension self-tests stay off independently of RUN_CTEST: the extension
+# dashboard driver's own ctest_test launches Slicer.app per extension, and a crash
+# there leaves a modal macOS dialog that blocks an unattended build. The engine
+# reads SLICER_EXT_RUN_TESTS, but the per-extension args files are regenerated
+# during the BUILD, so the flag must be live in this process's environment --
+# not only inside configure_one. SLICER_EXT_RUN_TESTS=1 opts back in (attended).
+export SLICER_EXT_RUN_TESTS="${SLICER_EXT_RUN_TESTS:-0}"
+if [ "${SLICER_EXT_RUN_TESTS}" = 1 ]; then
+  export run_extension_ctest_with_test=TRUE
+else
   export run_extension_ctest_with_test=FALSE
-  export run_extension_ctest_with_packages="${run_extension_ctest_with_packages:-FALSE}"
-  export run_extension_ctest_submit=FALSE
 fi
+export run_extension_ctest_with_packages="${run_extension_ctest_with_packages:-FALSE}"
+export run_extension_ctest_submit=FALSE
 _ncpu(){ nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4; }
 CTEST_JOBS="${CTEST_JOBS:-$(( $(_ncpu) / 2 ))}"; [ "${CTEST_JOBS}" -lt 2 ] && CTEST_JOBS=2
 CTEST_TIMEOUT="${CTEST_TIMEOUT:-300}"
