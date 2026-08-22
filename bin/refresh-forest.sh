@@ -21,13 +21,21 @@
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT="$(cd "${HERE}/.." && pwd)"
+# shellcheck disable=SC1091
+. "${HERE}/platform.sh"
+ROOT="$(npath "$(cd "${HERE}/.." && pwd)")"
 SUFFIX="${FOREST_REFERENCE_SUFFIX:-}"
-FOREST="${BUILD_FOREST_ROOT:-${ROOT}/build_forest${SUFFIX:+-${SUFFIX}}}"
-REPOS="${ROOT}/forest_git_repos"
+# The engine is the authority on the forest name (it applies BUILD_FOREST_ROOT,
+# the suffix, absolute-vs-relative resolution and native-path conversion);
+# recomputing it here drifted on Windows, where the default root is absolute.
+FOREST="${FOREST:-$(bash "${HERE}/setup-itk-downstream-testbed.sh" --print-forest)}"
+REPOS="$(npath "${FOREST_GIT_REPOS:-${ROOT}/forest_git_repos}")"
 APPLY="${APPLY:-0}"
 
-cfg(){ python3 "${ROOT}/bin/config.py" "$@" 2>/dev/null; }
+# shellcheck disable=SC1091
+. "${ROOT}/bin/platform.sh"
+# shellcheck disable=SC2086
+cfg(){ "${FOREST_PYTHON}" ${FOREST_PYTHON_PRE} "${ROOT}/bin/config.py" "$@" 2>/dev/null; }
 log(){ printf '%s\n' "$*"; }
 say(){ printf '  %-24s %s\n' "$1" "$2"; }
 

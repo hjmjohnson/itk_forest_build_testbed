@@ -1,0 +1,55 @@
+{
+  "$schema": "https://cmake.org/cmake/help/latest/_downloads/3e2d73bff478d88a7de0de736ba5e361/schema.json",
+  "_comment": [
+    "Windows/MSVC replacement for the itk-forest-base preset defined in",
+    "00-base.json. bin/config.py loads *.windows.json only on Windows and only",
+    "AFTER the plain preset files, so this definition wins by name and every",
+    "preset that inherits itk-forest-base (10-itk-v6, 40-Slicer, ...) picks it",
+    "up unchanged. macOS and Linux never see this file.",
+    "",
+    "Differences from 00-base.json, and why:",
+    "",
+    "  -ffile-prefix-map=${sourceDir}=.  DROPPED. A GNU/Clang spelling; cl.exe",
+    "      rejects it. It exists upstream to canonicalize embedded __FILE__ and",
+    "      debug paths so objects are byte-identical across forests. On Windows",
+    "      that job falls entirely to CCACHE_BASEDIR (exported per package by",
+    "      the engine), which is weaker -- expect a lower cross-forest hit rate",
+    "      here than on Unix, not zero.",
+    "",
+    "  CMAKE_BUILD_RPATH               DROPPED. Windows has no rpath; DLLs are",
+    "      found via PATH, which the engine sets up per dependency.",
+    "",
+    "  CMAKE_IGNORE_PREFIX_PATH        DROPPED. /opt/homebrew cannot exist here.",
+    "",
+    "  CMAKE_C/CXX_COMPILER            cl, not $env{CC}. The engine's",
+    "      msvc_activate() puts the toolset on PATH before cmake runs.",
+    "",
+    "  CMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded   ADDED, and load-bearing.",
+    "      MSVC defaults to /Zi, which writes debug info to a shared .pdb that",
+    "      ccache cannot cache -- every compile would miss, silently, and the",
+    "      whole premise of this testbed (a one-header ITK change recompiling",
+    "      only the TUs that include it) would collapse on Windows. Embedded",
+    "      selects /Z7, which puts debug info in the object file where ccache",
+    "      can store it. CMP0141 must be NEW for the abstraction to be honored."
+  ],
+  "configurePresets": [
+    {
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "BUILD_TESTING": "ON",
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_CXX_COMPILER": "cl",
+        "CMAKE_CXX_COMPILER_LAUNCHER": "ccache",
+        "CMAKE_C_COMPILER": "cl",
+        "CMAKE_C_COMPILER_LAUNCHER": "ccache",
+        "CMAKE_MSVC_DEBUG_INFORMATION_FORMAT": "Embedded",
+        "CMAKE_POLICY_DEFAULT_CMP0141": "NEW"
+      },
+      "generator": "Ninja",
+      "hidden": true,
+      "installDir": "${sourceParentDir}/installed/${sourceDirName}",
+      "name": "itk-forest-base"
+    }
+  ],
+  "version": 8
+}

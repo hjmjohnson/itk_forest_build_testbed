@@ -2,16 +2,20 @@
   "_README": "Template for the node-specific build config. Do NOT edit config.json directly for portable changes; edit this template (tracked) and regenerate. 'pixi run config' (or python3 bin/config.py generate) writes config.json (git-ignored) by resolving each key on THIS machine. Keys with 'candidates' pick the first existing path (globs allowed; 'verify' is a required sub-path); 'required' keys with no match are written as '__SET_MANUALLY__' and must be filled in. Keys with 'value' are literal defaults. Env vars (e.g. QT6_DIR=...) always override config.json at run time.",
 
   "QT6_DIR": {
-    "doc": "Qt6 prefix for the Slicer SuperBuild; must contain lib/cmake/Qt6. macOS: ~/Qt/<ver>/macos. Linux: the pixi env (conda-forge qt6-main; official Qt binaries cannot link under the conda toolchain).",
+    "doc": "Qt6 prefix for the Slicer SuperBuild; must contain lib/cmake/Qt6. macOS: ~/Qt/<ver>/macos. Linux: the pixi env (conda-forge qt6-main; official Qt binaries cannot link under the conda toolchain). Windows: the official installer's C:/Qt/<ver>/msvc2022_64, which is the Qt upstream Slicer builds and tests against and is MSVC-ABI (a conda qt6 is not what Slicer's Windows CI uses).",
     "candidates": ["${HOME}/Qt/6.9.1/macos", "${HOME}/Qt/6.*/macos", "${PIXI_PROJECT_ROOT}/.pixi/envs/default", "${HOME}/Qt/6.11.1/gcc_64", "${HOME}/Qt/6.*/gcc_64", "${HOME}/Qt/6.*"],
     "verify": "lib/cmake/Qt6",
-    "required": true
+    "required": true,
+    "windows": {
+      "candidates": ["C:/Qt/6.9.1/msvc2022_64", "C:/Qt/6.*/msvc2022_64", "C:/Qt/6.*/msvc*_64"]
+    }
   },
 
   "BUILD_FOREST_ROOT": {
-    "doc": "Where source checkouts + *-build trees go. Relative paths resolve against the repo root.",
+    "doc": "Where source checkouts + *-build trees go. Relative paths resolve against the repo root. Windows uses a SHORT absolute root: Slicer's SuperBuild nests deeply (Slicer-build/ITK-build/Modules/...) and several bundled tools do not opt in to long paths even where LongPathsEnabled=1, so starting ~45 characters deep inside the kit is the most common cause of Windows Slicer build failures.",
     "value": "build_forest",
-    "required": false
+    "required": false,
+    "windows": { "value": "C:/S" }
   },
 
   "SRC_ROOT": {
@@ -23,7 +27,8 @@
   "CCACHE_DIR": {
     "doc": "ccache cache directory (created if absent).",
     "candidates": ["${CCACHE_DIR}", "${HOME}/.ccache"],
-    "required": false
+    "required": false,
+    "windows": { "candidates": ["${CCACHE_DIR}", "${LOCALAPPDATA}/ccache"] }
   },
 
   "JOBS": {

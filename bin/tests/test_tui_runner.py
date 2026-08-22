@@ -7,6 +7,27 @@ from forest_tui import runner
 def _run(coro):
     return asyncio.run(coro)
 
+def _any_process_matching(pattern):
+    """True if some live process's command line contains `pattern`.
+
+    pgrep is POSIX-only; Windows answers the same question through the CIM
+    Win32_Process table. Same assertion either way — that cancelling a step
+    leaves nothing of its process tree behind."""
+    if os.name == "nt":
+        # The pattern travels in the environment, not on the command line, and
+        # $PID is excluded: a Win32_Process scan otherwise finds the very shell
+        # running the query (its own command line contains the pattern) and
+        # every call would report a match. pgrep excludes itself for us.
+        ps = ("$n = @(Get-CimInstance Win32_Process | Where-Object { "
+              "$_.ProcessId -ne $PID -and $_.CommandLine -like \"*$env:FOREST_PROC_PAT*\" "
+              "}).Count; exit ($n -gt 0)")
+        r = subprocess.run(["powershell", "-NoProfile", "-Command", ps],
+                           env={**os.environ, "FOREST_PROC_PAT": pattern},
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return r.returncode != 0
+    return subprocess.run(["pgrep", "-f", pattern],
+                          stdout=subprocess.DEVNULL).returncode == 0
+
 def test_parse_ctest_token():
     assert runner.parse_ctest_token("blah\nT:150/150\n") == ("PASS", "T:150/150")
     assert runner.parse_ctest_token("T:142/150") == ("FAIL", "T:142/150")
@@ -65,8 +86,7 @@ def test_run_step_cancellation_terminates_process_group():
             assert raised
     _run(go())
     time.sleep(0.5)
-    found = subprocess.run(["pgrep", "-f", "sleep 12345.6"], stdout=subprocess.DEVNULL)
-    assert found.returncode != 0
+    assert not _any_process_matching("sleep 12345.6")
 
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):

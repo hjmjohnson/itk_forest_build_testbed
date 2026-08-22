@@ -18,6 +18,12 @@ pixi run build-elastix   # -> ITK, then elastix (any consumer pulls ITK first)
 - **pixi** (provides cmake/ninja/ccache/compilers/fftw/qt5 — see `pixi.toml`).
 - **macOS Slicer only:** a real Qt6 at `~/Qt/<ver>/macos` (default `6.9.1`).
   See [slicer-macos.md](slicer-macos.md).
+- **Windows:** Visual Studio 2022 (or Build Tools) with the *Desktop development
+  with C++* workload — MSVC is the only ABI Slicer and Qt's official binaries
+  link against — plus Git for Windows (supplies the bash the engine runs under).
+  For Slicer, Qt6 `msvc2022_64` from the official installer under `C:\Qt`.
+  Forests default to `C:\S-<suffix>` rather than the repo, for MAX_PATH
+  headroom. See [windows.md](windows.md).
 
 ## Node-specific config
 

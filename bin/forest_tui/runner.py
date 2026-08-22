@@ -43,11 +43,35 @@ def _slug(name: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "_", name)
 
 
-def terminate(proc: asyncio.subprocess.Process) -> None:
-    try:
-        os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-    except (ProcessLookupError, PermissionError):
-        pass
+# Spawn a step in its own process group/job so cancelling kills the whole build
+# tree (bash -> cmake -> ninja -> cl/gcc), not just the shell we launched.
+# POSIX does that with start_new_session; Windows has no sessions, so it uses
+# CREATE_NEW_PROCESS_GROUP and kills the tree by PID with taskkill /T.
+if os.name == "nt":
+    import subprocess
+
+    _SPAWN_KWARGS = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+
+    def terminate(proc: asyncio.subprocess.Process) -> None:
+        # proc.terminate() would end only the top process, orphaning the
+        # compilers underneath it; taskkill /T walks the child tree.
+        try:
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+        except OSError:
+            try:
+                proc.terminate()
+            except (ProcessLookupError, PermissionError):
+                pass
+else:
+    _SPAWN_KWARGS = {"start_new_session": True}
+
+    def terminate(proc: asyncio.subprocess.Process) -> None:
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+        except (ProcessLookupError, PermissionError):
+            pass
 
 
 async def run_step(step: Step, root: Path, forest: Path,
@@ -61,7 +85,7 @@ async def run_step(step: Step, root: Path, forest: Path,
     proc = await asyncio.create_subprocess_exec(
         *step.argv, cwd=root, env=env,
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
-        start_new_session=True, limit=2**20)
+        limit=2**20, **_SPAWN_KWARGS)
     tail: list[str] = []
     try:
         with log.open("w", errors="replace") as fh:

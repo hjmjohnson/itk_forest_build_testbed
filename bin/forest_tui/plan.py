@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import shlex
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -70,8 +71,14 @@ def prereq_closure(selected: list[str], order: list[str]) -> list[str]:
 def _base_env(sel: Selections) -> dict[str, str]:
     env = {"FOREST_REFERENCE_SUFFIX": sel.forest_suffix}
     if sel.root:
-        env["TESTBED"] = sel.root
-        env["FOREST"] = str(forest_dir(Path(sel.root), sel.forest_suffix))
+        # Forward slashes, always. These two land in the environment of the bash
+        # engine and from there in cmake -S/-B and every -D<pkg>_DIR=; on Windows
+        # str(Path(...)) yields backslashes, which bash eats as escapes and CMake
+        # rejects. "C:/x/y" is accepted verbatim by both. No-op on Unix, where a
+        # backslash is a legal filename character rather than a separator.
+        env["TESTBED"] = sel.root.replace("\\", "/") if os.name == "nt" else sel.root
+        forest = str(forest_dir(Path(sel.root), sel.forest_suffix))
+        env["FOREST"] = forest.replace("\\", "/") if os.name == "nt" else forest
     return env
 
 

@@ -75,6 +75,21 @@ notes any scenario key with no forest on disk.
   manually** in `config.sh`.
 - **`value`** — a literal default (env-expanded), no existence check.
 
+A key may also carry a **per-platform override block** (`macos`, `linux`,
+`windows`) whose contents replace the top-level strategy on that host — this is
+how `BUILD_FOREST_ROOT` becomes `C:/S` and `QT6_DIR` looks under
+`C:/Qt/6.*/msvc2022_64` on Windows without affecting the other two platforms:
+
+```json
+"BUILD_FOREST_ROOT": { "value": "build_forest",
+                       "windows": { "value": "C:/S" } }
+```
+
+Choosing `value` in an override drops an inherited `candidates` (and vice
+versa), so the two strategies never compete. On Windows every resolved value is
+normalized to forward slashes — `config.sh` is sourced by bash and its values
+are handed to cmake, and `C:/x/y` is accepted verbatim by both.
+
 ## Commands
 
 ```bash

@@ -1,0 +1,41 @@
+# Line-ending policy for a kit developed on macOS, Linux AND Windows.
+#
+# Everything in this repo is consumed by POSIX tooling: bash sources the engine,
+# CMake reads the presets, Python reads config.json.in. A CRLF committed from a
+# Windows clone breaks the other two platforms immediately and unhelpfully --
+# `#!/usr/bin/env bash\r` fails with "bad interpreter: ...^M", and a shell `case`
+# arm gains an invisible \r that never matches.
+#
+# eol=lf (not merely text=auto) also makes Windows CHECK OUT LF, so a Windows
+# working tree matches the index and `git status` stays meaningful there.
+#
+# NOTE: this governs files as they are committed and checked out from here on.
+# A working tree that already holds CRLF keeps it until re-checked-out; to
+# normalize an existing clone in place:
+#
+#     git add --renormalize .        # then review, then commit
+#
+* text=auto eol=lf
+
+# Belt and braces for the file types where a stray CR is fatal rather than ugly.
+*.sh    text eol=lf
+*.bash  text eol=lf
+*.py    text eol=lf
+*.cmake text eol=lf
+*.json  text eol=lf
+*.toml  text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.md    text eol=lf
+*.in    text eol=lf
+*.tsv   text eol=lf
+
+# Windows-only scripts, if any are ever added, genuinely want CRLF.
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+
+# Never munge binaries.
+*.png   binary
+*.jpg   binary
+*.gz    binary
+*.zip   binary

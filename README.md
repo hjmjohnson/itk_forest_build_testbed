@@ -138,6 +138,7 @@ change must not break.
 | Node-specific paths (Qt6, ccache, compilers) | [docs/config.md](docs/config.md) |
 | Testing a change, build matrix, dependency model, scenario forests | [docs/workflow.md](docs/workflow.md) |
 | Repo layout and `bin/` scripts | [docs/layout.md](docs/layout.md) |
+| Native Windows (MSVC/Ninja/ccache, path rules, MAX_PATH) | [docs/windows.md](docs/windows.md) |
 | Slicer on macOS (Qt6/ccache specifics) | [docs/slicer-macos.md](docs/slicer-macos.md) |
 
 `CLAUDE.md` is the entry point for AI-assisted sessions and routes to the same
@@ -147,4 +148,5 @@ docs.
 
 - Verify by **artifact**, not exit code (`bin/run-matrix.sh` does this).
 - `build_forest*/` is disposable and git-ignored; never commit build output.
-- Scripts stay cross-platform (macOS BSD + Linux GNU).
+- Scripts stay cross-platform (macOS BSD + Linux GNU + native Windows/MSVC).
+  Platform differences resolve through `bin/platform.sh`, never a bare `uname`.

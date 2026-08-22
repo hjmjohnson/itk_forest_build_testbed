@@ -104,6 +104,7 @@ forest-scoped commands with the suffix explicit:
 | Test an ITK PR/branch/tag, run the build matrix, or read the dependency model | [docs/workflow.md](docs/workflow.md) |
 | Test a consumer with an in-flight upstream fix while its PR awaits review (the dominant cross-project pattern) — integration branches + per-forest scenario overrides | [docs/integration-branches.md](docs/integration-branches.md) |
 | Understand the repo layout, what's tracked, or the `bin/` scripts | [docs/layout.md](docs/layout.md) |
+| Build on **native Windows** (MSVC/Ninja/ccache, the path rules, MAX_PATH, Qt6) | [docs/windows.md](docs/windows.md) |
 | Build Slicer (Qt6 / ccache / conda-flag / ITK-branch specifics on macOS) | [docs/slicer-macos.md](docs/slicer-macos.md) |
 | Pick / build the ITK that Slicer + SlicerExtensions consume — **Slicer's ITK is a per-forest variant of that forest's ITK base; there is no global default** | [docs/slicer-itk-policy.md](docs/slicer-itk-policy.md) |
 
@@ -143,9 +144,17 @@ python3 bin/config.py compare build_forest build_forest-itk-pr6250
   confirm the binary/library exists on disk. (`bin/run-matrix.sh` does this.)
 - **build_forest/ is disposable** and git-ignored (except its README). Never
   commit build output.
-- **Cross-platform** (macOS BSD + Linux GNU): `grep -E` not `-P`, avoid `sed -i`
-  portability traps, prefer the pixi toolchain (system cmake is often too old
-  for Slicer's `>=3.28`).
+- **Cross-platform** (macOS BSD + Linux GNU + **native Windows**): `grep -E` not
+  `-P`, no `tac`/`sed -i` portability traps, prefer the pixi toolchain (system
+  cmake is often too old for Slicer's `>=3.28`).
+  Anything that differs per platform resolves through **`bin/platform.sh`**
+  (`FOREST_OS`, `npath`/`upath`, `FOREST_PYTHON`, `msvc_activate`) — do not add
+  a bare `uname` test. On Windows: paths reaching cmake/cl/ninja must be native
+  form (`npath`), `$PATH` entries must be shell form, never call `python3`
+  (conda win-64 has no `python3.exe`), and never assume drives are at `/c`
+  (some Git installs mount them at `/cygdrive/c`, and a wrong guess resolves
+  *under the Git install root* and silently finds nothing). See
+  [docs/windows.md](docs/windows.md).
 
 ## Related
 

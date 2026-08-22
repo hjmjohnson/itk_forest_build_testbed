@@ -36,45 +36,91 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Host-platform abstraction (FOREST_OS, npath, FOREST_PYTHON, msvc_activate, ...).
+# Everything below that differs between macOS, Linux and Windows goes through it.
+# shellcheck disable=SC1091
+. "${SCRIPT_DIR}/platform.sh"
 TESTBED="${TESTBED:-$(dirname "${SCRIPT_DIR}")}"   # repo root = parent of bin/
+# Two spellings of the same root. TESTBED_SHELL stays in THIS shell's own path
+# form (it comes from `pwd`, so it is exact) and is used only for $PATH entries;
+# TESTBED below is native form for everything handed to cmake/cl/ninja.
+TESTBED_SHELL="$(upath "${TESTBED}")"
+# Native-form the repo root ONCE. On Windows the shell is an MSYS2 bash whose
+# /cygdrive/... paths cmake.exe and cl.exe cannot read; FOREST, build_dir,
+# install_dir and every -D<pkg>_DIR= are derived from TESTBED by string
+# concatenation, so converting here converts all of them. Identity off Windows.
+TESTBED="$(npath "${TESTBED}")"
+# pixi exports CONDA_PREFIX (and PIXI_PROJECT_ROOT) in BACKSLASH form on Windows:
+# C:\repo\...\.pixi\envs\default. The presets interpolate it as
+# $env{CONDA_PREFIX}/include (FFTW_INCLUDE_PATH, ZLIB_ROOT, ...) and
+# cmake/forest-toolchain.cmake reads $ENV{CONDA_PREFIX}/lib, so the backslashes
+# travel into values that projects then write verbatim into generated CMake --
+# e.g. ITK emits set(ITK_FFTW_INCLUDE_PATH "C:\repo\...") into ITKConfig.cmake,
+# where \r and \i are invalid escapes and EVERY consumer's find_package(ITK)
+# dies with "Invalid character escape". Normalizing here fixes every consumer of
+# these variables at once, including ones inside SuperBuild EPs. No-op on Unix.
+if [ -n "${CONDA_PREFIX:-}" ]; then export CONDA_PREFIX="$(npath "${CONDA_PREFIX}")"; fi
+if [ -n "${PIXI_PROJECT_ROOT:-}" ]; then export PIXI_PROJECT_ROOT="$(npath "${PIXI_PROJECT_ROOT}")"; fi
 # Put this repo's pixi env tools first so the v8 CMakePresets we write are read
 # by a new-enough cmake (>= 3.28); a stray older cmake earlier on PATH fails with
 # "Unrecognized version field". A no-op under `pixi run` (already first).
-_PIXI_BIN="${TESTBED}/.pixi/envs/default/bin"
-[ -d "${_PIXI_BIN}" ] && export PATH="${_PIXI_BIN}:${PATH}"
-KIT_PRESETS="${SCRIPT_DIR%/bin}/cmake/presets"   # SCRIPT_DIR is .../kit/bin
+# A conda env's executables live in bin/ on Unix but in the root, Library/bin
+# and Scripts/ on Windows, so ask platform.sh rather than assuming. Built as one
+# preferred-first prefix (no `tac` — BSD/macOS has none) and in shell form, since
+# a native "C:/..." entry in a colon-separated PATH would be ambiguous.
+# Anchored on SCRIPT_DIR, which is this shell's OWN pwd output and therefore
+# already correct POSIX form for it -- never on cygpath, whose shortest-form
+# output does not round-trip inside the pixi env's MSYS root (see upath).
+_pbroot="${TESTBED_SHELL}/.pixi/envs/default"
+_pbpath=""
+while IFS= read -r _pb; do
+  if [ -d "${_pb}" ]; then _pbpath="${_pbpath:+${_pbpath}:}${_pb}"; fi
+done < <(pixi_env_bindirs "${_pbroot}")
+if [ -n "${_pbpath}" ]; then export PATH="${_pbpath}:${PATH}"; fi
+unset _pb _pbpath _pbroot
+KIT_PRESETS="${TESTBED}/cmake/presets"
 
 # Bridge to versions.toml (the build-version source of truth): emit component
 # rows, scalar pins, or (re)write a forest manifest. See bin/config.py.
-cfg(){ python3 "${SCRIPT_DIR}/config.py" "$@"; }
+# FOREST_PYTHON, not a bare `python3`: conda win-64 envs ship python.exe with no
+# python3.exe, and a bare Windows host may offer only the `py` launcher.
+# ${FOREST_PYTHON_PRE} is deliberately unquoted — it is an optional launcher
+# argument ("-3"), not a path.
+# shellcheck disable=SC2086
+cfg(){ "${FOREST_PYTHON}" ${FOREST_PYTHON_PRE} "${SCRIPT_DIR}/config.py" "$@"; }
 
 # Node-specific config: source config.sh (git-ignored), generating it from the
 # tracked config.json.in on first run. Each config.sh line is ${KEY:=default},
 # so env vars set before invocation always win (env > config.sh > built-ins).
 CONFIG_SH="${TESTBED}/config.sh"
-if [ ! -f "${CONFIG_SH}" ] && command -v python3 >/dev/null 2>&1; then
-  python3 "${SCRIPT_DIR}/config.py" generate >/dev/null 2>&1 || true
+if [ ! -f "${CONFIG_SH}" ] && command -v "${FOREST_PYTHON}" >/dev/null 2>&1; then
+  cfg generate >/dev/null 2>&1 || true
 fi
 # shellcheck disable=SC1090
 [ -f "${CONFIG_SH}" ] && . "${CONFIG_SH}"
 
-SRC_ROOT="${SRC_ROOT:-${HOME}/src}"
+SRC_ROOT="$(npath "${SRC_ROOT:-${HOME}/src}")"
 # Central FULL clones of every forest repo (never shallow). Each build_forest
 # tree is a git worktree off the matching clone here. Override FOREST_GIT_REPOS.
-REPOS="${FOREST_GIT_REPOS:-${TESTBED}/forest_git_repos}"
+REPOS="$(npath "${FOREST_GIT_REPOS:-${TESTBED}/forest_git_repos}")"
 # build_forest root: config BUILD_FOREST_ROOT (default 'build_forest'); a
 # relative value resolves against the repo root, an absolute value is used as-is.
 BUILD_FOREST_ROOT="${BUILD_FOREST_ROOT:-build_forest}"
 # FOREST_REFERENCE_SUFFIX selects an alternate forest (build_forest-<suffix>)
 # for side-by-side scenario comparisons against the default build_forest.
 [ -n "${FOREST_REFERENCE_SUFFIX:-}" ] && BUILD_FOREST_ROOT="${BUILD_FOREST_ROOT}-${FOREST_REFERENCE_SUFFIX}"
+# Absolute => use as-is; relative => resolve against the repo root. On Windows
+# an absolute path is a drive letter ("C:/S"), not a leading slash, so both
+# shapes are matched or the Windows default forest root would be silently
+# reinterpreted as relative and nested inside the kit.
 case "${BUILD_FOREST_ROOT}" in
-  /*) FOREST="${FOREST:-${BUILD_FOREST_ROOT}}" ;;
-  *)  FOREST="${FOREST:-${TESTBED}/${BUILD_FOREST_ROOT}}" ;;
+  /*|[A-Za-z]:/*|[A-Za-z]:\\*) FOREST="${FOREST:-${BUILD_FOREST_ROOT}}" ;;
+  *)                           FOREST="${FOREST:-${TESTBED}/${BUILD_FOREST_ROOT}}" ;;
 esac
+FOREST="$(npath "${FOREST}")"
 # All logs for a forest live inside that forest (never the kit root).
 forest_log_dir(){ mkdir -p "${FOREST}/logs"; echo "${FOREST}/logs"; }
-export CCACHE_DIR="${CCACHE_DIR:-${HOME}/.ccache}"
+export CCACHE_DIR="$(npath "${CCACHE_DIR:-${HOME}/.ccache}")"
 # ccache basedir policy (HYBRID; the shell is the single authority — presets do
 # not set CCACHE_BASEDIR, because the rule is per-package-CLASS which preset
 # macros cannot express reliably). basedir rewrites absolute paths UNDER it to
@@ -116,6 +162,40 @@ if command -v nproc >/dev/null 2>&1; then JOBS="${JOBS:-$(nproc)}"
 elif command -v sysctl >/dev/null 2>&1; then JOBS="${JOBS:-$(sysctl -n hw.ncpu)}"
 else JOBS="${JOBS:-4}"; fi
 
+if [ "${FOREST_OS}" = windows ]; then
+  # Windows: MSVC, always. It is the only ABI that Slicer, the official Qt
+  # binaries and the rest of the Windows C++ ecosystem share; a conda/MinGW
+  # gcc would produce objects that cannot link against any of them. There is
+  # consequently no conda-toolchain equivalent to enforce here.
+  #
+  # vcvars must be imported into THIS shell because the kit drives Ninja, not
+  # the Visual Studio generator (Ninja is the only generator honouring
+  # CMAKE_<LANG>_COMPILER_LAUNCHER, hence the only one under which ccache
+  # works). Ninja does not locate a toolset by itself the way the VS generator
+  # would.
+  msvc_activate || die "no MSVC toolset found. Install Visual Studio 2022 (or
+      Build Tools) with the \"Desktop development with C++\" workload, or set
+      VSINSTALLDIR to an existing install."
+  CC="${CC:-cl}"; CXX="${CXX:-cl}"
+  export CC CXX
+  # conda's vs2022_win-64 activation exports a Visual Studio GENERATOR:
+  #   CMAKE_GENERATOR="Visual Studio 17 2022" CMAKE_GENERATOR_PLATFORM=x64
+  #   CMAKE_GENERATOR_TOOLSET=v143  (plus the CMAKE_GEN/CMAKE_PLAT aliases)
+  # A preset's "generator" field overrides CMAKE_GENERATOR but NOT the platform
+  # and toolset, and Ninja rejects those outright -- "Generator Ninja does not
+  # support platform specification, but platform x64 was specified" -- failing
+  # the configure of ITK and of every SuperBuild ExternalProject beneath it.
+  # (CMake 3.x tolerated them; 4.x does not.) Ninja is not negotiable here: it
+  # is the only generator honouring CMAKE_<LANG>_COMPILER_LAUNCHER, hence the
+  # only one under which ccache works at all.
+  unset CMAKE_GENERATOR CMAKE_GENERATOR_PLATFORM CMAKE_GENERATOR_TOOLSET \
+        CMAKE_GEN CMAKE_PLAT
+  # The same activation exports CMAKE_PREFIX_PATH backslashed and with a
+  # trailing separator; backslashes in a CMake path list are escape sequences.
+  if [ -n "${CMAKE_PREFIX_PATH:-}" ]; then
+    export CMAKE_PREFIX_PATH="$(printf '%s' "${CMAKE_PREFIX_PATH}" | tr '\\' '/' | sed 's/;*$//')"
+  fi
+else
 # Force the conda toolchain for EVERY build (including SuperBuild ExternalProjects
 # such as Slicer's VTK/ITK/Python); never the system or Homebrew compilers. Under
 # `pixi run`, conda activation already sets CC/CXX to the env's conda compilers;
@@ -150,6 +230,7 @@ case "${CC}:${CXX}" in
     printf '\033[1;31m[err]\033[0m Homebrew compiler refused (CC=%s CXX=%s); run under "pixi run" or set CC/CXX to the conda toolchain\n' "${CC}" "${CXX}" >&2
     exit 1 ;;
 esac
+fi   # end non-Windows toolchain selection
 
 # Slicer needs a real Qt6 (its SuperBuild builds VTK/CTK against it). On macOS a
 # Homebrew qt@6 on PATH shadows a user Qt: its host-tools (Qt6CoreTools, ...) get
@@ -157,19 +238,38 @@ esac
 # configuration. Prefer ~/Qt/<ver>/macos and drop Homebrew qt@6 from PATH so Qt6
 # and its host-tools resolve consistently for both configure and build.
 SLICER_QT_VERSION="${SLICER_QT_VERSION:-$(cfg get toolchain.slicer_qt_version)}"
-# Official Qt installer platform subdir: macos on Darwin, gcc_64 on Linux.
-case "$(uname -s)" in Darwin) _QT_PLAT="${QT_PLATFORM_SUBDIR:-macos}" ;; *) _QT_PLAT="${QT_PLATFORM_SUBDIR:-gcc_64}" ;; esac
+# Official Qt installer platform subdir: macos on Darwin, gcc_64 on Linux,
+# msvc2022_64 on Windows.
+_QT_PLAT="$(qt_platform_subdir)"
+# Root of an official Qt installer tree: ~/Qt on Unix, C:/Qt on Windows (the
+# installer's default, and $HOME there is a roaming profile nobody installs Qt
+# into). Override with QT_INSTALL_ROOT.
+if [ "${FOREST_OS}" = windows ]; then _QT_ROOT="${QT_INSTALL_ROOT:-C:/Qt}"
+else _QT_ROOT="${QT_INSTALL_ROOT:-${HOME}/Qt}"; fi
 # Prefer the node config's QT6_DIR; fall back to the version-derived path.
-SLICER_QT_PREFIX="${SLICER_QT_PREFIX:-${QT6_DIR:-${HOME}/Qt/${SLICER_QT_VERSION}/${_QT_PLAT}}}"
-# Fallback: if the pinned Qt isn't installed, pick the newest ~/Qt/6.*/${_QT_PLAT}
+SLICER_QT_PREFIX="${SLICER_QT_PREFIX:-${QT6_DIR:-${_QT_ROOT}/${SLICER_QT_VERSION}/${_QT_PLAT}}}"
+# Fallback: if the pinned Qt isn't installed, pick the newest <root>/6.*/${_QT_PLAT}
 # that has a Qt6 config (override with SLICER_QT_PREFIX or SLICER_QT_VERSION).
 if [ ! -d "${SLICER_QT_PREFIX}/lib/cmake/Qt6" ]; then
-  for _q in $(ls -d "${HOME}"/Qt/6.*/"${_QT_PLAT}" 2>/dev/null | sort -Vr); do
+  for _q in $(ls -d "${_QT_ROOT}"/6.*/"${_QT_PLAT}" 2>/dev/null | sort -Vr); do
     [ -d "${_q}/lib/cmake/Qt6" ] && { SLICER_QT_PREFIX="${_q}"; break; }
   done
   unset _q
 fi
-if [ "$(uname -s)" = Darwin ]; then
+if [ "${FOREST_OS}" = windows ]; then
+  # Windows: no Homebrew to defend against, but Qt's DLLs and host tools
+  # (moc/rcc/uic) live in <prefix>/bin rather than <prefix>/lib, and VTK/CTK run
+  # generated tools during the build — so that directory has to be on PATH or
+  # the build dies at the first generated-tool invocation with a missing-DLL
+  # dialog rather than a compiler error.
+  if [ -d "${SLICER_QT_PREFIX}/lib/cmake/Qt6" ]; then
+    export CMAKE_PREFIX_PATH="${SLICER_QT_PREFIX}${CMAKE_PREFIX_PATH:+${PATHSEP}${CMAKE_PREFIX_PATH}}"
+    export Qt6_ROOT="${SLICER_QT_PREFIX}"
+    _qtbin="$(upath "${SLICER_QT_PREFIX}/bin")"
+    case ":${PATH}:" in *":${_qtbin}:"*) : ;; *) export PATH="${_qtbin}:${PATH}" ;; esac
+    unset _qtbin
+  fi
+elif [ "${FOREST_OS}" = macos ]; then
   PATH="$(printf '%s' "$PATH" | tr ':' '\n' | grep -v '/opt/homebrew/opt/qt@6/bin' | paste -sd: -)"
   export PATH
   # Export (not just -D) so Slicer's ExternalProject sub-configures (VTK, ITK)
@@ -202,7 +302,13 @@ unset CFLAGS CPPFLAGS CXXFLAGS LDFLAGS CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH
 # -DCMAKE_BUILD_RPATH does not reach the build-time tools that ninja spawns. The
 # -L is required for bare -l flags carried by ITK's exported targets, e.g. the
 # FFTW module's -lfftw3_threads.
-[ -n "${CONDA_PREFIX:-}" ] && export LDFLAGS="-L${CONDA_PREFIX}/lib -Wl,-rpath,${CONDA_PREFIX}/lib"
+#
+# Windows is excluded: -L/-Wl,-rpath are GNU ld spellings that MSVC's link.exe
+# rejects outright, and Windows has no rpath concept at all (DLLs resolve via
+# PATH, which is handled where each dependency is set up).
+if [ "${FOREST_OS}" != windows ] && [ -n "${CONDA_PREFIX:-}" ]; then
+  export LDFLAGS="-L${CONDA_PREFIX}/lib -Wl,-rpath,${CONDA_PREFIX}/lib"
+fi
 
 # Forest toolchain via the CMAKE_TOOLCHAIN_FILE *environment* variable (CMake
 # 3.21+). Unlike a -D cache var or mark_as_superbuild (which SuperBuild inner EPs
@@ -258,7 +364,7 @@ _find_nvcc(){
 vkfft_backend(){
   [ -n "${VKFFT_BACKEND:-}" ] && { echo "${VKFFT_BACKEND}"; return; }
   [ -n "$(_find_nvcc)" ] && { echo 1; return; }
-  [ "$(uname -s)" = Darwin ] && [ "$(uname -m)" = arm64 ] && { echo 5; return; }
+  [ "${FOREST_OS}" = macos ] && [ "$(uname -m)" = arm64 ] && { echo 5; return; }
   { ls /usr/lib/*/libOpenCL.so* /usr/lib/libOpenCL.so* >/dev/null 2>&1 || [ -n "${OpenCL_LIBRARY:-}" ]; } \
     && { echo 3; return; }
   echo ""; }
@@ -393,6 +499,27 @@ row_for(){ # name -> "kind|url|branch_or_heavy"
 }
 all_names(){ for r in "${CONSUMERS[@]}" "${REMOTES[@]}"; do echo "${r%%|*}"; done; }
 
+# Qt6 or a diagnosis. The bare "not found" is unhelpful in the one case that
+# actually happens on Windows: the Qt online installer defaults to the MinGW
+# kit, which installs happily and is then ABI-unusable, because MSVC's link.exe
+# cannot consume MinGW's libQt6*.a archives. Name that specifically rather than
+# letting it read as "you forgot to install Qt".
+qt6_or_die(){
+  [ -d "${SLICER_QT_PREFIX}/lib/cmake/Qt6" ] && return 0
+  if [ "${FOREST_OS}" = windows ]; then
+    local _mingw
+    _mingw="$(ls -d "${_QT_ROOT}"/6.*/mingw* 2>/dev/null | head -1 || true)"
+    if [ -n "${_mingw}" ]; then
+      die "Qt6 not found at ${SLICER_QT_PREFIX}, but a MinGW kit exists at
+      ${_mingw}
+      That kit CANNOT be used: this forest builds with MSVC, and link.exe
+      cannot consume MinGW's libQt6*.a import libraries.
+      Run ${_QT_ROOT}/MaintenanceTool.exe -> Add or remove components and tick
+      'MSVC 2022 64-bit' under the same Qt version, then: pixi run config"
+    fi
+  fi
+  die "Qt6 not found at ${SLICER_QT_PREFIX} (set SLICER_QT_PREFIX/SLICER_QT_VERSION)"; }
+
 common_cmake_args(){
   # CMAKE_IGNORE_PREFIX_PATH=/opt/homebrew keeps every find_package/find_library
   # off the Homebrew tree (its libs ABI-mismatch the conda-forge stack); the
@@ -408,11 +535,22 @@ common_cmake_args(){
   # build rpath lets @rpath/libfftw3*.dylib resolve at discovery and at test time.
   printf '%s ' -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON \
     -DCMAKE_C_COMPILER="${CC}" -DCMAKE_CXX_COMPILER="${CXX}" \
-    -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-    "-DCMAKE_C_FLAGS_INIT=-ffile-prefix-map=${s:-${FOREST}}=." \
-    "-DCMAKE_CXX_FLAGS_INIT=-ffile-prefix-map=${s:-${FOREST}}=." \
-    "-DCMAKE_BUILD_RPATH=${CONDA_PREFIX}/lib" \
-    -DCMAKE_IGNORE_PREFIX_PATH=/opt/homebrew
+    -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+  # The remaining flags are GNU/Clang spellings with no MSVC equivalent
+  # (-ffile-prefix-map), or no meaning on Windows (rpath, the Homebrew tree).
+  # MSVC instead needs /Z7 rather than /Zi: ccache cannot cache a separate PDB,
+  # so without this the launcher above would never produce a hit. See
+  # cmake/presets/00-base.windows.json, which does the same for preset builds.
+  if [ "${FOREST_OS}" = windows ]; then
+    printf '%s ' -DCMAKE_POLICY_DEFAULT_CMP0141=NEW \
+      -DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded
+  else
+    printf '%s ' \
+      "-DCMAKE_C_FLAGS_INIT=-ffile-prefix-map=${s:-${FOREST}}=." \
+      "-DCMAKE_CXX_FLAGS_INIT=-ffile-prefix-map=${s:-${FOREST}}=." \
+      "-DCMAKE_BUILD_RPATH=${CONDA_PREFIX}/lib" \
+      -DCMAKE_IGNORE_PREFIX_PATH=/opt/homebrew
+  fi
 }
 
 # do_overlay NAME PRESET SRC BIN [KEY=VAL ...]
@@ -675,7 +813,22 @@ _fix_dcmtk_ijg_symlinks(){
   for n in 8 12 16; do
     [ -d "${ep}/dcmjpeg/libijg${n}" ] || continue
     mkdir -p "${ep}/ijg${n}"
-    ln -snf "../dcmjpeg/libijg${n}" "${ep}/ijg${n}/include"
+    if [ "${FOREST_OS}" = windows ]; then
+      # MSYS2's `ln -s` silently degrades to a COPY unless winsymlinks is set,
+      # and a genuine symlink needs Developer Mode or elevation (this account
+      # has neither). A directory JUNCTION requires no privilege, is followed
+      # transparently by CMake and the compiler, and is the native equivalent.
+      # Junction targets must be absolute, hence the cygpath -w pair.
+      # NOTE: no MSYS2_ARG_CONV_EXCL here -- it suppresses the //J -> /J
+      # collapse and cmd then drops into interactive mode instead of linking.
+      [ -e "${ep}/ijg${n}/include" ] && continue
+      cmd //c mklink //J \
+        "$(cygpath -w "${ep}/ijg${n}/include")" \
+        "$(cygpath -w "${ep}/dcmjpeg/libijg${n}")" >/dev/null 2>&1 \
+        || warn "DCMTK ijg${n}: junction not created; DCMTK consumers may fail to configure"
+    else
+      ln -snf "../dcmjpeg/libijg${n}" "${ep}/ijg${n}/include"
+    fi
   done; }
 
 # Several ANTs Utilities/Examples headers use ImageRegionIteratorWithIndex
@@ -873,14 +1026,19 @@ build_forest_vtk(){
     else git clone https://github.com/slicer/VTK.git "${src}" \
          && git -C "${src}" checkout "${tag}"; fi
   fi
-  [ -d "${SLICER_QT_PREFIX}/lib/cmake/Qt6" ] \
-    || die "Qt6 not found at ${SLICER_QT_PREFIX} (set SLICER_QT_PREFIX/SLICER_QT_VERSION)"
-  # Windowing backend: Cocoa on macOS (no XQuartz), X11 on Linux.
+  qt6_or_die
+  # Windowing backend: Cocoa on macOS (no XQuartz), X11 on Linux, Win32 on
+  # Windows (VTK selects it by default there; forcing VTK_USE_X would look for
+  # an X server that does not exist).
   local _win_args
-  case "$(uname -s)" in
-    Darwin) _win_args="-DVTK_USE_COCOA=ON -DVTK_USE_X=OFF" ;;
-    *)      _win_args="-DVTK_USE_X=ON" ;;
+  case "${FOREST_OS}" in
+    macos)   _win_args="-DVTK_USE_COCOA=ON -DVTK_USE_X=OFF" ;;
+    windows) _win_args="-DVTK_USE_X=OFF" ;;
+    *)       _win_args="-DVTK_USE_X=ON" ;;
   esac
+  # -Wno-error=... is a GNU/Clang spelling; cl.exe rejects unknown /W options.
+  local _cflags_arg=(-DCMAKE_C_FLAGS="-Wno-error=implicit-function-declaration")
+  [ "${FOREST_OS}" = windows ] && _cflags_arg=()
   if [ ! -f "${b}/build.ninja" ]; then
     cmake -S "${src}" -B "${b}" $(common_cmake_args) \
       -DBUILD_SHARED_LIBS=ON -DVTK_BUILD_TESTING=OFF -DVTK_WRAP_PYTHON=OFF \
@@ -895,7 +1053,7 @@ build_forest_vtk(){
       -DVTK_MODULE_ENABLE_VTK_ViewsContext2D=YES \
       -DVTK_MODULE_ENABLE_VTK_FiltersParallel=YES \
       -DVTK_DEBUG_LEAKS=OFF \
-      -DCMAKE_C_FLAGS="-Wno-error=implicit-function-declaration"
+      ${_cflags_arg[@]+"${_cflags_arg[@]}"}
   fi
   cmake --build "${b}" -j"${JOBS}"
 }
@@ -907,6 +1065,18 @@ build_forest_vtk(){
 # env), so its objects can never be reused by a pixi-built forest. Demand the
 # conda compilers rather than silently building something unusable.
 require_pixi_toolchain(){
+  # Windows has no conda toolchain to require: MSVC is the only ABI Slicer and
+  # the official Qt binaries can link against, so the equivalent assertion is
+  # that vcvars actually activated and ccache is present (without ccache the
+  # forest still builds, but the cross-forest reuse the testbed exists for is
+  # gone, so it is required here exactly as on Unix).
+  if [ "${FOREST_OS}" = windows ]; then
+    command -v cl >/dev/null 2>&1 \
+      || die "MSVC not activated (cl.exe not found). Run under pixi:
+      pixi run bash bin/setup-itk-downstream-testbed.sh ${1:-build} <pkg>
+      or install Visual Studio 2022 with the C++ workload."
+    return 0
+  fi
   if [ -n "${CONDA_PREFIX:-}" ]; then
     case "${CC}" in "${CONDA_PREFIX}"/*)
       case "${CXX}" in "${CONDA_PREFIX}"/*) return 0 ;; esac ;;
@@ -1000,7 +1170,7 @@ configure_one(){ require_pixi_toolchain configure
                  # Policy: Slicer NEVER uses the system ITK; it always builds a
                  # dedicated Slicer-vendored ITK branch (hjmjohnson/ITK @ slicer-itk-*)
                  # via -DSlicer_ITK_GIT_TAG below. See docs/slicer-itk-policy.md.
-                 [ -d "${SLICER_QT_PREFIX}/lib/cmake/Qt6" ] || die "Qt6 not found at ${SLICER_QT_PREFIX} (set SLICER_QT_PREFIX/SLICER_QT_VERSION)"
+                 qt6_or_die
                  # Resolve Slicer's per-forest vendored ITK tag HERE, not inline
                  # in do_overlay: a $(...) failure inside a command argument is
                  # NOT fatal under set -e (bash errexit exception), so an
@@ -1021,26 +1191,38 @@ configure_one(){ require_pixi_toolchain configure
                  # Static Slicer knobs (USE_SYSTEM_* OFF, WEBENGINE OFF, GLVND)
                  # live in 40-Slicer.json; compilers, Slicer-vendored ITK ref and
                  # Qt are layered here.
-                 do_overlay Slicer itk-forest-slicer "$s" "$b" \
-                   "CMAKE_C_COMPILER=${SLICER_CC:-${CC}}" \
-                   "CMAKE_CXX_COMPILER=${SLICER_CXX:-${CXX}}" \
-                   `# Slicer's ITK is a per-forest variant of THIS forest's ITK` \
-                   `# base (docs/slicer-itk-policy.md). subbuild-get reads` \
-                   `# [scenarios.<suffix>.Slicer].ITK_GIT_TAG and EXITS NON-ZERO` \
-                   `# when a forest has none -- no silent global fallback.` \
-                   "Slicer_ITK_GIT_REPOSITORY=${SLICER_ITK_GIT_REPOSITORY:-$(cfg get subbuild.Slicer.ITK_GIT_REPOSITORY)}" \
-                   "Slicer_ITK_GIT_TAG=${_slicer_itk_tag}" \
-                   `# python EP = python-cmake-buildsystem; pin to the fork branch` \
-                   `# carrying the libintl link fix (upstream PR #450) until merged.` \
-                   `# SlicerExecutionModel generates the CLI wrappers against ITK;` \
-                   `# Slicer's default pin is 91b921bd (2025-01-20).` \
-                   "Slicer_SlicerExecutionModel_GIT_REPOSITORY=${SLICER_SEM_GIT_REPOSITORY:-$(cfg get subbuild.Slicer.SlicerExecutionModel_GIT_REPOSITORY)}" \
-                   "Slicer_SlicerExecutionModel_GIT_TAG=${SLICER_SEM_GIT_TAG:-$(cfg get subbuild.Slicer.SlicerExecutionModel_GIT_TAG)}" \
-                   "Slicer_python_GIT_REPOSITORY=${SLICER_PYTHON_GIT_REPOSITORY:-https://github.com/hjmjohnson/python-cmake-buildsystem.git}" \
-                   "Slicer_python_GIT_TAG=${SLICER_PYTHON_GIT_TAG:-fix/link-libintl-localemodule-macos}" \
-                   "Slicer_REQUIRED_QT_VERSION=${SLICER_QT_VERSION}" \
-                   "Qt6_DIR=${SLICER_QT_PREFIX}/lib/cmake/Qt6" \
-                   "CMAKE_PREFIX_PATH=${SLICER_QT_PREFIX}" ;;
+                 local slicer_kvs=(
+                   "CMAKE_C_COMPILER=${SLICER_CC:-${CC}}"
+                   "CMAKE_CXX_COMPILER=${SLICER_CXX:-${CXX}}"
+                   # Slicer's ITK is a per-forest variant of THIS forest's ITK
+                   # base (docs/slicer-itk-policy.md). subbuild-get reads
+                   # [scenarios.<suffix>.Slicer].ITK_GIT_TAG and EXITS NON-ZERO
+                   # when a forest has none -- no silent global fallback.
+                   "Slicer_ITK_GIT_REPOSITORY=${SLICER_ITK_GIT_REPOSITORY:-$(cfg get subbuild.Slicer.ITK_GIT_REPOSITORY)}"
+                   "Slicer_ITK_GIT_TAG=${_slicer_itk_tag}"
+                   # SlicerExecutionModel generates the CLI wrappers against ITK;
+                   # Slicer's default pin is 91b921bd (2025-01-20).
+                   "Slicer_SlicerExecutionModel_GIT_REPOSITORY=${SLICER_SEM_GIT_REPOSITORY:-$(cfg get subbuild.Slicer.SlicerExecutionModel_GIT_REPOSITORY)}"
+                   "Slicer_SlicerExecutionModel_GIT_TAG=${SLICER_SEM_GIT_TAG:-$(cfg get subbuild.Slicer.SlicerExecutionModel_GIT_TAG)}"
+                   "Slicer_REQUIRED_QT_VERSION=${SLICER_QT_VERSION}"
+                   "Qt6_DIR=${SLICER_QT_PREFIX}/lib/cmake/Qt6"
+                   "CMAKE_PREFIX_PATH=${SLICER_QT_PREFIX}"
+                 )
+                 # python EP = python-cmake-buildsystem. The fork branch carries a
+                 # libintl link fix (upstream PR #450) for a *macOS-only* failure:
+                 # Slicer's bundled CPython there detects gettext and then omits
+                 # -lintl. Windows CPython has no libintl involvement at all, so
+                 # pinning the fork would swap Slicer's tested default for an
+                 # unrelated branch; let Slicer choose its own pin instead.
+                 # SLICER_PYTHON_GIT_TAG still overrides on any platform.
+                 if [ -n "${SLICER_PYTHON_GIT_TAG:-}" ]; then
+                   slicer_kvs+=("Slicer_python_GIT_REPOSITORY=${SLICER_PYTHON_GIT_REPOSITORY:-https://github.com/hjmjohnson/python-cmake-buildsystem.git}"
+                                "Slicer_python_GIT_TAG=${SLICER_PYTHON_GIT_TAG}")
+                 elif [ "${FOREST_OS}" != windows ]; then
+                   slicer_kvs+=("Slicer_python_GIT_REPOSITORY=${SLICER_PYTHON_GIT_REPOSITORY:-https://github.com/hjmjohnson/python-cmake-buildsystem.git}"
+                                "Slicer_python_GIT_TAG=fix/link-libintl-localemodule-macos")
+                 fi
+                 do_overlay Slicer itk-forest-slicer "$s" "$b" "${slicer_kvs[@]}" ;;
     SlicerExtensions)
                  # Build a curated, ITK-exercising subset of Slicer extensions
                  # against the inner Slicer build (Slicer_DIR), per the
@@ -1062,9 +1244,9 @@ configure_one(){ require_pixi_toolchain configure
                    _ovr="$(cfg extension-scenario "${FOREST_REFERENCE_SUFFIX:-}" "${e}" 2>/dev/null || true)"
                    if [ -n "${_ovr}" ]; then
                      log "extension override: ${e} <- ${_ovr}"
-                     python3 -c 'import json,sys
-d=json.load(open(sys.argv[1])); d.update(json.loads(sys.argv[3]))
-json.dump(d, open(sys.argv[2],"w"), indent=2, sort_keys=True)' \
+                     "${FOREST_PYTHON}" ${FOREST_PYTHON_PRE} -c 'import json,sys
+d=json.load(open(sys.argv[1], encoding="utf-8")); d.update(json.loads(sys.argv[3]))
+json.dump(d, open(sys.argv[2],"w", encoding="utf-8"), indent=2, sort_keys=True)' \
                        "${s}/${e}.json" "${descdir}/${e}.json" "${_ovr}" \
                        || die "extension descriptor rewrite failed: ${e}"
                      # The ExtensionsIndex ExternalProject does NOT re-point an
@@ -1072,7 +1254,7 @@ json.dump(d, open(sys.argv[2],"w"), indent=2, sort_keys=True)' \
                      # scm_url silently builds stale source. Clear the clone tree
                      # when its origin no longer matches the override URL.
                      local _cl="${b}/${e}" _newurl _oldurl
-                     _newurl="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["scm_url"])' "${descdir}/${e}.json" 2>/dev/null || true)"
+                     _newurl="$("${FOREST_PYTHON}" ${FOREST_PYTHON_PRE} -c 'import json,sys;print(json.load(open(sys.argv[1], encoding="utf-8"))["scm_url"])' "${descdir}/${e}.json" 2>/dev/null || true)"
                      if [ -d "${_cl}/.git" ]; then
                        _oldurl="$(git -C "${_cl}" remote get-url origin 2>/dev/null || true)"
                        if [ -n "${_newurl}" ] && [ "${_oldurl}" != "${_newurl}" ]; then
@@ -1199,8 +1381,8 @@ json.dump(d, open(sys.argv[2],"w"), indent=2, sort_keys=True)' \
 # inconsistent (undefined itk_jpeg_nbits_table). Every consumer here vendors its
 # own jpeg, so the conda headers are unused at compile time; hide them.
 _hide_conda_jpeg_shadow_headers(){
-  local inc="${PIXI_PROJECT_ROOT:-${TESTBED}}/.pixi/envs/default/include"
-  [ -d "$inc" ] || inc="${TESTBED}/.pixi/envs/default/include"
+  local inc; inc="$(pixi_env_include "${PIXI_PROJECT_ROOT:-${TESTBED}}/.pixi/envs/default")"
+  [ -d "$inc" ] || inc="$(pixi_env_include "${TESTBED}/.pixi/envs/default")"
   local h
   for h in jconfig.h jpeglib.h jerror.h jmorecfg.h jpegint.h jconfigint.h; do
     [ -f "${inc}/${h}" ] && mv "${inc}/${h}" "${inc}/${h}.itk-shadow-disabled"
@@ -1219,9 +1401,13 @@ build_one(){ require cmake ninja ccache; require_pixi_toolchain build
   # unprefixed conda twin makes ITK's GDCM/NIFTI/GIPL compile declarations that
   # do not match the archive they link (undefined _crc32/_gz*). Symlink the few
   # env-provided headers into a private dir and put that on CPATH instead.
+  # CPATH is a GCC/Clang variable that cl.exe does not read (MSVC uses INCLUDE,
+  # set by vcvars), so the whole shim is a no-op on Windows — and `ln -s` there
+  # would silently copy rather than link under MSYS2.
+  if [ "${FOREST_OS}" != windows ]; then
   case "$name" in
     Slicer|SlicerExtensions)
-      local _envinc="${PIXI_PROJECT_ROOT:-${TESTBED}}/.pixi/envs/default/include"
+      local _envinc; _envinc="$(pixi_env_include "${PIXI_PROJECT_ROOT:-${TESTBED}}/.pixi/envs/default")"
       local _shim="${FOREST}/.cpath-shim"
       mkdir -p "${_shim}"
       local _h
@@ -1231,6 +1417,7 @@ build_one(){ require cmake ninja ccache; require_pixi_toolchain build
       done
       export CPATH="${_shim}${CPATH:+:${CPATH}}" ;;
   esac
+  fi
   # Dependency-pin overrides must be live during BUILD, not just configure:
   # ExternalProject_SetIfNotDefined reads $ENV{inner_<proj>_GIT_TAG} when the
   # extension's OWN SuperBuild configures, which happens inside this phase.

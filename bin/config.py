@@ -148,10 +148,43 @@ def _cv_value(v):
     return v["value"] if isinstance(v, dict) else str(v)
 
 
+def host_os():
+    """macos | linux | windows — the shell's FOREST_OS when the engine calls us,
+    else derived here. FOREST_OS is honored (and overridable) so tests can drive
+    every platform's resolution from any host."""
+    forced = os.environ.get("FOREST_OS")
+    if forced in ("macos", "linux", "windows"):
+        return forced
+    if sys.platform == "darwin":
+        return "macos"
+    if sys.platform == "win32" or sys.platform.startswith("cygwin"):
+        return "windows"
+    return "linux"
+
+
 def _load_all_presets(presets_dir):
-    index = {}
+    """Flat name -> preset index over cmake/presets/*.json.
+
+    Files named "<n>.<os>.json" are platform overlays: they are skipped unless
+    <os> matches this host, and are loaded AFTER the plain files so a preset
+    they redefine (by name) wins. That is how the MSVC flag set replaces the
+    GNU/Clang one in `itk-forest-base` without touching a single downstream
+    preset — 40-Slicer.json still just says inherits: itk-forest-base.
+    On macOS/Linux no overlay file matches today, so the index is byte-identical
+    to what it was before Windows support existed."""
+    this_os = host_os()
+    plain, overlay = [], []
     for path in sorted(glob.glob(os.path.join(presets_dir, "*.json"))):
-        with open(path) as f:
+        stem = os.path.basename(path)[: -len(".json")]
+        base, _, suffix = stem.rpartition(".")
+        if base and suffix in ("macos", "linux", "windows"):
+            if suffix == this_os:
+                overlay.append(path)
+        else:
+            plain.append(path)
+    index = {}
+    for path in plain + overlay:
+        with open(path, encoding="utf-8") as f:
             doc = json.load(f)
         for p in doc.get("configurePresets", []):
             index[p["name"]] = p
@@ -223,7 +256,7 @@ def _itk_version(itk_src):
         if not os.path.exists(cml):
             continue
         try:
-            with open(cml, errors="replace") as f:
+            with open(cml, encoding="utf-8", errors="replace") as f:
                 text = f.read()
         except OSError:
             continue
@@ -290,7 +323,7 @@ def _emit_manifest(forest, components, config, forest_meta=None):
         out.append("")
     path = os.path.join(forest, "manifest.toml")
     os.makedirs(forest, exist_ok=True)
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         f.write("\n".join(out).rstrip() + "\n")
     return path
 
@@ -327,7 +360,7 @@ def cmd_resolve_overlay(preset, src, binary_dir, forest, consumer, kvs):
         "configurePresets": [cfg_preset],
     }
     out_path = os.path.join(src, "CMakeUserPresets.json")
-    with open(out_path, "w") as f:
+    with open(out_path, "w", encoding="utf-8") as f:
         f.write(json.dumps(doc, indent=2, sort_keys=True) + "\n")
     _write_config_record(forest, consumer, preset, cache)
     print(f"wrote {out_path} (preset {preset}, {len(cache)} cache vars)")
@@ -338,21 +371,60 @@ def expand(s):
     return os.path.expanduser(os.path.expandvars(s))
 
 
+def _npath(p):
+    """Forward-slash form. config.sh is sourced by bash and its values are
+    handed to cmake, and both take 'C:/x/y' as-is while a backslash form would
+    need escaping in one and is a quoting hazard in the other. No-op off
+    Windows, where a backslash is a legal filename character."""
+    if host_os() != "windows":
+        return p
+    p = p.replace("\\", "/")
+    # Collapse runs of slashes that a join against a drive root produces
+    # ($HOME="H:/" + "/src" -> "H://src"). A leading "//" is kept: that is a UNC
+    # share (//server/share), where the doubling is significant.
+    lead = "//" if p.startswith("//") else ""
+    return lead + re.sub(r"/{2,}", "/", p[len(lead):])
+
+
+def _for_host(spec):
+    """A key may carry a per-platform override block, e.g.
+
+        "BUILD_FOREST_ROOT": {"value": "build_forest",
+                              "windows": {"value": "C:/S"}}
+
+    Keys of the matching platform block replace the top-level ones. A spec with
+    no block for this host is returned untouched, so macOS/Linux resolution is
+    exactly what it was before per-platform values existed."""
+    override = spec.get(host_os())
+    if not isinstance(override, dict):
+        return spec
+    merged = {k: v for k, v in spec.items() if k not in ("macos", "linux", "windows")}
+    # "value" and "candidates" are alternative strategies; an override choosing
+    # one must not leave the other in place to win ahead of it.
+    if "value" in override:
+        merged.pop("candidates", None)
+    if "candidates" in override:
+        merged.pop("value", None)
+    merged.update(override)
+    return merged
+
+
 def resolve(key, spec):
     """Return (value, ok). ok=False means a required key could not be resolved."""
+    spec = _for_host(spec)
     if "value" in spec:
-        return expand(spec["value"]), True
+        return _npath(expand(spec["value"])), True
     verify = spec.get("verify")
     for cand in spec.get("candidates", []):
         for hit in sorted(glob.glob(expand(cand))):
             if not verify or os.path.exists(os.path.join(hit, verify)):
-                return hit, True
+                return _npath(hit), True
     # nothing existed
     if spec.get("required"):
         return SENTINEL, False
     # best-effort default: first expanded candidate (may not exist yet)
     cands = spec.get("candidates", [])
-    return (expand(cands[0]) if cands else ""), True
+    return (_npath(expand(cands[0])) if cands else ""), True
 
 
 def shquote(v):
@@ -360,7 +432,7 @@ def shquote(v):
 
 
 def load_template():
-    with open(TEMPLATE) as f:
+    with open(TEMPLATE, encoding="utf-8") as f:
         data = json.load(f)
     return [(k, v) for k, v in data.items() if not k.startswith("_")]
 
@@ -393,7 +465,7 @@ def generate(force):
             lines.append(f"# {key}: {doc}")
         lines.append(f': "${{{key}:={shquote(val)}}}"')
         lines.append("")
-    with open(OUT, "w") as f:
+    with open(OUT, "w", encoding="utf-8") as f:
         f.write("\n".join(lines).rstrip() + "\n")
     print(f"wrote {OUT}")
     for k in missing:

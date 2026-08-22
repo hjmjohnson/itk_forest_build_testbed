@@ -15,10 +15,14 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TESTBED="${TESTBED:-$(dirname "${SCRIPT_DIR}")}"
+# shellcheck disable=SC1091
+. "${SCRIPT_DIR}/platform.sh"
+TESTBED="$(npath "${TESTBED:-$(dirname "${SCRIPT_DIR}")}")"
 CONFIG_SH="${TESTBED}/config.sh"
-if [ ! -f "${CONFIG_SH}" ] && command -v python3 >/dev/null 2>&1; then
-  python3 "${SCRIPT_DIR}/config.py" generate >/dev/null 2>&1 || true
+# shellcheck disable=SC2086
+cfg(){ "${FOREST_PYTHON}" ${FOREST_PYTHON_PRE} "${SCRIPT_DIR}/config.py" "$@"; }
+if [ ! -f "${CONFIG_SH}" ] && command -v "${FOREST_PYTHON}" >/dev/null 2>&1; then
+  cfg generate >/dev/null 2>&1 || true
 fi
 # shellcheck disable=SC1090
 [ -f "${CONFIG_SH}" ] && . "${CONFIG_SH}"
@@ -72,7 +76,7 @@ command -v git >/dev/null || die "missing tool: git"
 mkdir -p "${DEST_BASE}"
 
 mapfile -t manifest < <(
-  python3 - "${INDEX}" "${INCLUDE_ARCHIVE:-0}" "$@" <<'PY'
+  "${FOREST_PYTHON}" ${FOREST_PYTHON_PRE} - "${INDEX}" "${INCLUDE_ARCHIVE:-0}" "$@" <<'PY'
 import json, glob, os, sys
 index, include_archive = sys.argv[1], sys.argv[2] == "1"
 wanted = set(sys.argv[3:])
