@@ -335,7 +335,122 @@ unset CPATH
 
 # Forest-level build/install tree locations. Task-2 flips these two bodies to
 # the nested layout; every caller goes through them so the change is one place.
-build_dir(){   echo "${FOREST}/${1}/build"; }
+# Build tree for a package. Windows gives Slicer a 1-character directory
+# instead of "<name>/build": its SuperBuild nests
+# Slicer-build/Modules/<Area>/<Module>/SubjectHierarchyPlugins/CMakeFiles/
+# <verylongtarget>PythonQt.dir/<32-char hash>/osm_<verylongtarget>_init.cpp.obj,
+# which reaches 263 characters from a forest at C:/S-itk-main. MSVC's cl.exe
+# does not opt in to long paths via its manifest, so LongPathsEnabled=1 does
+# NOT lift the 260-character ceiling for it -- the compile dies with
+#   fatal error C1083: Cannot open compiler generated file: '': Invalid argument
+# Observed failing at 253 characters. "<forest>/S" buys back 12 characters over
+# "<forest>/Slicer/build"; pair it with a short FOREST (e.g. C:/M) for the rest.
+# Only Slicer is special-cased: no other consumer nests anywhere near this deep.
+# --- Windows object-path budget ------------------------------------------
+#
+# MSVC's cl.exe does not opt in to long paths via its manifest, so
+# LongPathsEnabled=1 does NOT lift the 260-character ceiling for it. An object
+# path past ~250 characters dies mid-build with
+#   fatal error C1083: Cannot open compiler generated file: '': Invalid argument
+# Slicer is the only consumer that gets close: its SuperBuild nests
+#   Slicer-build/Modules/<Area>/<Module>/SubjectHierarchyPlugins/CMakeFiles/
+#   <target>PythonQt.dir/<32-char hash>/osm_<target>_init.cpp.obj
+# whose tail below the Slicer build dir measured 223 characters (2026-08-22,
+# Slicer 5.13). Observed failing at 253; CMake's own limit is 250.
+#
+# CMake knows this at GENERATE time -- it emits "cannot be safely placed under
+# this directory" per affected target -- but only as a warning, so the build
+# runs for an hour before failing. These two checks turn that into an immediate
+# stop: a projection before configure (instant), and an exact scan of the
+# generated build.ninja after (authoritative, and self-updating if Slicer's
+# layout changes).
+FOREST_OBJ_PATH_MAX="${FOREST_OBJ_PATH_MAX:-250}"
+_SLICER_DEEPEST_OBJ_TAIL=236   # chars below build_dir(Slicer), measured (includes the Slicer-build/ component)
+
+# Fail before configure when the forest root alone makes the build impossible.
+# CMake warnings that PREDICT a build failure. Fatal by default: each one below
+# was observed as "warning at configure, hard failure hours later".
+# FOREST_CONFIGURE_WARNINGS_OK=1 downgrades them to warnings for a deliberate
+# experiment; it is not a thing to set to make a red build green.
+FOREST_FATAL_CONFIGURE_WARNINGS="${FOREST_FATAL_CONFIGURE_WARNINGS:-cannot be safely placed under this directory}"
+
+_fatal_configure_warnings(){        # <name> <logfile>
+  local name="$1" log="$2" pat hits
+  [ -f "${log}" ] || return 0
+  local IFS='|'
+  for pat in ${FOREST_FATAL_CONFIGURE_WARNINGS}; do
+    # grep -c PRINTS 0 and EXITS 1 on no-match; "|| echo 0" would append a
+    # second line and make every build look like a hit.
+    hits="$(grep -c -- "${pat}" "${log}" 2>/dev/null || true)"; hits="${hits:-0}"
+    [ "${hits}" -eq 0 ] && continue
+    if [ "${FOREST_CONFIGURE_WARNINGS_OK:-0}" = 1 ]; then
+      warn "${name}: ${hits} configure warning(s) matching '${pat}' (FOREST_CONFIGURE_WARNINGS_OK=1, continuing)"
+      continue
+    fi
+    echo "--- offending configure output ---" >&2
+    grep -B6 -- "${pat}" "${log}" 2>/dev/null | head -30 >&2
+    die "${name}: ${hits} configure warning(s) matching '${pat}'.
+
+  CMake predicts this build will fail. Treating it as an error rather than
+  compiling for an hour first. Set FOREST_CONFIGURE_WARNINGS_OK=1 to override
+  deliberately, or FOREST_FATAL_CONFIGURE_WARNINGS to change the pattern list."
+  done
+}
+
+# Run a build, capturing output, and promote predictive configure warnings to
+# errors afterwards -- even when the build itself exits 0, since "the build may
+# not work correctly" can also mean silently wrong output.
+#
+# Slicer's inner configure runs DURING `cmake --build` (the superbuild's
+# ExternalProject step), so these warnings never appear in the engine's own
+# configure output; scanning the build log is the only place to catch them.
+# The `if` form keeps `set -e` from firing on a failed build before the scan,
+# and pipefail makes PIPESTATUS[0] the build's real status.
+_build_and_scan(){                  # <name> <build_dir> -> build's exit status
+  local name="$1" b="$2" log rc=0
+  log="${b}/forest-build.log"
+  if cmake --build "${b}" -j"${JOBS}" 2>&1 | tee "${log}"; then rc=0; else rc=${PIPESTATUS[0]}; fi
+  _fatal_configure_warnings "${name}" "${log}"
+  return "${rc}"
+}
+
+_path_budget_preflight(){                 # <name> <build_dir>
+  [ "${FOREST_OS}" = windows ] || return 0
+  [ "$1" = Slicer ] || return 0
+  local b="$2" projected=$(( ${#2} + 1 + _SLICER_DEEPEST_OBJ_TAIL ))
+  [ "${projected}" -le "${FOREST_OBJ_PATH_MAX}" ] && return 0
+  die "Object paths would exceed the Windows limit before this build starts.
+
+  Slicer build dir : ${b}  (${#b} chars)
+  deepest object   : + ${_SLICER_DEEPEST_OBJ_TAIL} chars  =>  ${projected}
+  budget           : ${FOREST_OBJ_PATH_MAX}  (cl.exe ignores LongPathsEnabled)
+
+  Shorten the forest root by at least $(( projected - FOREST_OBJ_PATH_MAX )) characters, e.g.
+      FOREST=C:/M FOREST_REFERENCE_SUFFIX=${FOREST_REFERENCE_SUFFIX:-<suffix>} ...
+  Override the budget with FOREST_OBJ_PATH_MAX if you know better."
+}
+
+# After configure, measure the real longest object path CMake generated.
+_path_budget_verify(){                    # <name> <build_dir>
+  [ "${FOREST_OS}" = windows ] || return 0
+  local b="$2" nj="$2/build.ninja" worst
+  [ -f "${nj}" ] || return 0
+  worst="$(awk -v pre="${#b}" '
+    /^build .*\.obj:/ { p=$2; sub(/:$/,"",p); n=pre+1+length(p); if (n>m) { m=n; w=p } }
+    END { print m"\t"w }' "${nj}")"
+  local n="${worst%%	*}" p="${worst#*	}"
+  [ -z "${n}" ] && return 0
+  [ "${n}" -le "${FOREST_OBJ_PATH_MAX}" ] && return 0
+  die "Generated object paths exceed the Windows limit; refusing to build.
+
+  longest object   : ${n} chars (budget ${FOREST_OBJ_PATH_MAX})
+    ${b}/${p}
+  Shorten the forest root by at least $(( n - FOREST_OBJ_PATH_MAX )) characters and reconfigure."
+}
+
+build_dir(){
+  if [ "${FOREST_OS}" = windows ] && [ "$1" = Slicer ]; then echo "${FOREST}/S"
+  else echo "${FOREST}/${1}/build"; fi; }
 install_dir(){ echo "${FOREST}/installed/${1}"; }   # install already uses installed/ target
 
 ITK_BUILD="$(build_dir ITK)"       # ITK build tree
@@ -1541,7 +1656,12 @@ build_one(){ require cmake ninja ccache; require_pixi_toolchain build
   [ "$name" = Plastimatch ] && { _patch_plastimatch_vcl_aliases; _patch_plastimatch_ransac_test; }
   # A complete configure leaves build.ninja; a half-failed one leaves only
   # CMakeCache.txt. Require build.ninja so a broken tree is reconfigured.
+  # Fail in seconds on an impossible forest root rather than an hour into the
+  # build. CMake reports the same condition at generate time ("cannot be safely
+  # placed under this directory") but only as a warning.
+  _path_budget_preflight "$name" "${b}"
   [ -f "${b}/build.ninja" ] || configure_one "$name"
+  _path_budget_verify "$name" "${b}"
   # Re-stub missing remote-module examples/ dirs before building ITK: repoint-itk's
   # `git reset --hard` removes these untracked stubs, and a ninja-triggered
   # reconfigure during `cmake --build` then fails (e.g. IOMeshMZ3 examples/).
@@ -1573,9 +1693,9 @@ build_one(){ require cmake ninja ccache; require_pixi_toolchain build
     _patch_brainstools_itk_macros
     _patch_sem_tclap
     _reconfigure_brainstools_inner
-    cmake --build "$b" -j"${JOBS}"
+    _build_and_scan "$name" "$b"
   else
-    cmake --build "$b" -j"${JOBS}"
+    _build_and_scan "$name" "$b"
   fi
   # After ITK builds, repair the ITKDCMTK export's dangling ijg include paths so
   # downstream DCMTK consumers (elastix, ANTs, ...) configure cleanly.
