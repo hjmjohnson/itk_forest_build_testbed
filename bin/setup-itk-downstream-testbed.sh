@@ -1209,7 +1209,14 @@ configure_one(){ require_pixi_toolchain configure
     cmake -S "$s" --preset "forest-ITK-local"
     return
   fi
-  [ -f "${ITK_BUILD}/ITKConfig.cmake" ] || die "ITK not built; run: pixi run ITK"
+  # Slicer is exempt: it never consumes the forest's system ITK, it always
+  # builds its own vendored variant via -DSlicer_ITK_GIT_TAG
+  # (docs/slicer-itk-policy.md Rule 1). Requiring a built forest ITK here is a
+  # false prerequisite that costs a full ITK build in a Slicer-only forest.
+  case "$name" in
+    Slicer) : ;;
+    *) [ -f "${ITK_BUILD}/ITKConfig.cmake" ] || die "ITK not built; run: pixi run ITK" ;;
+  esac
   case "$name" in
     ANTs)
                  # Static ANTs settings (ANTS_SUPERBUILD=OFF direct build,
