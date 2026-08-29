@@ -74,7 +74,7 @@ def first_unannotated(text, mask, pattern):
         end_pos = find_block_end(mask, brace_pos)
         if end_pos < 0:
             continue
-        if ALREADY not in text[brace_pos:end_pos]:
+        if ALREADY not in mask[brace_pos:end_pos]:
             return match
     return None
 
