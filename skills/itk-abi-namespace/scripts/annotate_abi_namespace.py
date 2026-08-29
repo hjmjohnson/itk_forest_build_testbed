@@ -29,11 +29,49 @@ NS_NESTED = re.compile(r"^[ \t]*namespace\s+itk::(\w[\w:]*)\s*$\n^[ \t]*\{[ \t]*
 ALREADY = "ITK_ABI_NAMESPACE_BEGIN"
 
 
-def first_unannotated(text, pattern):
+def mask_noise(text):
+    """Same-length copy with comment and literal bodies blanked.
+
+    Brace matching and pattern search run against this so that a `{` inside a
+    string (itkConstNeighborhoodIteratorWithOnlyIndex.hxx prints one) cannot
+    unbalance the scan. Offsets are preserved, so every index found in the mask
+    addresses the same character in the original.
+    """
+    out = list(text)
+    i, n = 0, len(text)
+    while i < n:
+        c = text[i]
+        if c == "/" and i + 1 < n and text[i + 1] == "/":
+            j = text.find("\n", i)
+            j = n if j < 0 else j
+            for k in range(i, j):
+                out[k] = " "
+            i = j
+        elif c == "/" and i + 1 < n and text[i + 1] == "*":
+            j = text.find("*/", i + 2)
+            j = n if j < 0 else j + 2
+            for k in range(i, j):
+                if text[k] != "\n":
+                    out[k] = " "
+            i = j
+        elif c in "\"'":
+            j = i + 1
+            while j < n and text[j] != c:
+                j += 2 if text[j] == "\\" else 1
+            for k in range(i, min(j + 1, n)):
+                if text[k] != "\n":
+                    out[k] = " "
+            i = j + 1
+        else:
+            i += 1
+    return "".join(out)
+
+
+def first_unannotated(text, mask, pattern):
     """First match of pattern whose block does not already open with BEGIN."""
-    for match in pattern.finditer(text):
-        brace_pos = text.index("{", match.start())
-        end_pos = find_block_end(text, brace_pos)
+    for match in pattern.finditer(mask):
+        brace_pos = mask.index("{", match.start())
+        end_pos = find_block_end(mask, brace_pos)
         if end_pos < 0:
             continue
         if ALREADY not in text[brace_pos:end_pos]:
@@ -66,10 +104,11 @@ def annotate(text):
 
 def annotate_one(text):
     """Wrap the first not-yet-annotated `namespace itk` block."""
-    match = first_unannotated(text, NS_OPEN) or first_unannotated(text, NS_OPEN_INLINE)
+    mask = mask_noise(text)
+    match = first_unannotated(text, mask, NS_OPEN) or first_unannotated(text, mask, NS_OPEN_INLINE)
     if match:
-        brace_pos = text.index("{", match.start())
-        end_pos = find_block_end(text, brace_pos)
+        brace_pos = mask.index("{", match.start())
+        end_pos = find_block_end(mask, brace_pos)
         if end_pos < 0:
             return text, 0
         # Insert END first so the earlier index stays valid.
@@ -79,12 +118,12 @@ def annotate_one(text):
 
     # C++17 nested form must be expanded, because the inline namespace has to
     # sit between `itk` and the nested name.
-    nested = first_unannotated(text, NS_NESTED)
+    nested = first_unannotated(text, mask, NS_NESTED)
     if not nested:
         return text, 0
     sub = nested.group(1)
-    brace_pos = text.index("{", nested.start())
-    end_pos = find_block_end(text, brace_pos)
+    brace_pos = mask.index("{", nested.start())
+    end_pos = find_block_end(mask, brace_pos)
     if end_pos < 0:
         return text, 0
 
