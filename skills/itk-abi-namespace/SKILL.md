@@ -129,6 +129,38 @@ cmake -S <src> -B <bld> -DITK_ABI_NAMESPACE_NAME='<DEFAULT>'
 Step 4's second command must print nothing. Anything it prints is a block the
 annotation missed.
 
+## Rebasing onto a new upstream base
+
+The annotation is reproducible from the script; the include list is **not**. It
+is discovered empirically from compiler errors, it differs by platform (macOS
+needed 3 rounds where Linux needed 0), and nothing in the source records it.
+
+So a rebase regenerates two artifacts with different provenance, and running
+only the first leaves a tree that cannot compile:
+
+```bash
+# 1. Rebase only the LOGICAL commits onto the new base. Do not replay the
+#    mechanical commits -- they are generated, and their diffs conflict with
+#    every upstream edit to an annotated file.
+git rebase --onto <new-base> <old-base> <last-logical-commit>
+
+# 2. Regenerate the annotation.
+python3 scripts/annotate_abi_namespace.py --apply Modules
+
+# 3. MANDATORY, and the step that is easy to skip: re-run the include fixer
+#    against a real build, on THIS platform, until it converges. Step 2 alone
+#    does not restore the includes the previous branch had accumulated.
+for i in $(seq 1 12); do
+    ninja -C <bld> > build.log 2>&1 && break
+    python3 scripts/fix_abi_includes.py build.log
+done
+```
+
+Skipping step 3 fails identically in both configurations, because an
+unreachable macro is undefined whether or not a namespace is configured. That
+symmetry is the tell: a failure present in the default build is never the
+namespace.
+
 ## What the scripts handle
 
 `annotate_abi_namespace.py` wraps **every** `namespace itk` block in a file,
