@@ -550,7 +550,9 @@ common_cmake_args(){
       "-DCMAKE_CXX_FLAGS_INIT=-ffile-prefix-map=${s:-${FOREST}}=." \
       "-DCMAKE_BUILD_RPATH=${CONDA_PREFIX}/lib" \
       -DCMAKE_IGNORE_PREFIX_PATH=/opt/homebrew
+    [ -n "${FOREST_MACOS_SDK:-}" ] && printf '%s ' "-DCMAKE_OSX_SYSROOT=${FOREST_MACOS_SDK}"
   fi
+  return 0
 }
 
 # do_overlay NAME PRESET SRC BIN [KEY=VAL ...]
@@ -606,6 +608,7 @@ _pin_drift(){ # <cache-file> <cache-var> <declared-value> <label>
 
 do_overlay(){
   local name="$1" preset="$2" src="$3" bin="$4"; shift 4
+  [ -n "${FOREST_MACOS_SDK:-}" ] && set -- "$@" "CMAKE_OSX_SYSROOT=${FOREST_MACOS_SDK}"
   cfg resolve-overlay "${preset}" "${src}" "${bin}" "${FOREST}" "${name}" "$@"
   cmake -S "${src}" --preset "forest-${name}-local"
 }
@@ -1144,6 +1147,7 @@ configure_one(){ require_pixi_toolchain configure
       itk_preset="itk-forest-itk-v6-vtkglue"
       itk_kvs+=("VTK_DIR=${_itk_vtk}")
     fi
+    [ -n "${FOREST_MACOS_SDK:-}" ] && itk_kvs+=("CMAKE_OSX_SYSROOT=${FOREST_MACOS_SDK}")
     # Two-pass: first configure fetches remote modules (may fail on one whose
     # examples/ dir is absent); stub those, then reconfigure for real.
     cfg resolve-overlay "${itk_preset}" "$s" "${ITK_BUILD}" "${FOREST}" ITK "${itk_kvs[@]}"

@@ -24,6 +24,20 @@ case "$(uname -s)" in
 esac
 export FOREST_OS
 
+# conda-forge ld64 956.6 cannot parse SDK 27 .tbd stubs (arm64e.x1), so pin the
+# newest SDK it can read; FOREST_MACOS_SDK overrides.
+if [ "${FOREST_OS}" = macos ]; then
+  if [ -z "${FOREST_MACOS_SDK:-}" ]; then
+    FOREST_MACOS_SDK=$(ls -d /Library/Developer/CommandLineTools/SDKs/MacOSX2[0-6].[0-9]*.sdk \
+      /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX2[0-6].[0-9]*.sdk \
+      2>/dev/null | awk -F'MacOSX' '{print $NF"\t"$0}' | sort -t. -k1,1n -k2,2n | tail -1 | cut -f2 || true)
+  fi
+  if [ -n "${FOREST_MACOS_SDK}" ]; then
+    SDKROOT="${FOREST_MACOS_SDK}"
+    export FOREST_MACOS_SDK SDKROOT
+  fi
+fi
+
 # --- paths -----------------------------------------------------------------
 #
 # On Windows the engine runs under an MSYS2 bash whose paths ("/cygdrive/c/...",
