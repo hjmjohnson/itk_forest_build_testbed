@@ -687,6 +687,12 @@ ANTS_FORK_URL="${ANTS_FORK_URL:-$(cfg get subbuild.ANTs.fork_url 2>/dev/null || 
 ANTS_FORK_REF="${ANTS_FORK_REF:-$(cfg get subbuild.ANTs.fork_ref 2>/dev/null || true)}"
 ANTS_FORK_SKIP_SUFFIX="${ANTS_FORK_SKIP_SUFFIX:-$(cfg get subbuild.ANTs.skip_suffix 2>/dev/null || true)}"
 
+# PlusLib builds from a fork branch while its ITK 6 fix (PlusToolkit/PlusLib#1294)
+# is in review; absent fork_* keys mean upstream, so these lookups are optional.
+PLUSLIB_FORK_REMOTE="${PLUSLIB_FORK_REMOTE:-$(cfg get subbuild.PlusLib.fork_remote 2>/dev/null || true)}"
+PLUSLIB_FORK_URL="${PLUSLIB_FORK_URL:-$(cfg get subbuild.PlusLib.fork_url 2>/dev/null || true)}"
+PLUSLIB_FORK_REF="${PLUSLIB_FORK_REF:-$(cfg get subbuild.PlusLib.fork_ref 2>/dev/null || true)}"
+
 # Ensure the Plastimatch fork remote exists in the central clone and the
 # ITKv6-support ref is fetched; returns the base ref the worktree should use.
 _ensure_plastimatch_fork(){
@@ -696,6 +702,17 @@ _ensure_plastimatch_fork(){
     || git -C "${repo}" remote add "${PLM_FORK_REMOTE}" "${PLM_FORK_URL}"
   git -C "${repo}" fetch "${PLM_FORK_REMOTE}" "${PLM_FORK_REF}" --quiet \
     || warn "Plastimatch: fetch ${PLM_FORK_REMOTE}/${PLM_FORK_REF} failed (using cached)"
+}
+
+# Same for PlusLib's in-review ITK 6 branch; a no-op when fork_* is undeclared.
+_ensure_pluslib_fork(){
+  local repo="${REPOS}/PlusLib"
+  [ -d "${repo}/.git" ] || return 0
+  [ -n "${PLUSLIB_FORK_REF}" ] || return 0
+  git -C "${repo}" remote get-url "${PLUSLIB_FORK_REMOTE}" >/dev/null 2>&1 \
+    || git -C "${repo}" remote add "${PLUSLIB_FORK_REMOTE}" "${PLUSLIB_FORK_URL}"
+  git -C "${repo}" fetch "${PLUSLIB_FORK_REMOTE}" "${PLUSLIB_FORK_REF}" --quiet \
+    || warn "PlusLib: fetch ${PLUSLIB_FORK_REMOTE}/${PLUSLIB_FORK_REF} failed (using cached)"
 }
 
 # True when this forest should build ANTs from the fork integration branch
@@ -749,6 +766,11 @@ checkout_one(){
     _ensure_plastimatch_fork
     log "Plastimatch: worktree (${branch} -> ${PLM_FORK_REMOTE}/${PLM_FORK_REF})"
     git -C "${repo}" worktree add -B "${branch}" "${dest}" "${PLM_FORK_REMOTE}/${PLM_FORK_REF}"
+  elif [ "${name}" = PlusLib ] && [ -n "${PLUSLIB_FORK_REF}" ]; then
+    # PlusLib (re)bases on the fork branch carrying the ITK 6 fix.
+    _ensure_pluslib_fork
+    log "PlusLib: worktree (${branch} -> ${PLUSLIB_FORK_REMOTE}/${PLUSLIB_FORK_REF})"
+    git -C "${repo}" worktree add -B "${branch}" "${dest}" "${PLUSLIB_FORK_REMOTE}/${PLUSLIB_FORK_REF}"
   elif [ "${name}" = ANTs ] && _ants_use_fork; then
     # Non-itkv5 forests (re)base ANTs on the fork integration branch tip.
     _ensure_ants_fork

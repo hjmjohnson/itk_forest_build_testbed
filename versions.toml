@@ -304,6 +304,14 @@ ITKBoneMorphometry_GIT_TAG        = "bbd753fe1977319783ffa6b1cef5ecf061873ca5"
 # Test data (TestImages/ConfigFiles/CADModels) the PlusLib tests read from;
 # cloned shallow into forest_git_repos/PlusLibData and passed as PLUSLIB_DATA_DIR.
 data_url = "https://github.com/PlusToolkit/PlusLibData.git"
+# PlusLib master does not build against an ITK 6 that has ITK_LEGACY_REMOVE on
+# (which ITK forces whenever it wraps): it uses the removed
+# itk::ImageIOBase::IOComponentType, and relies on ITK to pull in vnl_svd.h.
+# The fix is in review as PlusToolkit/PlusLib#1294; build from the fork branch
+# until it merges, then delete these three keys.
+fork_remote = "hj"
+fork_url    = "git@github.com:hjmjohnson/PlusLib.git"
+fork_ref    = "comp-itk6-legacy-io-component"
 
 [subbuild.Plastimatch]
 # Plastimatch builds from a maintained ITKv6-support fork branch.
