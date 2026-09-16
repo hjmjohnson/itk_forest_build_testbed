@@ -196,7 +196,11 @@ build_target(){
   fi
   local _pybroke=""
   if _wraps_into_itk "${n}" && ! itk_python_intact; then
-    _pybroke="$(grep -E 'Error|error' "${LOGDIR}/itk-python-check${LOG_TAG}.log" | tail -1)"
+    # The detector reports "orphaned wrapping config: ..." lines, not the word
+    # "error"; a message match must never decide whether the failure counts.
+    _pybroke="$(grep -E 'orphaned wrapping config|Error|error' \
+                  "${LOGDIR}/itk-python-check${LOG_TAG}.log" | tail -1)"
+    [ -n "${_pybroke}" ] || _pybroke="itk python package check failed"
   fi
   if [ -n "${_pybroke}" ]; then
     SUMMARY="${SUMMARY}$(printf 'FAIL  %-20s %s' "${n}" '(broke itk python package)')"$'\n'
