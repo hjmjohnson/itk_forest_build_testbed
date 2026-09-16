@@ -1626,6 +1626,19 @@ build_one(){ require cmake ninja ccache; require_pixi_toolchain build
       done
       export CPATH="${_shim}${CPATH:+:${CPATH}}" ;;
   esac
+  # A consumer that wraps itkPyBuffer.h needs Python.h, but ITK exports no
+  # Python include directory: its wrapping adds one as a directory property
+  # inside ITK's own tree only, so castxml fails everywhere else (ITK#6865).
+  # The directory holds Python's own headers, so it shadows nothing.
+  if [ "${name}" != ITK ] \
+     && grep -q '^ITK_WRAP_PYTHON:BOOL=ON' "${ITK_BUILD}/CMakeCache.txt" 2>/dev/null; then
+    local _pyexe _pyinc
+    _pyexe="$(itk_python_exe 2>/dev/null || true)"
+    if [ -n "${_pyexe}" ]; then
+      _pyinc="$("${_pyexe}" -c 'import sysconfig;print(sysconfig.get_paths()["include"])' 2>/dev/null || true)"
+      [ -n "${_pyinc}" ] && [ -d "${_pyinc}" ] && export CPATH="${_pyinc}${CPATH:+:${CPATH}}"
+    fi
+  fi
   fi
   # Dependency-pin overrides must be live during BUILD, not just configure:
   # ExternalProject_SetIfNotDefined reads $ENV{inner_<proj>_GIT_TAG} when the
