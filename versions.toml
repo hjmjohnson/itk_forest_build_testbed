@@ -213,6 +213,16 @@ ref   = "origin/main"
 kind  = "remote"
 heavy = false
 
+[components.Impact]
+# IMPACT registration similarity metric. The module is itk_module(Impact), so the
+# component is named for the module, not the repo -- the artifact check looks for
+# libitkImpact-*.a. Its LibTorch comes from the pinned conda pytorch, so configure
+# passes IMPACT_AUTO_INSTALL_TORCH=OFF (the default would pip-install into the env).
+url   = "https://github.com/InsightSoftwareConsortium/ITKIMPACT.git"
+ref   = "origin/main"
+kind  = "remote"
+heavy = false
+
 [components.VkFFTBackend]
 url   = "https://github.com/InsightSoftwareConsortium/ITKVkFFTBackend.git"
 ref   = "origin/main"

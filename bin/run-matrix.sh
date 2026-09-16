@@ -233,7 +233,7 @@ build_target(){
 # (OpenIGTLinkIO/vtkAddon/IGSIO/PlusLib), which need that VTK via vtk_dir().
 TARGETS=(ITK elastix SimpleITK RTK Cleaver
          PerformanceBenchmarking SimpleITKFilters SphinxExamples
-         TractographyTRX VkFFTBackend ANTs BRAINSTools
+         TractographyTRX VkFFTBackend Impact ANTs BRAINSTools
          OpenIGTLink Slicer SlicerExtensions
          OpenIGTLinkIO vtkAddon IGSIO PlusLib)
 

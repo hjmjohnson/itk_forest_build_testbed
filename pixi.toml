@@ -55,6 +55,9 @@ libcblas = ">=3.9,<4"  # cblas.h for OpenBLAS consumers
 liblapacke = ">=3.9,<4"  # lapacke.h for OpenBLAS consumers
 python = ">=3.11,<3.15"
 numpy = ">=1.26"  # ITK_WRAP_PYTHON: Bridge/NumPy build + the array-bridge tests
+# LibTorch for ITKIMPACT, taken from this package (torch.utils.cmake_prefix_path).
+# Pinned here so no build ever pip-installs torch into the locked environment.
+pytorch = ">=2.12"  # CPU build; a py314 variant exists, so the interpreter does not move
 textual = ">=1.0"  # noarch, so the wizard TUI is available on every platform
 pytest = ">=8.0"  # skills/*/tests (`pixi run test`) + bin/tests (tri-platform gate)
 

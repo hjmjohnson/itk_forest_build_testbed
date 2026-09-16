@@ -1485,6 +1485,14 @@ json.dump(d, open(sys.argv[2],"w", encoding="utf-8"), indent=2, sort_keys=True)'
                  while IFS= read -r _kvsp; do [ -n "${_kvsp}" ] && _sp_kvs+=("${_kvsp}"); done \
                    < <(env_python_dev_kvs "${_spy}")
                  do_overlay SphinxExamples itk-forest-base "$s" "$b" "${_sp_kvs[@]}" ;;
+    Impact)      # LibTorch comes from the pinned conda pytorch
+                 # via torch.utils.cmake_prefix_path, queried with the interpreter
+                 # passed below. IMPACT_AUTO_INSTALL_TORCH=OFF keeps a missing torch
+                 # from pip-installing into the locked environment.
+                 local _im_kvs=("ITK_DIR=$(itk_dir)" "IMPACT_AUTO_INSTALL_TORCH=OFF") _pki _kvi
+                 _pki="$(itk_python_kvs)" || die "Impact: cannot resolve ITK's python interpreter"
+                 while IFS= read -r _kvi; do [ -n "${_kvi}" ] && _im_kvs+=("${_kvi}"); done <<<"${_pki}"
+                 do_overlay Impact itk-forest-base "$s" "$b" "${_im_kvs[@]}" ;;
     *)  local _def_kvs=("ITK_DIR=$(itk_dir)") _pk _kv
         _pk="$(itk_python_kvs)" || die "${name}: cannot resolve ITK's python interpreter"
         while IFS= read -r _kv; do [ -n "${_kv}" ] && _def_kvs+=("${_kv}"); done <<<"${_pk}"
