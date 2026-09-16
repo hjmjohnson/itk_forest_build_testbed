@@ -551,6 +551,8 @@ common_cmake_args(){
       "-DCMAKE_BUILD_RPATH=${CONDA_PREFIX}/lib" \
       -DCMAKE_IGNORE_PREFIX_PATH=/opt/homebrew
     [ -n "${FOREST_MACOS_SDK:-}" ] && printf '%s ' "-DCMAKE_OSX_SYSROOT=${FOREST_MACOS_SDK}"
+    [ -n "${FOREST_MACOS_DEPLOYMENT_TARGET:-}" ] \
+      && printf '%s ' "-DCMAKE_OSX_DEPLOYMENT_TARGET=${FOREST_MACOS_DEPLOYMENT_TARGET}"
   fi
   return 0
 }
@@ -609,6 +611,8 @@ _pin_drift(){ # <cache-file> <cache-var> <declared-value> <label>
 do_overlay(){
   local name="$1" preset="$2" src="$3" bin="$4"; shift 4
   [ -n "${FOREST_MACOS_SDK:-}" ] && set -- "$@" "CMAKE_OSX_SYSROOT=${FOREST_MACOS_SDK}"
+  [ -n "${FOREST_MACOS_DEPLOYMENT_TARGET:-}" ] && [[ " $* " != *" CMAKE_OSX_DEPLOYMENT_TARGET="* ]] \
+    && set -- "$@" "CMAKE_OSX_DEPLOYMENT_TARGET=${FOREST_MACOS_DEPLOYMENT_TARGET}"
   cfg resolve-overlay "${preset}" "${src}" "${bin}" "${FOREST}" "${name}" "$@"
   cmake -S "${src}" --preset "forest-${name}-local"
 }
@@ -1148,6 +1152,8 @@ configure_one(){ require_pixi_toolchain configure
       itk_kvs+=("VTK_DIR=${_itk_vtk}")
     fi
     [ -n "${FOREST_MACOS_SDK:-}" ] && itk_kvs+=("CMAKE_OSX_SYSROOT=${FOREST_MACOS_SDK}")
+    [ -n "${FOREST_MACOS_DEPLOYMENT_TARGET:-}" ] \
+      && itk_kvs+=("CMAKE_OSX_DEPLOYMENT_TARGET=${FOREST_MACOS_DEPLOYMENT_TARGET}")
     # Two-pass: first configure fetches remote modules (may fail on one whose
     # examples/ dir is absent); stub those, then reconfigure for real.
     cfg resolve-overlay "${itk_preset}" "$s" "${ITK_BUILD}" "${FOREST}" ITK "${itk_kvs[@]}"
@@ -1335,7 +1341,7 @@ json.dump(d, open(sys.argv[2],"w", encoding="utf-8"), indent=2, sort_keys=True)'
                  # try_compile then dies on -mmacosx-version-min. Setting it trips
                  # the if(NOT CMAKE_OSX_DEPLOYMENT_TARGET) guard.
                  [ "$(uname -s)" = Darwin ] && \
-                   _mitk_kvs+=("CMAKE_OSX_DEPLOYMENT_TARGET=$(xcrun --show-sdk-version)")
+                   _mitk_kvs+=("CMAKE_OSX_DEPLOYMENT_TARGET=${FOREST_MACOS_DEPLOYMENT_TARGET:-$(xcrun --show-sdk-version)}")
                  do_overlay MITK itk-forest-mitk "$s" "$b" "${_mitk_kvs[@]}" ;;
     elastix)     do_overlay elastix itk-forest-base "$s" "$b" "ITK_DIR=$(itk_dir)" ;;
     c3d)         do_overlay c3d itk-forest-base "$s" "$b" "ITK_DIR=$(itk_dir)" ;;

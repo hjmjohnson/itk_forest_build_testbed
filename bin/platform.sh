@@ -36,6 +36,9 @@ if [ "${FOREST_OS}" = macos ]; then
     SDKROOT="${FOREST_MACOS_SDK}"
     export FOREST_MACOS_SDK SDKROOT
   fi
+  # Slicer's required minimum; the whole forest builds against it.
+  FOREST_MACOS_DEPLOYMENT_TARGET="${FOREST_MACOS_DEPLOYMENT_TARGET:-14.0}"
+  export FOREST_MACOS_DEPLOYMENT_TARGET
 fi
 
 # --- paths -----------------------------------------------------------------
