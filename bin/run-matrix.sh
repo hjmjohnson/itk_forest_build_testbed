@@ -91,7 +91,17 @@ run_ctest(){
   [ -n "$d" ] || { echo "T:skip:no-harness"; return; }
   log="${LOGDIR}/ctest-${n}${LOG_TAG}.log"
   [ -n "${CTEST_INCLUDE:-}" ] && inc=(-R "${CTEST_INCLUDE}")
-  timeout "${CTEST_TARGET_TIMEOUT}" \
+  # SphinxExamples registers its Python examples as bare
+  # `${Python3_EXECUTABLE} Code.py` with no ctest ENVIRONMENT, so `import itk`
+  # resolves only from sys.path. Point it at the wrapping tree of the ITK
+  # under test, or the tests would silently exercise some other itk.
+  local envp=() _itkpy
+  if [ "$n" = SphinxExamples ]; then
+    _itkpy="$(bdir ITK)/Wrapping/Generators/Python"
+    [ -d "${_itkpy}/itk" ] || { echo "T:skip:itk-python-missing"; return; }
+    envp=(env "PYTHONPATH=${_itkpy}${PYTHONPATH:+:${PYTHONPATH}}")
+  fi
+  timeout "${CTEST_TARGET_TIMEOUT}" "${envp[@]}" \
     ctest --test-dir "$d" -j"${CTEST_JOBS}" --timeout "${CTEST_TIMEOUT}" \
       --output-on-failure "${inc[@]}" >"$log" 2>&1
   [ $? -eq 124 ] && { echo "T:timeout"; return; }
@@ -109,7 +119,14 @@ artifact_ok(){
   local n="$1" b
   b="$(bdir "$n")"
   case "$n" in
-    ITK)       ls "${b}"/lib/libITKCommon-*.a >/dev/null 2>&1 ;;  # version-agnostic (6.0, 5.4, ...)
+    ITK)       # A stale libITKCommon from an earlier build satisfies this on its own,
+               # so when wrapping is configured ON also require the generated python
+               # package -- otherwise a ninja that stopped early still scores PASS.
+               ls "${b}"/lib/libITKCommon-*.a >/dev/null 2>&1 || return 1
+               if grep -q '^ITK_WRAP_PYTHON:BOOL=ON' "${b}/CMakeCache.txt" 2>/dev/null; then
+                 [ -f "${b}/Wrapping/Generators/Python/itk/__init__.py" ] || return 1
+               fi
+               return 0 ;;
     elastix)   [ -x "${b}/bin/elastix" ] ;;
     c3d)       find "${b}" -name 'c?d' -o -name 'libConvert3D*' 2>/dev/null | grep -q . ;;
     RTK)       [ -x "${b}/bin/rtkamsterdamshroud" ] ;;
@@ -123,10 +140,47 @@ artifact_ok(){
     PlusLib)     find "${b}" \( -iname 'libvtkPlus*' -o -iname 'libPlus*' \) 2>/dev/null | grep -q . ;;
     Slicer)      find "$(bdir Slicer)/Slicer-build" \( -name 'SlicerApp-real' -o -name 'libMRMLCore*' \) 2>/dev/null | grep -q . ;;
     SlicerExtensions) find "${b}" \( -name '*.so' -o -name '*.dylib' \) 2>/dev/null | grep -q . ;;
+    # -perm -100 (user execute), NOT -111: -111 requires the group and other
+    # execute bits too, so it matches nothing under a umask of 077.
+    SphinxExamples)   find "${b}/bin" -type f -perm -100 2>/dev/null | grep -q . ;;
     *)  # external ITK modules link their lib into the ITK tree, not their own
         { find "${b}" \( -name '*.a' -o -name '*.dylib' -o -name '*.so' \) 2>/dev/null | grep -q . ; } \
         || find "$(bdir ITK)/lib" -iname "libitk${n}-*.a" 2>/dev/null | grep -q . ;;
   esac
+}
+
+# A module that wraps into ITK's build-tree package can leave `import itk`
+# broken for every consumer, which otherwise surfaces as mass Python failures.
+# Checked structurally: itk.force_load() prints the traceback but keeps going,
+# and importing the wrapped ITK can crash the interpreter in VTK's destructors.
+itk_python_intact(){
+  local c="$(bdir ITK)/CMakeCache.txt"
+  grep -q '^ITK_WRAP_PYTHON:BOOL=ON' "$c" 2>/dev/null || return 0
+  "${FOREST_PYTHON:-python3}" - "$(bdir ITK)/Wrapping/Generators/Python/itk" \
+    >"${LOGDIR}/itk-python-check${LOG_TAG}.log" 2>&1 <<'EOF'
+import glob, os, re, sys
+pkg = sys.argv[1]
+bad = []
+for f in sorted(os.listdir(os.path.join(pkg, "Configuration"))):
+    m = re.match(r"(\w+)Config\.py$", f)
+    if not m:
+        continue
+    n = m.group(1)
+    py = os.path.exists(os.path.join(pkg, n + "Python.py"))
+    so = bool(glob.glob(os.path.join(pkg, "_%sPython*.so" % n)))
+    if not (py and so):
+        bad.append("%s (module=%s extension=%s)" % (n, py, so))
+for b in bad:
+    print("orphaned wrapping config:", b)
+print("ITK_PY_OK" if not bad else "ITK_PY_BROKEN")
+EOF
+  grep -q ITK_PY_OK "${LOGDIR}/itk-python-check${LOG_TAG}.log"
+}
+
+# Does this target's wrapping write into ITK's package?
+_wraps_into_itk(){
+  [ "$1" = ITK ] && return 0
+  grep -q "^ITK_WRAP_PYTHON_ROOT_BINARY_DIR:[A-Z]*=$(bdir ITK)/" "$(bdir "$1")/CMakeCache.txt" 2>/dev/null
 }
 
 build_target(){
@@ -140,7 +194,16 @@ build_target(){
     local _on; _on="$(grep -l 'RUN_CTEST_TEST "TRUE"' "${FOREST}/SlicerExtensions/build/"*-test-command-args.cmake 2>/dev/null | wc -l | tr -d ' ')"
     [ "${_on:-0}" != 0 ] && echo "WARN ${n}: ${_on} extension(s) still have tests ENABLED despite RUN_CTEST=0 (Slicer.app may launch)"
   fi
-  if artifact_ok "${n}"; then
+  local _pybroke=""
+  if _wraps_into_itk "${n}" && ! itk_python_intact; then
+    _pybroke="$(grep -E 'Error|error' "${LOGDIR}/itk-python-check${LOG_TAG}.log" | tail -1)"
+  fi
+  if [ -n "${_pybroke}" ]; then
+    SUMMARY="${SUMMARY}$(printf 'FAIL  %-20s %s' "${n}" '(broke itk python package)')"$'\n'
+    echo "RESULT ${n}: build FAIL -- itk python package no longer imports after building ${n}"
+    echo "  ${_pybroke}"
+    echo "  (${LOGDIR}/itk-python-check${LOG_TAG}.log)"
+  elif artifact_ok "${n}"; then
     echo "RESULT ${n}: build PASS"
     if [ "${RUN_CTEST}" = 1 ]; then
       echo "-------------------- CTEST ${n} --------------------"
@@ -161,12 +224,11 @@ build_target(){
 #   Ultrasound          : extra ITK COMPILE_DEPENDS / clFFT not resolved
 #   LesionSizingToolkit : missing itkCannyEdgeDetectionRecursiveGaussianImageFilter.h,
 #                         itkLandmarksReader.h (needs more ITK modules enabled)
-#   SphinxExamples      : ExternalData test-data fetch (not a build/link issue)
 # None are caused by the ITK ref under test. Re-include a target only after its cause is fixed.
 # Slicer (and its full rendering+Qt VTK) precedes the VTK consumers
 # (OpenIGTLinkIO/vtkAddon/IGSIO/PlusLib), which need that VTK via vtk_dir().
 TARGETS=(ITK elastix SimpleITK RTK Cleaver
-         PerformanceBenchmarking SimpleITKFilters
+         PerformanceBenchmarking SimpleITKFilters SphinxExamples
          TractographyTRX VkFFTBackend ANTs BRAINSTools
          OpenIGTLink Slicer SlicerExtensions
          OpenIGTLinkIO vtkAddon IGSIO PlusLib)
@@ -181,7 +243,6 @@ DEFERRED_TARGETS=(
   $'SkullStrip\tneeds its own module/data deps'
   $'Ultrasound\textra ITK COMPILE_DEPENDS / clFFT not resolved'
   $'LesionSizingToolkit\tneeds more ITK modules enabled (missing headers)'
-  $'SphinxExamples\tExternalData test-data fetch failure'
 )
 
 # Query/action modes for tooling (forest_tui); default no-flag behavior unchanged.
