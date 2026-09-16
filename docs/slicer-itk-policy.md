@@ -179,3 +179,32 @@ Slicer-side fixes X requires.
 - `docs/slicer-macos.md` — Qt6 / ccache / conda-flag specifics
 - `versions.toml` — `[subbuild.Slicer]` (repo) + `[scenarios.<suffix>.Slicer]` (per-forest tag)
 - `bin/config.py subbuild-get <suffix> Slicer ITK_GIT_TAG` — the resolver
+
+## Why the forest forces `Slicer_USE_IDImageIO=ON`
+
+Set in `cmake/presets/40-Slicer.json`, deliberately overriding Slicer's own
+default of `OFF`.
+
+`Libs/MRML/IDImageIO` builds `libMRMLIDIOPlugin`, which exports the `extern "C"`
+entry point ITK's `ObjectFactoryBase::LoadDynamicFactories()` looks up in every
+library on `ITK_AUTOLOAD_PATH`. Slicer is the **only** consumer in the forest
+that both ships such a plugin and sets `ITK_AUTOLOAD_PATH` at runtime
+(`CMake/SlicerBlockCTKAppLauncherSettings.cmake`, and propagated into CLI
+module child processes by `Base/Logic/vtkSlicerCLIModuleLogic.cxx`).
+
+With the option at Slicer's default, the forest has **zero coverage of ITK's
+dynamic factory-loading path** -- `ObjectFactoryBase`, `DynamicLoader`, the
+autoload directory walk. An ITK change that breaks plugin loading passes the
+whole forest green.
+
+That is not hypothetical. While verifying ITK#6787 (which makes the autoload
+symbol name a build option) the Slicer SuperBuild went green at 237/237 while
+never compiling the plugin, so the run proved nothing about the mechanism under
+test. The failure mode is a green forest that silently did not test the thing.
+
+It must be set in the preset, not by `cmake -D` on `Slicer-build`: the
+SuperBuild re-pushes its own cache args on every reconfigure, so an inner-cache
+edit survives exactly one build and then evaporates -- silently dropping the
+plugin again.
+
+Cost is negligible: ~31 ninja steps once ITK is built.
