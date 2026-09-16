@@ -13,6 +13,7 @@
         "ITK_USE_FFTWF": "OFF",
         "ITK_USE_SYSTEM_FFTW": "OFF",
         "ITK_USE_SYSTEM_ZLIB": "OFF",
+        "ITK_WRAP_PYTHON": "ON",
         "Module_AdaptiveDenoising": "ON",
         "Module_AnisotropicDiffusionLBR": "ON",
         "Module_BSplineGradient": "ON",
@@ -60,6 +61,10 @@
         "Module_TractographyTRX": "OFF",
         "Module_TwoProjectionRegistration": "ON",
         "Module_VariationalRegistration": "ON",
+        "Python3_FIND_FRAMEWORK": "NEVER",
+        "Python3_FIND_REGISTRY": "NEVER",
+        "Python3_FIND_STRATEGY": "LOCATION",
+        "Python3_ROOT_DIR": "$env{CONDA_PREFIX}",
         "ZLIB_ROOT": "$env{CONDA_PREFIX}"
       },
       "hidden": true,
@@ -68,9 +73,7 @@
     },
     {
       "cacheVariables": {
-        "BUILD_EXAMPLES": "OFF",
-        "BUILD_TESTING": "OFF",
-        "ITK_USE_BRAINWEB_DATA": "OFF",
+        "ITK_USE_PYTHON_LIMITED_API": "OFF",
         "Module_ITKVtkGlue": "ON"
       },
       "hidden": true,

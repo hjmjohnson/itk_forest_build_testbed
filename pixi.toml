@@ -54,6 +54,7 @@ openblas = ">=0.3.28,<1"  # BLAS/LAPACK for BRAINSTools BRAINSSuperResolution (L
 libcblas = ">=3.9,<4"  # cblas.h for OpenBLAS consumers
 liblapacke = ">=3.9,<4"  # lapacke.h for OpenBLAS consumers
 python = ">=3.11,<3.15"
+numpy = ">=1.26"  # ITK_WRAP_PYTHON: Bridge/NumPy build + the array-bridge tests
 textual = ">=1.0"  # noarch, so the wizard TUI is available on every platform
 pytest = ">=8.0"  # skills/*/tests (`pixi run test`) + bin/tests (tri-platform gate)
 

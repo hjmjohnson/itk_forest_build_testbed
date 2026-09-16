@@ -1077,9 +1077,18 @@ build_forest_vtk(){
   # -Wno-error=... is a GNU/Clang spelling; cl.exe rejects unknown /W options.
   local _cflags_arg=(-DCMAKE_C_FLAGS="-Wno-error=implicit-function-declaration")
   [ "${FOREST_OS}" = windows ] && _cflags_arg=()
+  # ITKVtkGlue refuses a VTK_WRAP_PYTHON=OFF VTK when ITK_WRAP_PYTHON is ON, so
+  # wrap against the interpreter ITK wrapped with whenever ITK wraps.
+  local _vtk_py_args=(-DVTK_WRAP_PYTHON=OFF) _kv
+  if grep -q '^ITK_WRAP_PYTHON:BOOL=ON' "${ITK_BUILD}/CMakeCache.txt" 2>/dev/null; then
+    _vtk_py_args=(-DVTK_WRAP_PYTHON=ON)
+    while IFS= read -r _kv; do [ -n "${_kv}" ] && _vtk_py_args+=("-D${_kv}"); done \
+      < <(itk_python_kvs)
+  fi
   if [ ! -f "${b}/build.ninja" ]; then
     cmake -S "${src}" -B "${b}" $(common_cmake_args) \
-      -DBUILD_SHARED_LIBS=ON -DVTK_BUILD_TESTING=OFF -DVTK_WRAP_PYTHON=OFF \
+      -DBUILD_SHARED_LIBS=ON -DVTK_BUILD_TESTING=OFF \
+      "${_vtk_py_args[@]}" \
       -DVTK_SMP_IMPLEMENTATION_TYPE=Sequential ${_win_args} \
       -DVTK_GROUP_ENABLE_Qt=YES -DVTK_MODULE_ENABLE_VTK_GUISupportQt=YES \
       -DVTK_QT_VERSION=6 -DQt6_DIR="${SLICER_QT_PREFIX}/lib/cmake/Qt6" \
@@ -1139,13 +1148,26 @@ configure_one(){ require_pixi_toolchain configure
       # v5 policy (module set, FFTW-on, testing/examples) lives in 10-itk-v5.json.
       local v5_preset="itk-forest-itk-v5"
       [ "${ITK_WITH_DCMTK:-0}" = 1 ] && v5_preset="itk-forest-itk-v5-dcmtk"
-      do_overlay ITK "${v5_preset}" "$s" "${ITK_BUILD}"
+      local _pyexe5; _pyexe5="$(env_python_exe)"
+      local v5_kvs=("Python3_EXECUTABLE=${_pyexe5}") _kv5
+      while IFS= read -r _kv5; do [ -n "${_kv5}" ] && v5_kvs+=("${_kv5}"); done \
+        < <(env_python_dev_kvs "${_pyexe5}")
+      do_overlay ITK "${v5_preset}" "$s" "${ITK_BUILD}" "${v5_kvs[@]}"
       return
     fi
     # v6 policy (ALL_MODULES + excluded-from-all modules, FFTW-off/pocketFFT,
     # brainweb/testing/examples) lives in 10-itk-v6.json. VtkGlue is a variant
     # selected when a VTK exists; VTK_DIR is the only injected value.
     local itk_preset="itk-forest-itk-v6" itk_kvs=()
+    # Hard-code the interpreter rather than leaving FindPython3 to search:
+    # everything downstream is pinned to whatever ITK resolves here.
+    local _pyexe; _pyexe="$(env_python_exe)"
+    itk_kvs+=("Python3_EXECUTABLE=${_pyexe}")
+    # Include dir / library too, or Slicer's VTK captures them (see
+    # env_python_dev_kvs) and ITK's own Python3 check fails on a 3.x mismatch.
+    local _kv
+    while IFS= read -r _kv; do [ -n "${_kv}" ] && itk_kvs+=("${_kv}"); done \
+      < <(env_python_dev_kvs "${_pyexe}")
     local _itk_vtk; _itk_vtk="$(itk_vtk_dir)"
     if [ -n "${_itk_vtk}" ]; then
       itk_preset="itk-forest-itk-v6-vtkglue"
@@ -1356,8 +1378,10 @@ json.dump(d, open(sys.argv[2],"w", encoding="utf-8"), indent=2, sort_keys=True)'
     SimpleITK)   warn "SimpleITK SuperBuild (C++ only; WRAP_DEFAULT=OFF)"
                  do_overlay SimpleITK itk-forest-simpleitk "${s}/SuperBuild" "$b" \
                    "ITK_DIR=$(itk_dir)" ;;
-    RTK)         do_overlay RTK itk-forest-base "$s" "$b" \
-                   "ITK_DIR=$(itk_dir)" "RTK_USE_CUDA=${RTK_USE_CUDA:-OFF}" ;;
+    RTK)         local _rtk_kvs=("ITK_DIR=$(itk_dir)" "RTK_USE_CUDA=${RTK_USE_CUDA:-OFF}") _pk _kv
+                 _pk="$(itk_python_kvs)" || die "RTK: cannot resolve ITK's python interpreter"
+                 while IFS= read -r _kv; do [ -n "${_kv}" ] && _rtk_kvs+=("${_kv}"); done <<<"${_pk}"
+                 do_overlay RTK itk-forest-base "$s" "$b" "${_rtk_kvs[@]}" ;;
     Ultrasound)  do_overlay Ultrasound itk-forest-base "$s" "$b" \
                    "ITK_DIR=$(itk_dir)" "ITKUltrasound_USE_VTK=OFF" ;;
     OpenIGTLink) log "OpenIGTLink (protocol v3, static)"
@@ -1395,6 +1419,9 @@ json.dump(d, open(sys.argv[2],"w", encoding="utf-8"), indent=2, sort_keys=True)'
                  [ -n "${_vk}" ] || die "VkFFTBackend: no GPU backend (CUDA/Metal/OpenCL) on this host"
                  local _vk_kvs=("ITK_DIR=$(itk_dir)" "VKFFT_BACKEND=${_vk}")
                  [ "${_vk}" = 1 ] && _vk_kvs+=("CMAKE_CUDA_COMPILER=$(_find_nvcc)")
+                 local _pk _kv
+                 _pk="$(itk_python_kvs)" || die "VkFFTBackend: cannot resolve ITK's python interpreter"
+                 while IFS= read -r _kv; do [ -n "${_kv}" ] && _vk_kvs+=("${_kv}"); done <<<"${_pk}"
                  log "VkFFTBackend: VKFFT_BACKEND=${_vk} (1=CUDA 5=Metal 3=OpenCL)"
                  do_overlay VkFFTBackend itk-forest-base "$s" "$b" "${_vk_kvs[@]}" ;;
     AlizaMS)     # Qt6 DICOM viewer; bundles its own DICOM lib (mdcm). Needs ITK,
@@ -1404,8 +1431,133 @@ json.dump(d, open(sys.argv[2],"w", encoding="utf-8"), indent=2, sort_keys=True)'
                    "ITK_DIR=$(itk_dir)" "ALIZA_QT_VERSION=6" \
                    "Qt6_DIR=${SLICER_QT_PREFIX}/lib/cmake/Qt6" \
                    "CMAKE_PREFIX_PATH=${SLICER_QT_PREFIX}" ;;
-    *)  do_overlay "${name}" itk-forest-base "$s" "$b" "ITK_DIR=$(itk_dir)" ;;
+    SphinxExamples)
+                 # 573 DATA{} content links resolve by CID. The GitHub Pages
+                 # store 404s for many of them, leaving only public IPFS
+                 # gateways, so an object store is what makes the fetch
+                 # dependable. ExternalData_OBJECT_STORES is also read from the
+                 # environment by the project itself.
+                 #
+                 # The interpreter comes from the ITK build tree rather than
+                 # from this env: SphinxExamples does
+                 # find_package(Python3 ${ITK_WRAP_PYTHON_VERSION} EXACT) and
+                 # bakes Python3_EXECUTABLE into each add_test at configure
+                 # time, so it must be the same interpreter ITK wrapped against
+                 # or every Python example fails on import.
+                 local _spy; _spy="$(itk_python_exe)"
+                 assert_itk_python_pin "${_spy}"
+                 # find_package(ITK) loads ITKVtkGlue.cmake, which find_package()s
+                 # Slicer's VTK, which resolves Python3 Development.Module against
+                 # Slicer's vendored 3.12 -- the same capture env_python_dev_kvs
+                 # blocks for ITK itself. Pin the dev paths here too or the
+                 # consumer configure fails where ITK's succeeded.
+                 local _sp_kvs=(
+                   "ITK_DIR=$(itk_dir)"
+                   "ExternalData_OBJECT_STORES=$(forest_data_store)"
+                   "Python3_EXECUTABLE=${_spy}"
+                   "Python3_ROOT_DIR=$(dirname "$(dirname "${_spy}")")"
+                   "Python3_FIND_STRATEGY=LOCATION"
+                   "Python3_FIND_FRAMEWORK=NEVER"
+                   "Python3_FIND_REGISTRY=NEVER"
+                 ) _kvsp
+                 while IFS= read -r _kvsp; do [ -n "${_kvsp}" ] && _sp_kvs+=("${_kvsp}"); done \
+                   < <(env_python_dev_kvs "${_spy}")
+                 do_overlay SphinxExamples itk-forest-base "$s" "$b" "${_sp_kvs[@]}" ;;
+    *)  local _def_kvs=("ITK_DIR=$(itk_dir)") _pk _kv
+        _pk="$(itk_python_kvs)" || die "${name}: cannot resolve ITK's python interpreter"
+        while IFS= read -r _kv; do [ -n "${_kv}" ] && _def_kvs+=("${_kv}"); done <<<"${_pk}"
+        do_overlay "${name}" itk-forest-base "$s" "$b" "${_def_kvs[@]}" ;;
   esac
+}
+
+# --- Python pinning -----------------------------------------------------
+# Every Python path the forest hands to CMake is an absolute, existence-checked
+# interpreter. Hints (Python3_ROOT_DIR) only bias FindPython3; a wrong-but-valid
+# interpreter still satisfies them, and SphinxExamples bakes the resolved path
+# into each add_test at configure time, so a mistake is permanent in that tree.
+
+# Interpreter of this pixi env: what ITK itself is wrapped against.
+env_python_exe(){
+  local e
+  for e in "${CONDA_PREFIX}/bin/python3" "${CONDA_PREFIX}/bin/python" \
+           "${CONDA_PREFIX}/python.exe" "${CONDA_PREFIX}/python3.exe"; do
+    [ -x "$e" ] && { echo "$e"; return; }
+  done
+  die "no python interpreter under CONDA_PREFIX=${CONDA_PREFIX}"
+}
+
+# Development paths of that same interpreter, as CMake KVs.
+# Pinning the interpreter alone is not enough: ITK's VtkGlue does
+# find_package(VTK) against Slicer's VTK, whose vtk-config.cmake runs its own
+# find_package(Python3 ... Development.Module) and captures Python3_INCLUDE_DIR
+# / Python3_LIBRARY for Slicer's vendored python. Those are user-level cache
+# entries, so they outrank discovery and ITK's range-restricted check then
+# fails on a header set from the wrong python.
+_PY_LIB_PROBE="import os,sys,sysconfig as s;v=s.get_config_vars();p=s.get_config_var('prefix') or sys.prefix;t=v['py_version_nodot'];m=v['py_version_short'];e='.dylib' if sys.platform=='darwin' else '.so';c=[os.path.join(p,'libs','python%s.lib'%t)] if os.name=='nt' else [os.path.join(v.get('LIBDIR') or '',n) for n in ('libpython%s%s'%(m,e),v.get('LDLIBRARY') or '',v.get('LIBRARY') or '') if n];print(next((x for x in c if os.path.exists(x)),''))"
+
+env_python_dev_kvs(){
+  local exe="$1" inc lib
+  inc="$("$exe" -c 'import sysconfig;print(sysconfig.get_paths()["include"])' 2>/dev/null)"
+  [ -d "${inc}" ] || die "python include dir not found for ${exe}: ${inc:-<empty>}"
+  printf '%s\n' "Python3_INCLUDE_DIR=${inc}"
+  lib="$("$exe" -c "${_PY_LIB_PROBE}" 2>/dev/null)"
+  [ -n "${lib}" ] && [ -f "${lib}" ] && printf '%s\n' "Python3_LIBRARY=${lib}"
+  return 0
+}
+
+# Python3_* KVs pinning a consumer to ITK's interpreter; a consumer that
+# inherits ITK_WRAP_PYTHON writes into ITK's package, so a mismatch breaks it.
+itk_python_kvs(){
+  local exe; exe="$(itk_python_exe)" || return 1
+  printf '%s\n' "Python3_EXECUTABLE=${exe}" \
+    "Python3_ROOT_DIR=$(dirname "$(dirname "${exe}")")" \
+    "Python3_FIND_STRATEGY=LOCATION" "Python3_FIND_FRAMEWORK=NEVER" \
+    "Python3_FIND_REGISTRY=NEVER"
+  env_python_dev_kvs "${exe}"
+}
+
+# Interpreter the built ITK actually resolved, read back from its cache.
+# ITKConfig.cmake exports ITK_WRAP_PYTHON_VERSION but no path, so the cache is
+# the only place the location survives.
+itk_python_exe(){
+  local c="${ITK_BUILD}/CMakeCache.txt" e="" r=""
+  if [ -f "$c" ]; then
+    e="$(sed -n 's/^_Python3_EXECUTABLE:INTERNAL=//p' "$c" | head -1)"
+    if [ -z "$e" ]; then
+      r="$(sed -n 's/^Python3_ROOT_DIR:PATH=//p' "$c" | head -1)"
+      [ -n "$r" ] && for e in "$r/bin/python3" "$r/bin/python" "$r/python.exe"; do
+        [ -x "$e" ] && break; e=""
+      done
+    fi
+  fi
+  [ -n "$e" ] || e="$(env_python_exe)"
+  [ -x "$e" ] || die "ITK's python interpreter is not executable: $e"
+  echo "$e"
+}
+
+# Refuse to configure a consumer against an interpreter that is not the one ITK
+# was wrapped against: SphinxExamples does find_package(Python3 <ver> EXACT), so
+# a mismatch is a configure-time hard error with a far less obvious message.
+assert_itk_python_pin(){
+  local exe="$1" want got
+  want="$(sed -n 's/.*ITK_WRAP_PYTHON_VERSION "\([^"]*\)".*/\1/p' \
+          "${ITK_BUILD}/ITKConfig.cmake" 2>/dev/null | head -1)"
+  [ -n "${want}" ] && [ "${want}" != "ITK_WRAP_PYTHON=OFF" ] || {
+    die "ITK at ${ITK_BUILD} was built without ITK_WRAP_PYTHON; rebuild ITK first"; }
+  got="$("$exe" -c 'import sys;print("%d.%d.%d"%sys.version_info[:3])' 2>/dev/null)"
+  [ "${got}" = "${want}" ] \
+    || die "python pin mismatch: ITK wrapped against ${want}, but ${exe} is ${got:-unknown}"
+  log "python pin: ${exe} (${got}), matches ITK_WRAP_PYTHON_VERSION"
+}
+
+# Shared ExternalData object store.
+# Shared ExternalData object store. Honors $ExternalData_OBJECT_STORES, then a
+# pre-populated ~/src/ITK_DATA_CACHE, else a forest-local store that persists
+# across build trees.
+forest_data_store(){
+  if [ -n "${ExternalData_OBJECT_STORES:-}" ]; then echo "${ExternalData_OBJECT_STORES}"
+  elif [ -d "${HOME}/src/ITK_DATA_CACHE" ]; then echo "${HOME}/src/ITK_DATA_CACHE"
+  else local d="${FOREST}/ExternalData-Objects"; mkdir -p "$d"; echo "$d"; fi
 }
 
 

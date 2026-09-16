@@ -13,7 +13,11 @@
         "ITK_USE_FFTWF": "ON",
         "ITK_USE_SYSTEM_FFTW": "OFF",
         "Module_AdaptiveDenoising": "ON",
-        "Module_GenericLabelInterpolator": "ON"
+        "Module_GenericLabelInterpolator": "ON",
+        "Python3_FIND_FRAMEWORK": "NEVER",
+        "Python3_FIND_REGISTRY": "NEVER",
+        "Python3_FIND_STRATEGY": "LOCATION",
+        "Python3_ROOT_DIR": "$env{CONDA_PREFIX}"
       },
       "hidden": true,
       "inherits": "itk-forest-base",
