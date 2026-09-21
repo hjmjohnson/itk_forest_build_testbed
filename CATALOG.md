@@ -79,49 +79,53 @@ a port has no upstream to merge back into. Revisit if CBICA resumes development.
 
 `heavy` modules (CUDA / Java / Emscripten) build only with `HEAVY=1`.
 
-| Tree | Repository | Floating branch | Heavy |
+**archived** trees have been ingested into ITK proper and their upstream
+repositories now hold only a migration notice. They are listed for provenance
+and must not be included in a forest run; building them would build nothing.
+
+| Tree | Repository | Floating branch | Flags |
 |---|---|---|---|
-| ANTsWasm | https://github.com/InsightSoftwareConsortium/ITKANTsWasm | `main` | yes |
+| ANTsWasm | https://github.com/InsightSoftwareConsortium/ITKANTsWasm | `main` | heavy |
 | ARGUS | https://github.com/aylward/itkARGUS | `main` |  |
-| ArrayFire | https://github.com/InsightSoftwareConsortium/ITKArrayFire | `main` | yes |
-| BSplineGradient | https://github.com/InsightSoftwareConsortium/ITKBSplineGradient | `main` |  |
+| ArrayFire | https://github.com/InsightSoftwareConsortium/ITKArrayFire | `main` | heavy |
+| BSplineGradient | https://github.com/InsightSoftwareConsortium/ITKBSplineGradient | `main` | **archived** |
 | BioCell | https://github.com/InsightSoftwareConsortium/ITKBioCell | `main` |  |
-| BoneEnhancement | https://github.com/InsightSoftwareConsortium/ITKBoneEnhancement | `main` |  |
+| BoneEnhancement | https://github.com/InsightSoftwareConsortium/ITKBoneEnhancement | `main` | **archived** |
 | Cleaver | https://github.com/SCIInstitute/ITKCleaver | `main` |  |
 | ColorNormalization | https://github.com/InsightSoftwareConsortium/ITKColorNormalization | `main` |  |
-| CudaCommon | https://github.com/RTKConsortium/ITKCudaCommon | `main` | yes |
+| CudaCommon | https://github.com/RTKConsortium/ITKCudaCommon | `main` | heavy |
 | Dissolve | https://github.com/dyollb/ITKDissolve | `main` |  |
-| Elastix | https://github.com/InsightSoftwareConsortium/ITKElastix | `main` | yes |
+| Elastix | https://github.com/InsightSoftwareConsortium/ITKElastix | `main` | heavy |
 | EntropyBasedIntensityCorrection | https://github.com/InsightSoftwareConsortium/ITKEntropyBasedIntensityCorrection | `main` |  |
-| GrowCut | https://github.com/InsightSoftwareConsortium/ITKGrowCut | `main` |  |
+| GrowCut | https://github.com/InsightSoftwareConsortium/ITKGrowCut | `main` | **archived** |
 | HASI | https://github.com/KitwareMedical/HASI | `main` |  |
-| HalideFilters | https://github.com/KitwareMedical/ITKHalideFilters | `main` | yes |
-| HigherOrderAccurateGradient | https://github.com/InsightSoftwareConsortium/ITKHigherOrderAccurateGradient | `main` |  |
+| HalideFilters | https://github.com/KitwareMedical/ITKHalideFilters | `main` | heavy |
+| HigherOrderAccurateGradient | https://github.com/InsightSoftwareConsortium/ITKHigherOrderAccurateGradient | `main` | **archived** |
 | IOOpenJPH | https://github.com/InsightSoftwareConsortium/ITKIOOpenJPH | `main` |  |
-| IOOpenSlide | https://github.com/InsightSoftwareConsortium/ITKIOOpenSlide | `main` | yes |
-| IOScanco | https://github.com/KitwareMedical/ITKIOScanco | `main` |  |
+| IOOpenSlide | https://github.com/InsightSoftwareConsortium/ITKIOOpenSlide | `main` | heavy |
+| IOScanco | https://github.com/KitwareMedical/ITKIOScanco | `main` | **archived** |
 | Impact | https://github.com/InsightSoftwareConsortium/ITKIMPACT | `main` |  |
 | LabelPointSet | https://github.com/dyollb/ITKLabelPointSet | `main` |  |
 | LesionSizingToolkit | https://github.com/InsightSoftwareConsortium/LesionSizingToolkit | `main` |  |
-| MeshToPolyData | https://github.com/InsightSoftwareConsortium/ITKMeshToPolyData | `main` |  |
+| MeshToPolyData | https://github.com/InsightSoftwareConsortium/ITKMeshToPolyData | `main` | **archived** |
 | Metrics | https://github.com/dyollb/ITKMetrics | `main` |  |
-| MinimalPathExtraction | https://github.com/InsightSoftwareConsortium/ITKMinimalPathExtraction | `main` |  |
+| MinimalPathExtraction | https://github.com/InsightSoftwareConsortium/ITKMinimalPathExtraction | `main` | **archived** |
 | NDReg | https://github.com/InsightSoftwareConsortium/ITKNDReg | `main` |  |
 | Nornir | https://github.com/InsightSoftwareConsortium/ITKNornir | `main` |  |
 | OptimizationMonitor | https://github.com/InsightSoftwareConsortium/ITKOptimizationMonitor | `main` |  |
-| PCT | https://github.com/RTKConsortium/PCT | `main` | yes |
+| PCT | https://github.com/RTKConsortium/PCT | `main` | heavy |
 | ParabolicMorphology | https://github.com/richardbeare/parabolicMorphology | `main` |  |
 | PerformanceBenchmarking | https://github.com/InsightSoftwareConsortium/ITKPerformanceBenchmarking | `main` |  |
-| PyTorch | https://github.com/InsightSoftwareConsortium/ITKPyTorch | `main` | yes |
+| PyTorch | https://github.com/InsightSoftwareConsortium/ITKPyTorch | `main` | heavy |
 | RTK | https://github.com/RTKConsortium/RTK | `main` |  |
 | RingArtifact | https://github.com/InsightSoftwareConsortium/ITKRingArtifact | `main` |  |
-| SCIFIO | https://github.com/scifio/scifio-imageio | `main` | yes |
+| SCIFIO | https://github.com/scifio/scifio-imageio | `main` | heavy |
 | Shape | https://github.com/SlicerSALT/ITKShape | `main` |  |
 | SimpleITKFilters | https://github.com/InsightSoftwareConsortium/ITKSimpleITKFilters | `main` |  |
 | SkullStrip | https://github.com/InsightSoftwareConsortium/ITKSkullStrip | `main` |  |
 | SphinxExamples | https://github.com/InsightSoftwareConsortium/ITKSphinxExamples | `main` |  |
-| SplitComponents | https://github.com/InsightSoftwareConsortium/ITKSplitComponents | `main` |  |
-| Strain | https://github.com/KitwareMedical/ITKStrain | `main` |  |
+| SplitComponents | https://github.com/InsightSoftwareConsortium/ITKSplitComponents | `main` | **archived** |
+| Strain | https://github.com/KitwareMedical/ITKStrain | `main` | **archived** |
 | ThinShellDemons | https://github.com/InsightSoftwareConsortium/ITKThinShellDemons | `main` |  |
 | TopologyControl | https://github.com/dyollb/ITKTopologyControl | `main` |  |
 | TractographyTRX | https://github.com/tee-ar-ex/ITKTractographyTRX | `main` |  |
@@ -129,7 +133,7 @@ a port has no upstream to merge back into. Revisit if CBICA resumes development.
 | TubeTK | https://github.com/InsightSoftwareConsortium/ITKTubeTK | `main` |  |
 | Ultrasound | https://github.com/KitwareMedical/ITKUltrasound | `main` |  |
 | VkFFTBackend | https://github.com/InsightSoftwareConsortium/ITKVkFFTBackend | `main` |  |
-| WebAssemblyInterface | https://github.com/InsightSoftwareConsortium/ITK-Wasm | `main` | yes |
+| WebAssemblyInterface | https://github.com/InsightSoftwareConsortium/ITK-Wasm | `main` | heavy |
 
 The authoritative source is the `CONSUMERS` / `REMOTES` / `SLICER_EXTENSIONS`
 arrays in [`bin/setup-itk-downstream-testbed.sh`](bin/setup-itk-downstream-testbed.sh);

@@ -518,6 +518,10 @@ def cmd_consumers():
 
 def cmd_remotes():
     for name, spec in components("remote"):
+        # Archived trees were ingested into ITK proper; their repositories now
+        # hold only a migration notice, so building one builds nothing.
+        if spec.get("archived"):
+            continue
         print(f"{name}|{spec['url']}|{1 if spec.get('heavy') else 0}")
 
 

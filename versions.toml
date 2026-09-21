@@ -442,6 +442,8 @@ url   = "https://github.com/InsightSoftwareConsortium/ITKGrowCut.git"
 ref   = "origin/main"
 kind  = "remote"
 heavy = false
+# Archived upstream: ingested into ITK proper. Excluded from forest runs.
+archived = true
 
 [components.RingArtifact]
 url   = "https://github.com/InsightSoftwareConsortium/ITKRingArtifact.git"
@@ -532,48 +534,64 @@ url   = "https://github.com/InsightSoftwareConsortium/ITKBoneEnhancement.git"
 ref   = "origin/main"
 kind  = "remote"
 heavy = false
+# Archived upstream: ingested into ITK proper. Excluded from forest runs.
+archived = true
 
 [components.MinimalPathExtraction]
 url   = "https://github.com/InsightSoftwareConsortium/ITKMinimalPathExtraction.git"
 ref   = "origin/main"
 kind  = "remote"
 heavy = false
+# Archived upstream: ingested into ITK proper. Excluded from forest runs.
+archived = true
 
 [components.MeshToPolyData]
 url   = "https://github.com/InsightSoftwareConsortium/ITKMeshToPolyData.git"
 ref   = "origin/main"
 kind  = "remote"
 heavy = false
+# Archived upstream: ingested into ITK proper. Excluded from forest runs.
+archived = true
 
 [components.BSplineGradient]
 url   = "https://github.com/InsightSoftwareConsortium/ITKBSplineGradient.git"
 ref   = "origin/main"
 kind  = "remote"
 heavy = false
+# Archived upstream: ingested into ITK proper. Excluded from forest runs.
+archived = true
 
 [components.HigherOrderAccurateGradient]
 url   = "https://github.com/InsightSoftwareConsortium/ITKHigherOrderAccurateGradient.git"
 ref   = "origin/main"
 kind  = "remote"
 heavy = false
+# Archived upstream: ingested into ITK proper. Excluded from forest runs.
+archived = true
 
 [components.SplitComponents]
 url   = "https://github.com/InsightSoftwareConsortium/ITKSplitComponents.git"
 ref   = "origin/main"
 kind  = "remote"
 heavy = false
+# Archived upstream: ingested into ITK proper. Excluded from forest runs.
+archived = true
 
 [components.Strain]
 url   = "https://github.com/KitwareMedical/ITKStrain.git"
 ref   = "origin/main"
 kind  = "remote"
 heavy = false
+# Archived upstream: ingested into ITK proper. Excluded from forest runs.
+archived = true
 
 [components.IOScanco]
 url   = "https://github.com/KitwareMedical/ITKIOScanco.git"
 ref   = "origin/main"
 kind  = "remote"
 heavy = false
+# Archived upstream: ingested into ITK proper. Excluded from forest runs.
+archived = true
 
 [components.Elastix]
 url   = "https://github.com/InsightSoftwareConsortium/ITKElastix.git"
