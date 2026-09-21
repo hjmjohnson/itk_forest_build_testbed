@@ -81,26 +81,63 @@ a port has no upstream to merge back into. Revisit if CBICA resumes development.
 
 | Tree | Repository | Floating branch | Heavy |
 |---|---|---|---|
-| BioCell | https://github.com/InsightSoftwareConsortium/ITKBioCell | `master` | |
-| Cleaver | https://github.com/SCIInstitute/ITKCleaver | `master` | |
-| CudaCommon | https://github.com/RTKConsortium/ITKCudaCommon | `master` | ✔ |
-| HASI | https://github.com/KitwareMedical/HASI | `main` | |
-| Impact | https://github.com/InsightSoftwareConsortium/ITKIMPACT | `main` | |
-| IOOpenSlide | https://github.com/InsightSoftwareConsortium/ITKIOOpenSlide | `master` | ✔ |
-| LesionSizingToolkit | https://github.com/InsightSoftwareConsortium/LesionSizingToolkit | `master` | |
-| PerformanceBenchmarking | https://github.com/InsightSoftwareConsortium/ITKPerformanceBenchmarking | `master` | |
-| RTK | https://github.com/RTKConsortium/RTK | `master` | |
-| SCIFIO | https://github.com/scifio/scifio-imageio | `master` | ✔ |
-| Shape | https://github.com/SlicerSALT/ITKShape | `master` | |
-| SimpleITKFilters | https://github.com/InsightSoftwareConsortium/ITKSimpleITKFilters | `master` | |
-| SkullStrip | https://github.com/InsightSoftwareConsortium/ITKSkullStrip | `master` | |
-| SphinxExamples | https://github.com/InsightSoftwareConsortium/ITKSphinxExamples | `master` | |
-| TractographyTRX | https://github.com/tee-ar-ex/ITKTractographyTRX | `main` | |
-| TubeTK | https://github.com/InsightSoftwareConsortium/ITKTubeTK | `main` | |
-| Ultrasound | https://github.com/KitwareMedical/ITKUltrasound | `master` | |
-| VkFFTBackend | https://github.com/InsightSoftwareConsortium/ITKVkFFTBackend | `master` | |
-| WebAssemblyInterface (ITK-Wasm) | https://github.com/InsightSoftwareConsortium/ITK-Wasm | `main` | ✔ |
+| ANTsWasm | https://github.com/InsightSoftwareConsortium/ITKANTsWasm | `main` | yes |
+| ARGUS | https://github.com/aylward/itkARGUS | `main` |  |
+| ArrayFire | https://github.com/InsightSoftwareConsortium/ITKArrayFire | `main` | yes |
+| BSplineGradient | https://github.com/InsightSoftwareConsortium/ITKBSplineGradient | `main` |  |
+| BioCell | https://github.com/InsightSoftwareConsortium/ITKBioCell | `main` |  |
+| BoneEnhancement | https://github.com/InsightSoftwareConsortium/ITKBoneEnhancement | `main` |  |
+| Cleaver | https://github.com/SCIInstitute/ITKCleaver | `main` |  |
+| ColorNormalization | https://github.com/InsightSoftwareConsortium/ITKColorNormalization | `main` |  |
+| CudaCommon | https://github.com/RTKConsortium/ITKCudaCommon | `main` | yes |
+| Dissolve | https://github.com/dyollb/ITKDissolve | `main` |  |
+| Elastix | https://github.com/InsightSoftwareConsortium/ITKElastix | `main` | yes |
+| EntropyBasedIntensityCorrection | https://github.com/InsightSoftwareConsortium/ITKEntropyBasedIntensityCorrection | `main` |  |
+| GrowCut | https://github.com/InsightSoftwareConsortium/ITKGrowCut | `main` |  |
+| HASI | https://github.com/KitwareMedical/HASI | `main` |  |
+| HalideFilters | https://github.com/KitwareMedical/ITKHalideFilters | `main` | yes |
+| HigherOrderAccurateGradient | https://github.com/InsightSoftwareConsortium/ITKHigherOrderAccurateGradient | `main` |  |
+| IOOpenJPH | https://github.com/InsightSoftwareConsortium/ITKIOOpenJPH | `main` |  |
+| IOOpenSlide | https://github.com/InsightSoftwareConsortium/ITKIOOpenSlide | `main` | yes |
+| IOScanco | https://github.com/KitwareMedical/ITKIOScanco | `main` |  |
+| Impact | https://github.com/InsightSoftwareConsortium/ITKIMPACT | `main` |  |
+| LabelPointSet | https://github.com/dyollb/ITKLabelPointSet | `main` |  |
+| LesionSizingToolkit | https://github.com/InsightSoftwareConsortium/LesionSizingToolkit | `main` |  |
+| MeshToPolyData | https://github.com/InsightSoftwareConsortium/ITKMeshToPolyData | `main` |  |
+| Metrics | https://github.com/dyollb/ITKMetrics | `main` |  |
+| MinimalPathExtraction | https://github.com/InsightSoftwareConsortium/ITKMinimalPathExtraction | `main` |  |
+| NDReg | https://github.com/InsightSoftwareConsortium/ITKNDReg | `main` |  |
+| Nornir | https://github.com/InsightSoftwareConsortium/ITKNornir | `main` |  |
+| OptimizationMonitor | https://github.com/InsightSoftwareConsortium/ITKOptimizationMonitor | `main` |  |
+| PCT | https://github.com/RTKConsortium/PCT | `main` | yes |
+| ParabolicMorphology | https://github.com/richardbeare/parabolicMorphology | `main` |  |
+| PerformanceBenchmarking | https://github.com/InsightSoftwareConsortium/ITKPerformanceBenchmarking | `main` |  |
+| PyTorch | https://github.com/InsightSoftwareConsortium/ITKPyTorch | `main` | yes |
+| RTK | https://github.com/RTKConsortium/RTK | `main` |  |
+| RingArtifact | https://github.com/InsightSoftwareConsortium/ITKRingArtifact | `main` |  |
+| SCIFIO | https://github.com/scifio/scifio-imageio | `main` | yes |
+| Shape | https://github.com/SlicerSALT/ITKShape | `main` |  |
+| SimpleITKFilters | https://github.com/InsightSoftwareConsortium/ITKSimpleITKFilters | `main` |  |
+| SkullStrip | https://github.com/InsightSoftwareConsortium/ITKSkullStrip | `main` |  |
+| SphinxExamples | https://github.com/InsightSoftwareConsortium/ITKSphinxExamples | `main` |  |
+| SplitComponents | https://github.com/InsightSoftwareConsortium/ITKSplitComponents | `main` |  |
+| Strain | https://github.com/KitwareMedical/ITKStrain | `main` |  |
+| ThinShellDemons | https://github.com/InsightSoftwareConsortium/ITKThinShellDemons | `main` |  |
+| TopologyControl | https://github.com/dyollb/ITKTopologyControl | `main` |  |
+| TractographyTRX | https://github.com/tee-ar-ex/ITKTractographyTRX | `main` |  |
+| TrimmedPointSetRegistration | https://github.com/InsightSoftwareConsortium/ITKTrimmedPointSetRegistration | `main` |  |
+| TubeTK | https://github.com/InsightSoftwareConsortium/ITKTubeTK | `main` |  |
+| Ultrasound | https://github.com/KitwareMedical/ITKUltrasound | `main` |  |
+| VkFFTBackend | https://github.com/InsightSoftwareConsortium/ITKVkFFTBackend | `main` |  |
+| WebAssemblyInterface | https://github.com/InsightSoftwareConsortium/ITK-Wasm | `main` | yes |
 
 The authoritative source is the `CONSUMERS` / `REMOTES` / `SLICER_EXTENSIONS`
 arrays in [`bin/setup-itk-downstream-testbed.sh`](bin/setup-itk-downstream-testbed.sh);
 this table mirrors them. If they diverge, the script wins — update this file.
+
+
+Rows added 2026-09-21 come from searching GitHub for consumers of
+`ITKRemoteModuleBuildTestPackageAction`'s Python wheel workflow, which found
+considerably more modules than ITK's own `Modules/Remote/*.remote.cmake` list.
+They are catalogued so a future forest run can include them; being listed here
+does not mean a tree is exercised today.

@@ -425,3 +425,189 @@ ITK_GIT_TAG = "slicer-v6.0.0-2026-08-22-fee22c1e224"
 # exist yet.
 url    = "https://github.com/hjmjohnson/Slicer.git"
 branch = "itk-forest-integration"
+
+# ----------------------------------------------------------------------------
+# Remote modules discovered 2026-09-21 by searching for consumers of
+# ITKRemoteModuleBuildTestPackageAction's python wheel workflow. Catalogued so
+# they can be added to a forest run; not all are exercised today.
+# ----------------------------------------------------------------------------
+[components.ColorNormalization]
+url   = "https://github.com/InsightSoftwareConsortium/ITKColorNormalization.git"
+ref   = "origin/main"
+kind  = "remote"
+heavy = false
+
+[components.GrowCut]
+url   = "https://github.com/InsightSoftwareConsortium/ITKGrowCut.git"
+ref   = "origin/main"
+kind  = "remote"
+heavy = false
+
+[components.RingArtifact]
+url   = "https://github.com/InsightSoftwareConsortium/ITKRingArtifact.git"
+ref   = "origin/main"
+kind  = "remote"
+heavy = false
+
+[components.ThinShellDemons]
+url   = "https://github.com/InsightSoftwareConsortium/ITKThinShellDemons.git"
+ref   = "origin/main"
+kind  = "remote"
+heavy = false
+
+[components.TrimmedPointSetRegistration]
+url   = "https://github.com/InsightSoftwareConsortium/ITKTrimmedPointSetRegistration.git"
+ref   = "origin/main"
+kind  = "remote"
+heavy = false
+
+[components.EntropyBasedIntensityCorrection]
+url   = "https://github.com/InsightSoftwareConsortium/ITKEntropyBasedIntensityCorrection.git"
+ref   = "origin/main"
+kind  = "remote"
+heavy = false
+
+[components.OptimizationMonitor]
+url   = "https://github.com/InsightSoftwareConsortium/ITKOptimizationMonitor.git"
+ref   = "origin/main"
+kind  = "remote"
+heavy = false
+
+[components.Dissolve]
+url   = "https://github.com/dyollb/ITKDissolve.git"
+ref   = "origin/main"
+kind  = "remote"
+heavy = false
+
+[components.LabelPointSet]
+url   = "https://github.com/dyollb/ITKLabelPointSet.git"
+ref   = "origin/main"
+kind  = "remote"
+heavy = false
+
+[components.Metrics]
+url   = "https://github.com/dyollb/ITKMetrics.git"
+ref   = "origin/main"
+kind  = "remote"
+heavy = false
+
+[components.TopologyControl]
+url   = "https://github.com/dyollb/ITKTopologyControl.git"
+ref   = "origin/main"
+kind  = "remote"
+heavy = false
+
+[components.ParabolicMorphology]
+url   = "https://github.com/richardbeare/parabolicMorphology.git"
+ref   = "origin/main"
+kind  = "remote"
+heavy = false
+
+[components.IOOpenJPH]
+url   = "https://github.com/InsightSoftwareConsortium/ITKIOOpenJPH.git"
+ref   = "origin/main"
+kind  = "remote"
+heavy = false
+
+[components.NDReg]
+url   = "https://github.com/InsightSoftwareConsortium/ITKNDReg.git"
+ref   = "origin/main"
+kind  = "remote"
+heavy = false
+
+[components.Nornir]
+url   = "https://github.com/InsightSoftwareConsortium/ITKNornir.git"
+ref   = "origin/main"
+kind  = "remote"
+heavy = false
+
+[components.ARGUS]
+url   = "https://github.com/aylward/itkARGUS.git"
+ref   = "origin/main"
+kind  = "remote"
+heavy = false
+
+[components.BoneEnhancement]
+url   = "https://github.com/InsightSoftwareConsortium/ITKBoneEnhancement.git"
+ref   = "origin/main"
+kind  = "remote"
+heavy = false
+
+[components.MinimalPathExtraction]
+url   = "https://github.com/InsightSoftwareConsortium/ITKMinimalPathExtraction.git"
+ref   = "origin/main"
+kind  = "remote"
+heavy = false
+
+[components.MeshToPolyData]
+url   = "https://github.com/InsightSoftwareConsortium/ITKMeshToPolyData.git"
+ref   = "origin/main"
+kind  = "remote"
+heavy = false
+
+[components.BSplineGradient]
+url   = "https://github.com/InsightSoftwareConsortium/ITKBSplineGradient.git"
+ref   = "origin/main"
+kind  = "remote"
+heavy = false
+
+[components.HigherOrderAccurateGradient]
+url   = "https://github.com/InsightSoftwareConsortium/ITKHigherOrderAccurateGradient.git"
+ref   = "origin/main"
+kind  = "remote"
+heavy = false
+
+[components.SplitComponents]
+url   = "https://github.com/InsightSoftwareConsortium/ITKSplitComponents.git"
+ref   = "origin/main"
+kind  = "remote"
+heavy = false
+
+[components.Strain]
+url   = "https://github.com/KitwareMedical/ITKStrain.git"
+ref   = "origin/main"
+kind  = "remote"
+heavy = false
+
+[components.IOScanco]
+url   = "https://github.com/KitwareMedical/ITKIOScanco.git"
+ref   = "origin/main"
+kind  = "remote"
+heavy = false
+
+[components.Elastix]
+url   = "https://github.com/InsightSoftwareConsortium/ITKElastix.git"
+ref   = "origin/main"
+kind  = "remote"
+heavy = true
+
+[components.PyTorch]
+url   = "https://github.com/InsightSoftwareConsortium/ITKPyTorch.git"
+ref   = "origin/main"
+kind  = "remote"
+heavy = true
+
+[components.ArrayFire]
+url   = "https://github.com/InsightSoftwareConsortium/ITKArrayFire.git"
+ref   = "origin/main"
+kind  = "remote"
+heavy = true
+
+[components.ANTsWasm]
+url   = "https://github.com/InsightSoftwareConsortium/ITKANTsWasm.git"
+ref   = "origin/main"
+kind  = "remote"
+heavy = true
+
+[components.HalideFilters]
+url   = "https://github.com/KitwareMedical/ITKHalideFilters.git"
+ref   = "origin/main"
+kind  = "remote"
+heavy = true
+
+[components.PCT]
+url   = "https://github.com/RTKConsortium/PCT.git"
+ref   = "origin/main"
+kind  = "remote"
+heavy = true
+
