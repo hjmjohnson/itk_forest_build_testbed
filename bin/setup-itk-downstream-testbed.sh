@@ -121,6 +121,11 @@ FOREST="$(npath "${FOREST}")"
 # All logs for a forest live inside that forest (never the kit root).
 forest_log_dir(){ mkdir -p "${FOREST}/logs"; echo "${FOREST}/logs"; }
 export CCACHE_DIR="$(npath "${CCACHE_DIR:-${HOME}/.ccache}")"
+# COMPILER_LAUNCHER: the CMAKE_<LANG>_COMPILER_LAUNCHER for every compile.
+# ccache by default (the kit's tuning below is ccache's); sccache is the
+# alternative on MSVC, where it caches cl.exe with the same /Z7 requirement.
+# Its own knobs (SCCACHE_DIR, SCCACHE_CACHE_SIZE) come from the environment.
+export COMPILER_LAUNCHER="${COMPILER_LAUNCHER:-ccache}"
 # ccache basedir policy (HYBRID; the shell is the single authority — presets do
 # not set CCACHE_BASEDIR, because the rule is per-package-CLASS which preset
 # macros cannot express reliably). basedir rewrites absolute paths UNDER it to
@@ -448,9 +453,9 @@ _path_budget_verify(){                    # <name> <build_dir>
   Shorten the forest root by at least $(( n - FOREST_OBJ_PATH_MAX )) characters and reconfigure."
 }
 
-build_dir(){
-  if [ "${FOREST_OS}" = windows ] && [ "$1" = Slicer ]; then echo "${FOREST}/S"
-  else echo "${FOREST}/${1}/build"; fi; }
+build_dir(){   echo "${FOREST}/${1}/build"; }
+# Dropped by the presets restructure while its caller below stayed, so every
+# engine verb died at parse time with "install_dir: command not found".
 install_dir(){ echo "${FOREST}/installed/${1}"; }   # install already uses installed/ target
 
 ITK_BUILD="$(build_dir ITK)"       # ITK build tree
@@ -689,7 +694,14 @@ common_cmake_args(){
   # build rpath lets @rpath/libfftw3*.dylib resolve at discovery and at test time.
   printf '%s ' -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON \
     -DCMAKE_C_COMPILER="${CC}" -DCMAKE_CXX_COMPILER="${CXX}" \
-    -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+    -DCMAKE_C_COMPILER_LAUNCHER="${COMPILER_LAUNCHER}" -DCMAKE_CXX_COMPILER_LAUNCHER="${COMPILER_LAUNCHER}"
+  # ITK turns ITK_USE_CCACHE on whenever a launcher is set and then wraps
+  # swig and castxml with it too. ccache passes those through; sccache refuses
+  # ("Compiler not supported") and the wrapping build dies. Keep the launcher
+  # on the compiles only. Unused-variable noise for non-ITK projects is fine.
+  if [ "${COMPILER_LAUNCHER}" = sccache ]; then
+    printf '%s ' -DITK_USE_CCACHE:BOOL=OFF
+  fi
   # The remaining flags are GNU/Clang spellings with no MSVC equivalent
   # (-ffile-prefix-map), or no meaning on Windows (rpath, the Homebrew tree).
   # MSVC instead needs /Z7 rather than /Zi: ccache cannot cache a separate PDB,
@@ -1261,7 +1273,7 @@ _overlay_vnl_headers(){
 # module set + the same Qt6 Slicer uses (SLICER_QT_PREFIX). Run before ITK so
 # itk_vtk_dir() resolves it. Idempotent: skips configure when build.ninja exists.
 build_forest_vtk(){
-  require cmake ninja ccache git
+  require cmake ninja "${COMPILER_LAUNCHER}" git
   local src="${FOREST}/VTK" b="$(build_dir VTK)"
   local tag="ddd10cf957df01f54eca6546e975e502ea248645" # slicer-v9.6.2-2026-05-15
   if [ ! -f "${src}/CMakeLists.txt" ]; then
@@ -1830,7 +1842,7 @@ _hide_conda_jpeg_shadow_headers(){
     [ -f "${inc}/${h}" ] && mv "${inc}/${h}" "${inc}/${h}.itk-shadow-disabled"
   done; :; }
 
-build_one(){ require cmake ninja ccache; require_pixi_toolchain build
+build_one(){ require cmake ninja "${COMPILER_LAUNCHER}"; require_pixi_toolchain build
   _hide_conda_jpeg_shadow_headers
   local name="$1" b="$(build_dir "$1")"; [ "$name" = ITK ] && b="${ITK_BUILD}"
   [ "$name" = ANTs ] && require_ants_itk_major
@@ -1982,7 +1994,12 @@ cmd_remotes(){ build_one ITK || warn "ITK (re)build issue; continuing with exist
 cmd_status(){
   log "TESTBED=${TESTBED}  FOREST=${FOREST}  JOBS=${JOBS}  HEAVY=${HEAVY}"
   log "CC=${CC}  CXX=${CXX}  CCACHE_DIR=${CCACHE_DIR}"
-  command -v ccache >/dev/null && ccache -s 2>/dev/null | head -6 || warn "no ccache"
+  if command -v "${COMPILER_LAUNCHER}" >/dev/null; then
+    case "${COMPILER_LAUNCHER}" in
+      sccache) sccache --show-stats 2>/dev/null | head -8 ;;
+      *)       "${COMPILER_LAUNCHER}" -s 2>/dev/null | head -6 ;;
+    esac
+  else warn "no ${COMPILER_LAUNCHER}"; fi
   echo; log "checked out:"; ls -1 "${FOREST}" 2>/dev/null | grep -vE -- '-build$' || true; }
 
 cmd_list(){ echo "# consumers (build order: ${BUILD_ORDER[*]})"
@@ -1995,6 +2012,11 @@ case "${1:-checkout}" in
   # A pure query: print the forest this invocation resolves to, so callers ask
   # the engine rather than each recomputing the composition and drifting.
   --print-forest) printf '%s\n' "${FOREST}" ;;
+  # Same rationale for the build tree: build_dir() is platform-aware (Windows
+  # gives Slicer a short directory to stay under the object-path limit), so a
+  # caller that recomputes "<forest>/<name>/build" looks in the wrong place
+  # there and silently reports a built target as missing.
+  --print-build-dir) shift; build_dir "${1:?--print-build-dir <name>}" ;;
   checkout)  shift; cmd_checkout "$@" ;;
   configure) shift; configure_one "${1:?configure <name>}" ;;
   build)     shift; build_one "${1:?build <name>}"; cfg manifest "${FOREST}" 2>/dev/null || true ;;
@@ -2007,5 +2029,5 @@ case "${1:-checkout}" in
   status)    cmd_status ;;
   vtk)       build_forest_vtk ;;
   vkfft-backend) vkfft_backend ;;
-  *) die "unknown command '$1' (--print-forest|checkout|configure|build|build-all|remotes|repoint-itk|manifest|list|status|vtk|vkfft-backend)" ;;
+  *) die "unknown command '$1' (--print-forest|--print-build-dir|checkout|configure|build|build-all|remotes|repoint-itk|manifest|list|status|vtk|vkfft-backend)" ;;
 esac
