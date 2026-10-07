@@ -20,6 +20,10 @@
 !/skills/
 !/Maintenance/
 !/utilities/
+# Test-data roots handed to consumers (README + any manually placed series).
+!/data/
+/data/**/*.dcm
+/data/**/*.mha
 # Committed CMakePresets fragments live here. Generated CMakeUserPresets.json in
 # consumer forests stays ignored (global rule + /build_forest*). Keep smoke build out.
 !/cmake/

@@ -462,6 +462,17 @@ pluslibdata_dir(){
   fi
   echo "${repo}"; }
 
+# LesionSizingToolkit gates nine tests on TEST_CORNELL_DATA_ROOT (a directory
+# holding README.txt) although they read only the module's bundled Data/. The
+# tracked data/CornellELCAP/README.txt satisfies the probe; the ELCAP DICOM
+# collection itself is behind an interactive login (see that README), so
+# TEST_CORNELL_COLLECTION is enabled only when a series has been placed there.
+# Override the root via LESIONSIZING_CORNELL_DATA_ROOT.
+lesionsizing_cornell_dir(){
+  local d="${LESIONSIZING_CORNELL_DATA_ROOT:-${TESTBED}/data/CornellELCAP}"
+  [ -f "${d}/README.txt" ] || { warn "LesionSizingToolkit: ${d}/README.txt missing; Cornell-gated tests stay off"; return 1; }
+  echo "${d}"; }
+
 # --- main consumers (name | git URL | worktree branch) — from versions.toml
 mapfile -t CONSUMERS < <(cfg consumers)
 # Curated, ITK-exercising subset of Slicer extensions built against the
@@ -1493,6 +1504,16 @@ json.dump(d, open(sys.argv[2],"w", encoding="utf-8"), indent=2, sort_keys=True)'
                  _pki="$(itk_python_kvs)" || die "Impact: cannot resolve ITK's python interpreter"
                  while IFS= read -r _kvi; do [ -n "${_kvi}" ] && _im_kvs+=("${_kvi}"); done <<<"${_pki}"
                  do_overlay Impact itk-forest-base "$s" "$b" "${_im_kvs[@]}" ;;
+    LesionSizingToolkit)
+                 local _ls_kvs=("ITK_DIR=$(itk_dir)") _pkl _kvl _cornell
+                 _pkl="$(itk_python_kvs)" || die "LesionSizingToolkit: cannot resolve ITK's python interpreter"
+                 while IFS= read -r _kvl; do [ -n "${_kvl}" ] && _ls_kvs+=("${_kvl}"); done <<<"${_pkl}"
+                 if _cornell="$(lesionsizing_cornell_dir)"; then
+                   _ls_kvs+=("TEST_CORNELL_DATA_ROOT=${_cornell}")
+                   [ -d "${_cornell}/CornellPartSolid3/SL0074-20000101" ] && _ls_kvs+=("TEST_CORNELL_COLLECTION=ON")
+                   log "LesionSizingToolkit: TEST_CORNELL_DATA_ROOT=${_cornell}"
+                 fi
+                 do_overlay LesionSizingToolkit itk-forest-base "$s" "$b" "${_ls_kvs[@]}" ;;
     *)  local _def_kvs=("ITK_DIR=$(itk_dir)") _pk _kv
         _pk="$(itk_python_kvs)" || die "${name}: cannot resolve ITK's python interpreter"
         while IFS= read -r _kv; do [ -n "${_kv}" ] && _def_kvs+=("${_kv}"); done <<<"${_pk}"
