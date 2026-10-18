@@ -94,14 +94,18 @@ Keep this current. When a PR merges, do the retirement steps and delete its row.
 
 | consumer | forests wired | fork branch | upstream PR(s) | retire when |
 |---|---|---|---|---|
-| TractographyTRX | itk-main, itk-release-5.4 | `hjmjohnson/ITKTractographyTRX@itk-forest-integration` | tee-ar-ex/ITKTractographyTRX#30 **and** tee-ar-ex/trx-cpp#52 | both merge; bump module `TRX_CPP_GIT_TAG` to a merged trx-cpp SHA; drop both scenarios |
-| trx-cpp *(via TractographyTRX pin)* | — (fetched by the module) | `hjmjohnson/trx-cpp@itk-forest-integration` (11d0c81) | tee-ar-ex/trx-cpp#52 | #52 merges |
-| BRAINSTools | itk-main only | `hjmjohnson/BRAINSTools@itk-forest-integration` | BRAINSia/BRAINSTools#616 | #616 merges; drop the itk-main scenario |
+| TractographyTRX | itk-main, itk-release-5.4 | `hjmjohnson/ITKTractographyTRX@itk-forest-integration` | tee-ar-ex/ITKTractographyTRX#30 | #30 merges; drop both scenarios |
+| ITK (itk-main only) | itk-main | `<fork>/itk-forest-integration-itk-main` (built by `itk-forest-refresh`) | InsightSoftwareConsortium/ITK#6884 (VariationalRegistration Python-wrapping fix) | #6884 merges; drop `[itk.v6]` from `skills/itk-forest-refresh/integration-requests.toml`, re-enable `Module_VariationalRegistration` |
 | Slicer | itk-main only | `hjmjohnson/Slicer@itk-forest-integration` *(not yet pushed)* | none yet — bump `SuperBuild.cmake` BRAINSTools pin `ced799ad` → `dbb02b6a` | Slicer upstream bumps its BRAINSTools pin past the itkDCMTKFileReader vendoring; drop the `url`/`branch` keys from `[scenarios.itk-main.Slicer]` (keep `ITK_GIT_TAG`) |
-| ANTs | non-itkv5 forests | `hjmjohnson/pin-seed-affinescalemasks` *(pre-convention; wired via `components.ANTs.ref` + `subbuild.ANTs.fork_ref`, not a scenario)* | ANTsX/ANTs#2008 | #2008 merges; restore `components.ANTs.ref = origin/main`, delete `subbuild.ANTs.fork_ref` |
+
+Retired 2026-10-18 (upstream merged, scenario overrides removed from
+`versions.toml`): BRAINSTools#616 (2026-07-21), ANTsX/ANTs#2008 (2026-07-17),
+tee-ar-ex/trx-cpp#52 (2026-08-04), PerkLab/SlicerFreeSurfer#23 (2026-07-23).
 
 ITK#6655 (NrrdIO `sampleIO.c`) needed no integration branch — it **merged** into
-`upstream/main`, so every forest tracking main already has it.
+`upstream/main`, so every forest tracking main already has it. Likewise ITK#6883
+(MeshNoise wrapping fix, merged 2026-09-21) needed none; `Module_MeshNoise` can
+be re-enabled in itk-main's ITK build cache.
 
 ## Retiring one (do not skip)
 

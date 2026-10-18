@@ -1,0 +1,35 @@
+# itk-forest-refresh request file — in-flight PRs to test before they merge.
+#
+# Nothing listed here = plain refresh to upstream default branches (the
+# common case). Add an entry only while a specific PR needs forest coverage
+# while it awaits review; remove the entry once it merges (the next refresh
+# then floats back to upstream on its own).
+#
+# [itk.v6] / [itk.v5] -- PRs to merge on top of ITK's own upstream/main or
+# upstream/release-5.4 before building ITK. Rarely needed: most ITK PRs are
+# tested by repointing straight at the PR (see docs/workflow.md), not by an
+# integration branch. Use this only when an ITK fix must be combined with
+# another in-flight ITK PR for the same test run.
+#
+#   [itk.v6]
+#   prs = ["pr/6250"]
+#
+# [downstream.<Name>] -- PRs requested for a downstream consumer (a key under
+# [components.*] in versions.toml, e.g. BRAINSTools, ANTs, Slicer, elastix).
+# `prs` accepts "pr/<N>" (fetched from that repo's own GitHub PR refs).
+# `forests` is optional; omit it to wire the SAME integration branch into
+# both v5 (itk-release-5.4) and v6 (itk-main) scenarios, which is the default
+# and the preferred shape per docs/integration-branches.md ("per-forest, on
+# purpose" is the exception, not the rule). Set forests = ["itk-main"] (or
+# ["itk-release-5.4"]) only when a fix is known to be wrong for the other
+# forest (the BRAINSTools#616 MIH-baseline case is the documented example).
+#
+#   [downstream.BRAINSTools]
+#   prs = ["pr/616"]
+#   forests = ["itk-main"]
+
+[itk.v6]
+# Fixes the VariationalRegistration Python-wrapping defect this forest
+# disabled the module for (2026-09-28/10-03). Drop this and re-enable
+# Module_VariationalRegistration once it merges.
+prs = ["pr/6884"]
