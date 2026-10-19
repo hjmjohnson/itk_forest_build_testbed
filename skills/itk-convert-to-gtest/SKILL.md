@@ -1,6 +1,6 @@
 ---
 name: itk-convert-to-gtest
-version: 1.3.0
+version: 1.4.0
 purpose: Mechanically convert no-argument ITK CTests in one module to GoogleTest, one test per commit, preserving behavior and git history, following N-Dekker's "one commit, one change" reviewer standard.
 description: Convert no-argument ITK CTests (itk_add_test with no trailing args) to GoogleTest format. Strictly mechanical, one test per git-mv-tracked commit, with assertion-macro mapping, CMakeLists rewiring, and mandatory per-commit build+test. Use when migrating an ITK module's legacy CTest functions to the GTest driver.
 triggers:
@@ -207,8 +207,23 @@ Translate output/return-code checks into the **most specific** macro:
 | `if (a >= b) return EXIT_FAILURE` | `EXPECT_LT(a, b)` |
 | `if (ptr == nullptr) return EXIT_FAILURE` | `EXPECT_NE(ptr, nullptr)` |
 | `if (ptr != nullptr) return EXIT_FAILURE` | `EXPECT_EQ(ptr, nullptr)` |
-| try/catch expecting exception | `EXPECT_THROW(expr, ExceptionType)` / `ASSERT_THROW` |
+| `ITK_TRY_EXPECT_EXCEPTION(expr)`, or a try/catch that prints the caught expected exception | `ITK_GTEST_EXPECT_THROW_AND_PRINT(expr, ExceptionType)` |
+| try/catch expecting an exception, without printing it | `EXPECT_THROW(expr, ExceptionType)` / `ASSERT_THROW` |
 | comparing ITK array-like objects | `ITK_EXPECT_VECTOR_NEAR(v1, v2, rmsError)` |
+
+#### Keep printing caught exceptions
+
+`ITK_TRY_EXPECT_EXCEPTION` prints the exception it catches, and many tests
+print a caught exception explicitly. That print runs the exception's `Print`
+code, and for an exception carrying a DataObject (`InvalidRequestedRegionError`)
+the object's whole `PrintSelf` chain. Plain `EXPECT_THROW` prints nothing, so
+it silently drops that coverage: about 160 lines in one test in the 2026-10
+staging run. Use `ITK_GTEST_EXPECT_THROW_AND_PRINT(statement, ExceptionType)`
+from `itkGTest.h` wherever the original printed the caught exception.
+
+The macro is added by the commit "ENH: Add ITK_GTEST_EXPECT_THROW_AND_PRINT
+GoogleTest macro" (branch `gtest-expect-throw-and-print` until it lands
+upstream). Any conversion branch must be based on that commit.
 
 #### `EXPECT_*` by default, `ASSERT_*` only when later code depends on it
 
