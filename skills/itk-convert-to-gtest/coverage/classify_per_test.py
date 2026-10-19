@@ -32,7 +32,7 @@ RULES = [
     ("exception-printing", "Modules/Core/Common/include/itkIndent.h", None),
     ("exception-printing", "Modules/Core/Common/include/itkMacro.h", set(range(430, 440))),
     ("check-helper", "Modules/Core/Common/include/itkMath.h", None),
-    ("check-helper", "Modules/Core/Common/include/itkSmartPointer.h", set(range(115, 125))),
+    ("check-helper", "Modules/Core/Common/include/itkSmartPointer.h", set(range(115, 125)) | set(range(265, 275))),
     ("check-helper", "Modules/Core/Common/include/itkIndex.h", set(range(550, 560))),
 ]
 
