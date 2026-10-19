@@ -34,6 +34,7 @@ RULES = [
     ("check-helper", "Modules/Core/Common/include/itkMath.h", None),
     ("check-helper", "Modules/Core/Common/include/itkSmartPointer.h", set(range(115, 125)) | set(range(265, 275))),
     ("check-helper", "Modules/Core/Common/include/itkIndex.h", set(range(550, 560))),
+    ("check-helper", "Modules/Core/Common/include/itkMacro.h", set(range(856, 864))),
 ]
 
 
