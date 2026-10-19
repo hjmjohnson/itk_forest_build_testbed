@@ -44,6 +44,7 @@ RULES = [
     ("known-variable", "Modules/Core/Common/include/itkTotalProgressReporter.h", set(range(115, 125))),
     ("known-variable", "Modules/Core/Common/src/itkPoolMultiThreader.cxx", set(range(290, 300))),
     ("known-variable", "Modules/Core/Common/src/itkProcessObject.cxx", set(range(1140, 1170))),
+    ("known-variable", "Modules/Filtering/LabelMap/include/itkLabelMapFilter.hxx", set(range(90, 120))),
     ("known-variable", "Modules/Filtering/ImageFilterBase/include/itkBinaryGeneratorImageFilter.hxx", set(range(205, 255))),
     ("known-variable", "Modules/Core/Common/include/itkMacro.h", set(range(565, 635))),
     ("known-variable", "Modules/Core/Common/include/itkConstNeighborhoodIterator.hxx", {257, 258, 260, 261, 475, 476, 477, 478}),
