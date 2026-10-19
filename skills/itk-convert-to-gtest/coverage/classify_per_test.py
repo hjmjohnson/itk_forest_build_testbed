@@ -48,6 +48,7 @@ RULES = [
     ("known-variable", "Modules/Core/Common/include/itkConstNeighborhoodIterator.hxx", {257, 258, 260, 261, 475, 476, 477, 478}),
     ("known-variable", "Modules/Core/Common/include/itkImageAlgorithm.hxx", {166, 167, 179, 180, 188}),
     ("check-helper", "Modules/Core/Common/include/itkMacro.h", set(range(856, 864))),
+    ("check-helper", "Modules/Core/Common/include/itkMacro.h", set(range(424, 429))),
 ]
 
 
