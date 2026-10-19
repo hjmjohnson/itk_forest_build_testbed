@@ -38,6 +38,8 @@ RULES = [
     ("check-helper", "Modules/Core/Common/include/itkMath.h", None),
     ("check-helper", "Modules/Core/Common/include/itkSmartPointer.h", set(range(115, 125)) | set(range(265, 275))),
     ("check-helper", "Modules/Core/Common/include/itkIndex.h", set(range(550, 560))),
+    ("check-helper", "Modules/Core/Common/include/itkOffset.h", set(range(490, 497))),
+    ("check-helper", "Modules/Core/Common/include/itkSize.h", set(range(465, 472))),
     ("known-variable", "Modules/Core/Common/include/itkTotalProgressReporter.h", set(range(115, 125))),
     ("known-variable", "Modules/Core/Common/src/itkPoolMultiThreader.cxx", set(range(290, 300))),
     ("known-variable", "Modules/Filtering/ImageFilterBase/include/itkBinaryGeneratorImageFilter.hxx", set(range(205, 255))),
