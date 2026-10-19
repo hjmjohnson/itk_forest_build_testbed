@@ -1,6 +1,6 @@
 ---
 name: itk-convert-to-gtest
-version: 1.4.0
+version: 1.5.0
 purpose: Mechanically convert no-argument ITK CTests in one module to GoogleTest, one test per commit, preserving behavior and git history, following N-Dekker's "one commit, one change" reviewer standard.
 description: Convert no-argument ITK CTests (itk_add_test with no trailing args) to GoogleTest format. Strictly mechanical, one test per git-mv-tracked commit, with assertion-macro mapping, CMakeLists rewiring, and mandatory per-commit build+test. Use when migrating an ITK module's legacy CTest functions to the GTest driver.
 triggers:
@@ -210,6 +210,18 @@ Translate output/return-code checks into the **most specific** macro:
 | `ITK_TRY_EXPECT_EXCEPTION(expr)`, or a try/catch that prints the caught expected exception | `ITK_GTEST_EXPECT_THROW_AND_PRINT(expr, ExceptionType)` |
 | try/catch expecting an exception, without printing it | `EXPECT_THROW(expr, ExceptionType)` / `ASSERT_THROW` |
 | comparing ITK array-like objects | `ITK_EXPECT_VECTOR_NEAR(v1, v2, rmsError)` |
+
+#### Reseed `vnl_sample` like the legacy driver
+
+The legacy test driver calls `vnl_sample_reseed(8775070)` before every test
+(`itkTestDriverBeforeTest.inc`); GoogleTest drivers do not. A converted test
+that draws from `vnl_sample`, directly or through library code that does
+(`ImageRandomConstIteratorWithIndex` and the random iterators built on it,
+`ColorTable`, `VoronoiDiagram2DGenerator`), would otherwise run on different
+random inputs: it still passes, but exercises different branches. Make the
+first statement of each such `TEST` `vnl_sample_reseed(8775070);` and include
+`"vnl/vnl_sample.h"`. Find library users with
+`git grep -l vnl_sample -- 'Modules/*' ':!*/test/*' ':!Modules/ThirdParty/*'`.
 
 #### Keep printing caught exceptions
 
