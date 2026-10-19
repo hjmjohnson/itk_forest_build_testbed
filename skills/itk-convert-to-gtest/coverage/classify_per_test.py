@@ -15,6 +15,10 @@ Categories (see README.md for the evidence behind each):
   check-helper         itk::Math / SmartPointer / Index comparison helpers
                        the original used for its checks, replaced by the
                        equivalent EXPECT_* macro.
+  known-variable       lines that repeated runs of the same unchanged test
+                       cover in some runs and not others (thread-pool and
+                       progress-reporting paths, BinaryGenerator exception
+                       branches). Reported, not counted as lost.
 
 Usage: classify_per_test.py <per_test_coverage.json> [out.json]
 """
@@ -34,6 +38,12 @@ RULES = [
     ("check-helper", "Modules/Core/Common/include/itkMath.h", None),
     ("check-helper", "Modules/Core/Common/include/itkSmartPointer.h", set(range(115, 125)) | set(range(265, 275))),
     ("check-helper", "Modules/Core/Common/include/itkIndex.h", set(range(550, 560))),
+    ("known-variable", "Modules/Core/Common/include/itkTotalProgressReporter.h", set(range(115, 125))),
+    ("known-variable", "Modules/Core/Common/src/itkPoolMultiThreader.cxx", set(range(290, 300))),
+    ("known-variable", "Modules/Filtering/ImageFilterBase/include/itkBinaryGeneratorImageFilter.hxx", set(range(205, 255))),
+    ("known-variable", "Modules/Core/Common/include/itkMacro.h", set(range(565, 635))),
+    ("known-variable", "Modules/Core/Common/include/itkConstNeighborhoodIterator.hxx", {257, 258, 260, 261, 475, 476, 477, 478}),
+    ("known-variable", "Modules/Core/Common/include/itkImageAlgorithm.hxx", {166, 167, 179, 180, 188}),
     ("check-helper", "Modules/Core/Common/include/itkMacro.h", set(range(856, 864))),
 ]
 
