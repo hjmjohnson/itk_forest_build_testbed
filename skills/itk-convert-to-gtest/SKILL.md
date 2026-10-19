@@ -1,6 +1,6 @@
 ---
 name: itk-convert-to-gtest
-version: 1.2.0
+version: 1.3.0
 purpose: Mechanically convert no-argument ITK CTests in one module to GoogleTest, one test per commit, preserving behavior and git history, following N-Dekker's "one commit, one change" reviewer standard.
 description: Convert no-argument ITK CTests (itk_add_test with no trailing args) to GoogleTest format. Strictly mechanical, one test per git-mv-tracked commit, with assertion-macro mapping, CMakeLists rewiring, and mandatory per-commit build+test. Use when migrating an ITK module's legacy CTest functions to the GTest driver.
 triggers:
@@ -133,10 +133,15 @@ tests that a mechanical conversion would change:
 
 | Reason | Why it cannot be converted mechanically |
 |---|---|
-| `disabled-block` | Registered inside `if(0)`, `if(FALSE)`, or similar. Upstream deliberately never runs it (e.g. `itkMemoryLeakTest`, which leaks on purpose). |
 | `test-properties` | Named in `set_tests_properties` (ENVIRONMENT, WILL_FAIL, and so on); those settings do not carry over to a GoogleTest case. |
 | `function-reused` | The same test function is also registered with arguments; the `.cxx` must stay. |
 | `factory-dependent` | Enumerates, unregisters, or registers object factories. The legacy driver registers every IO/FFT factory before each test; GoogleTest drivers register none, so the converted test would run against an empty factory list. |
+
+Tests registered inside `if(0)`, `if(FALSE)`, or a similar disabled block are
+**converted, not skipped**, and listed under `disabled`. Such blocks exist for
+many reasons and often mark unfinished work that needs future investigation,
+so the conversion must keep the test disabled and keep every comment around
+the block. See 2d for the CMake form.
 
 Two more skip reasons the scanner cannot detect; check for them when reading
 the test (2a) and skip, recording why:
@@ -299,6 +304,40 @@ sorted**:
 The `ITKThisModuleGTests` set feeds
 `creategoogletestdriver(ITKThisModuleGTests ...)` which builds
 `ITKThisModuleGTestDriver`.
+
+#### A test inside a disabled block (`if(0)`, `if(FALSE)`, ...)
+
+Convert it, but keep it disabled with the same condition and **every comment**
+that explained the block. The GoogleTest equivalent of a disabled
+registration is a disabled entry in the GoogleTest source list, so move the
+block (comments included) to sit after the `ITKThisModuleGTests` `set(...)`
+and before `creategoogletestdriver(...)`:
+
+```cmake
+# Before (legacy, among the itk_add_test calls):
+#
+# This test should be enabled if you suspect that the memory leak detector
+# is not working
+if(0)
+  itk_add_test(NAME itkMemoryLeakTest COMMAND ITKCommon2TestDriver itkMemoryLeakTest)
+endif()
+
+# After (immediately before creategoogletestdriver):
+#
+# This test should be enabled if you suspect that the memory leak detector
+# is not working
+if(0)
+  list(APPEND ITKCommonGTests itkMemoryLeakGTest.cxx)
+endif()
+creategoogletestdriver(ITKCommon "${ITKCommon-Test_LIBRARIES}" "${ITKCommonGTests}")
+```
+
+Remove the `.cxx` from the legacy source list as usual. A GoogleTest source
+inside `if(0)` is not compiled, whereas the legacy `.cxx` usually was, so
+before committing, **temporarily change the condition to `if(1)`**, build the
+GoogleTest driver, run the test, then restore the original condition. Rebuild
+the driver afterward and confirm `ctest -N -R '^Suite\.'` lists no test,
+because GoogleTest cases are discovered from the last-built driver.
 
 ### 2e. Verify the rename was tracked
 

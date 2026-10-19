@@ -6,9 +6,11 @@ function name equals the test NAME, takes no trailing arguments after the
 driver function, has an on-disk ``<fn>.cxx``, and has no existing
 ``<fn-with-Test->GTest>.cxx``.
 
-A matching test is excluded, with a reason, when a mechanical conversion would
-change what it does:
-  disabled-block      registered inside if(0) / if(FALSE) / if(OFF) / if(NO)
+A matching test registered inside if(0) / if(FALSE) / if(OFF) / if(NO) is
+still a candidate, listed under "disabled": convert it and keep it disabled in
+an if(0) block with its comments, because such blocks often mark unfinished
+work. A matching test is excluded, with a reason, when a mechanical conversion
+would change what it does:
   test-properties     named in set_tests_properties (environment, WILL_FAIL, ...)
   function-reused     the same test function is also registered with arguments
   factory-dependent   enumerates, unregisters, or registers object factories,
@@ -55,9 +57,7 @@ def _disabled_spans(text: str) -> list[tuple[int, int]]:
     return spans
 
 
-def _exclusion(text: str, pos: int, fn: str, cxx: Path, spans) -> str | None:
-    if any(a <= pos < b for a, b in spans):
-        return "disabled-block"
+def _exclusion(text: str, pos: int, fn: str, cxx: Path) -> str | None:
     for props in re.finditer(r"set_tests_properties\s*\((.*?)PROPERTIES", text, re.S):
         if re.search(rf"\b{fn}\b", props.group(1)):
             return "test-properties"
@@ -72,7 +72,9 @@ def _exclusion(text: str, pos: int, fn: str, cxx: Path, spans) -> str | None:
     return None
 
 
-def _scan_cmakelists(cml: Path, excluded: dict[str, str] | None = None) -> list[str]:
+def _scan_cmakelists(
+    cml: Path, excluded: dict[str, str] | None = None, disabled: list[str] | None = None
+) -> list[str]:
     testdir = cml.parent
     text = cml.read_text(errors="replace")
     spans = _disabled_spans(text)
@@ -85,11 +87,13 @@ def _scan_cmakelists(cml: Path, excluded: dict[str, str] | None = None) -> list[
         gtest = testdir / (fn.replace("Test", "GTest") + ".cxx")
         if not cxx.exists() or gtest.exists():
             continue
-        reason = _exclusion(text, match.start(), fn, cxx, spans)
+        reason = _exclusion(text, match.start(), fn, cxx)
         if reason:
             if excluded is not None:
                 excluded[fn] = reason
             continue
+        if disabled is not None and any(a <= match.start() < b for a, b in spans):
+            disabled.append(fn)
         found.append(fn)
     return sorted(found)
 
@@ -103,7 +107,12 @@ def _module_of(cml: Path) -> str:
     return "/".join(parts[idx : idx + 3])
 
 
-def scan(root: Path, module: str | None, excluded: dict[str, dict[str, str]] | None = None) -> dict[str, list[str]]:
+def scan(
+    root: Path,
+    module: str | None,
+    excluded: dict[str, dict[str, str]] | None = None,
+    disabled: dict[str, list[str]] | None = None,
+) -> dict[str, list[str]]:
     if module:
         cmls = [root / module / "test" / "CMakeLists.txt"]
         cmls = [c for c in cmls if c.exists()]
@@ -112,11 +121,14 @@ def scan(root: Path, module: str | None, excluded: dict[str, dict[str, str]] | N
     out: dict[str, list[str]] = {}
     for cml in cmls:
         skipped: dict[str, str] = {}
-        candidates = _scan_cmakelists(cml, skipped)
+        off: list[str] = []
+        candidates = _scan_cmakelists(cml, skipped, off)
         if candidates:
             out[_module_of(cml)] = candidates
         if skipped and excluded is not None:
             excluded[_module_of(cml)] = skipped
+        if off and disabled is not None:
+            disabled[_module_of(cml)] = sorted(off)
     return dict(sorted(out.items()))
 
 
@@ -128,7 +140,8 @@ def main() -> int:
     args = parser.parse_args()
 
     excluded: dict[str, dict[str, str]] = {}
-    by_module = scan(Path(args.root), args.module, excluded)
+    disabled: dict[str, list[str]] = {}
+    by_module = scan(Path(args.root), args.module, excluded, disabled)
     total = sum(len(v) for v in by_module.values())
     n_excluded = sum(len(v) for v in excluded.values())
 
@@ -140,6 +153,7 @@ def main() -> int:
                     "modules": len(by_module),
                     "by_module": by_module,
                     "excluded": dict(sorted(excluded.items())),
+                    "disabled": dict(sorted(disabled.items())),
                 },
                 indent=1,
             )
@@ -149,6 +163,11 @@ def main() -> int:
             print(f"# {module}  ({len(names)})")
             for fn in names:
                 print(f"  {fn}")
+        if disabled:
+            print("\n# Disabled in if(0): convert, and keep disabled in an if(0) block with its comments")
+            for module, names in sorted(disabled.items()):
+                for fn in names:
+                    print(f"  {module}: {fn}")
         if excluded:
             print("\n# Excluded (a mechanical conversion would change the test)")
             for module, skipped in sorted(excluded.items()):
