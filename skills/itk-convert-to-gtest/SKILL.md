@@ -1,6 +1,6 @@
 ---
 name: itk-convert-to-gtest
-version: 1.1.0
+version: 1.2.0
 purpose: Mechanically convert no-argument ITK CTests in one module to GoogleTest, one test per commit, preserving behavior and git history, following N-Dekker's "one commit, one change" reviewer standard.
 description: Convert no-argument ITK CTests (itk_add_test with no trailing args) to GoogleTest format. Strictly mechanical, one test per git-mv-tracked commit, with assertion-macro mapping, CMakeLists rewiring, and mandatory per-commit build+test. Use when migrating an ITK module's legacy CTest functions to the GTest driver.
 triggers:
@@ -46,9 +46,20 @@ dependencies:
     - clang-format
     - ninja
     - cmake
+    - llvm-cov
+    - llvm-profdata
   python_packages: []
   scripts:
     - find_gtest_candidates.py
+    - coverage/configure_coverage_build.sh
+    - coverage/run_coverage_tests.sh
+    - coverage/export_per_driver.sh
+    - coverage/map_profile_signatures.sh
+    - coverage/compare_coverage.py
+    - coverage/per_test_coverage.py
+    - coverage/classify_per_test.py
+    - coverage/repeat_pairs.py
+    - coverage/rerun_variability.sh
 deployment:
   tier: project
   target_projects:
@@ -117,6 +128,24 @@ itk_add_test(
 The scanner skips tests that pass arguments (files, numbers, paths) after the
 function name, and skips any whose `*GTest.cxx` already exists.
 
+It also **excludes**, with a reason (listed under `excluded` in `--json`),
+tests that a mechanical conversion would change:
+
+| Reason | Why it cannot be converted mechanically |
+|---|---|
+| `disabled-block` | Registered inside `if(0)`, `if(FALSE)`, or similar. Upstream deliberately never runs it (e.g. `itkMemoryLeakTest`, which leaks on purpose). |
+| `test-properties` | Named in `set_tests_properties` (ENVIRONMENT, WILL_FAIL, and so on); those settings do not carry over to a GoogleTest case. |
+| `function-reused` | The same test function is also registered with arguments; the `.cxx` must stay. |
+| `factory-dependent` | Enumerates, unregisters, or registers object factories. The legacy driver registers every IO/FFT factory before each test; GoogleTest drivers register none, so the converted test would run against an empty factory list. |
+
+Two more skip reasons the scanner cannot detect; check for them when reading
+the test (2a) and skip, recording why:
+
+- the test calls helpers (`println()`, `GetTestImage()`, ...) defined in a
+  *different* legacy test file that stays in the legacy driver;
+- the test's pass/fail depends on a helper's exit code meaning "the expected
+  exception happened", which `EXPECT_*` cannot express without restructuring.
+
 ## Step 2: For each candidate — convert one file at a time
 
 Work through candidates one at a time. For each `itkFooTest`:
@@ -145,7 +174,10 @@ first, then the content edits as a fixup.
 - Use `ITK_GTEST_EXERCISE_BASIC_OBJECT_METHODS(ptr, ClassName, SuperclassName)`
   (from `itkGTest.h`) wherever `ITK_EXERCISE_BASIC_OBJECT_METHODS` was used.
   It requires a **named pointer variable**, not an inline `New()` expression.
-- Wrap helper functions in an anonymous `namespace { }`.
+- Wrap helper functions **and helper classes** in an anonymous
+  `namespace { }`. Do not keep a legacy `namespace itk { }` around test
+  helpers: in a shared GoogleTest driver, external linkage risks an ODR clash
+  with another test's helper of the same name.
 - Preserve `std::cout` diagnostics **only** when they call functions that would
   otherwise not be exercised; otherwise minimize redundant output on pass.
 - Preserve all comments, especially scope-explaining ones.
@@ -172,6 +204,21 @@ Translate output/return-code checks into the **most specific** macro:
 | `if (ptr != nullptr) return EXIT_FAILURE` | `EXPECT_EQ(ptr, nullptr)` |
 | try/catch expecting exception | `EXPECT_THROW(expr, ExceptionType)` / `ASSERT_THROW` |
 | comparing ITK array-like objects | `ITK_EXPECT_VECTOR_NEAR(v1, v2, rmsError)` |
+
+#### `EXPECT_*` by default, `ASSERT_*` only when later code depends on it
+
+Prefer `EXPECT_*`: it reports every failure in one run. Use `ASSERT_*` only
+when a later statement would be unsafe or meaningless if the check failed,
+typically a null check before a dereference:
+
+```cpp
+ASSERT_FALSE(clone.IsNull());          // the next line dereferences clone
+auto field = clone->GetDisplacementField();
+```
+
+With `EXPECT_*` there, a null clone records a failure and then segfaults,
+turning a readable failure into a crash. Matching the original's early
+`return EXIT_FAILURE` is not by itself a reason for `ASSERT_*`.
 
 #### `EXPECT_TRUE` is the assertion of last resort
 
@@ -267,10 +314,13 @@ first, then the content edits as a fixup. **Never** use `git rm` + `Write`.
 ```bash
 git add Modules/Group/Name/test/itkFooGTest.cxx \
         Modules/Group/Name/test/CMakeLists.txt
-git commit -m "ENH: Convert itkFooTest to itkFooGTest"
+git commit -m "ENH: Convert itkFooTest to GoogleTest"
 ```
 
-Hook requirements: subject starts with `ENH: Convert`, ≤ 78 chars. Run
+Use that subject form for every test so batches read uniformly. The
+commit-msg hook rejects subjects of 78 characters or more; for a long test
+name use `ENH: Convert <Foo> test to GoogleTest` (drop `itk` and `Test`,
+abbreviate further if needed) and put `Converts itkFooTest.` in the body. Run
 `pre-commit run --all-files` before committing; if clang-format/gersemi
 reformat staged files, re-stage and commit again.
 
@@ -291,6 +341,26 @@ pixi run --as-is ctest -R "itkFooGTest" --output-on-failure
 ```
 
 If the build or test fails, fix and amend the commit before proceeding.
+
+### 2h. Coverage parity (MANDATORY per batch, before a PR)
+
+Passing tests do not show the conversion exercises the same code. Before a
+batch goes up for review, prove coverage parity with the packaged scripts in
+`coverage/` (LLVM source-based coverage; see `coverage/README.md`):
+
+1. Two coverage builds with the same modules: the base, and the batch.
+2. **Per test:** each old CTest alone vs its GoogleTest alone. Every library
+   line the original covered must be covered by the conversion, after
+   subtracting the legacy driver's startup overhead (measured exactly by
+   running the driver with an unknown test name) and excluding TestKernel.
+   `classify_per_test.py` assigns any residual to an explained category
+   (factory environment, exception printing, check helper) or flags it.
+3. **Aggregate:** line-by-line comparison of all modules, three steady-state
+   runs per side (`compare_coverage.py`), which must report 0 lost lines.
+
+Re-run flagged pairs with `repeat_pairs.py`; only losses stable across runs
+count. A real loss means the conversion dropped something: fix it or skip the
+test.
 
 ## Step 3: Augmenting existing GTest files
 
