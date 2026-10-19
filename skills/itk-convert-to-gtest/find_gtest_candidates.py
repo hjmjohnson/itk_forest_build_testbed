@@ -12,7 +12,7 @@ an if(0) block with its comments, because such blocks often mark unfinished
 work. A matching test is excluded, with a reason, when a mechanical conversion
 would change what it does:
   test-properties     named in set_tests_properties (environment, WILL_FAIL, ...)
-  function-reused     the same test function is also registered with arguments
+  function-reused     the same test function is also registered by another itk_add_test
   factory-dependent   enumerates, unregisters, or registers object factories,
                       which the legacy driver sets up and GoogleTest drivers do not
 
@@ -65,7 +65,7 @@ def _exclusion(text: str, pos: int, fn: str, cxx: Path) -> str | None:
         if block.start() == pos:
             continue
         words = block.group(1).split()
-        if fn in words and words[words.index(fn) + 1 :]:
+        if fn in words:
             return "function-reused"
     if _FACTORY_RE.search(cxx.read_text(errors="replace")):
         return "factory-dependent"
