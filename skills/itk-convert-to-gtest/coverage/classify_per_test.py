@@ -29,7 +29,7 @@ from collections import Counter
 from pathlib import Path
 
 RULES = [
-    ("factory-environment", "Modules/Core/Common/src/itkObjectFactoryBase.cxx", set(range(198, 206)) | set(range(713, 726))),
+    ("factory-environment", "Modules/Core/Common/src/itkObjectFactoryBase.cxx", set(range(198, 206)) | set(range(213, 220)) | set(range(713, 726)) | set(range(727, 744))),
     ("exception-printing", "Modules/Core/Common/src/itkExceptionObject.cxx", set(range(200, 250))),
     ("exception-printing", "Modules/Core/Common/src/itkExceptionObject.cxx", set(range(168, 182))),
     ("exception-printing", "Modules/Core/Common/include/itkExceptionObject.h", set(range(150, 160))),
