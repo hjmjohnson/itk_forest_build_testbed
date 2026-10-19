@@ -61,6 +61,9 @@ def _exclusion(text: str, pos: int, fn: str, cxx: Path) -> str | None:
     for props in re.finditer(r"set_tests_properties\s*\((.*?)PROPERTIES", text, re.S):
         if re.search(rf"\b{fn}\b", props.group(1)):
             return "test-properties"
+    for props in re.finditer(r"set_property\s*\(\s*TEST\b(.*?)PROPERTY", text, re.S):
+        if re.search(rf"\b{fn}\b", props.group(1)):
+            return "test-properties"
     for block in _ANY_ADD_TEST_RE.finditer(text):
         if block.start() == pos:
             continue
