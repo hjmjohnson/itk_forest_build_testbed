@@ -60,8 +60,10 @@ python3 $C/repeat_pairs.py inventory.json <base-build> <base-src> \
   factories. The legacy driver registers IO and FFT factories; GoogleTest
   drivers register none.
 - `exception-printing`: originals printed caught exceptions;
-  `EXPECT_THROW` does not, so `ExceptionObject::Print` and its chain go
-  unreached. The throwing code is still covered.
+  `EXPECT_THROW` does not, so `ExceptionObject::Print`,
+  `DataObjectError::Print`, and the attached object's `PrintSelf` chain go
+  unreached. The throwing code is still covered, and the dedicated exception
+  GoogleTests cover the exception classes; this residual is expected.
 - `check-helper`: `itk::Math`, `SmartPointer`, and `Index` helpers the
   original used for its checks, replaced by the equivalent `EXPECT_*`.
 

@@ -33,6 +33,7 @@ RULES = [
     ("exception-printing", "Modules/Core/Common/src/itkExceptionObject.cxx", set(range(200, 250))),
     ("exception-printing", "Modules/Core/Common/src/itkExceptionObject.cxx", set(range(168, 182))),
     ("exception-printing", "Modules/Core/Common/include/itkExceptionObject.h", set(range(150, 160))),
+    ("exception-printing", "Modules/Core/Common/src/itkDataObject.cxx", set(range(72, 90))),
     ("exception-printing", "Modules/Core/Common/src/itkIndent.cxx", None),
     ("exception-printing", "Modules/Core/Common/include/itkIndent.h", None),
     ("exception-printing", "Modules/Core/Common/include/itkMacro.h", set(range(430, 440))),
