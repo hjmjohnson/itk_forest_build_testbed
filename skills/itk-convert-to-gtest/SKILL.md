@@ -1,6 +1,6 @@
 ---
 name: itk-convert-to-gtest
-version: 1.6.0
+version: 1.7.0
 purpose: Mechanically convert no-argument ITK CTests in one module to GoogleTest, one test per commit, preserving behavior and git history, following N-Dekker's "one commit, one change" reviewer standard.
 description: Convert no-argument ITK CTests (itk_add_test with no trailing args) to GoogleTest format. Strictly mechanical, one test per git-mv-tracked commit, with assertion-macro mapping, CMakeLists rewiring, and mandatory per-commit build+test. Use when migrating an ITK module's legacy CTest functions to the GTest driver.
 triggers:
@@ -431,6 +431,43 @@ Re-run flagged pairs with `repeat_pairs.py`; only losses stable across runs
 count. A real loss means the conversion dropped something: fix it or skip the
 test.
 
+#### Do not assert tautologies
+
+Never write a check that holds by construction, such as
+`EXPECT_THROW(throw exception, TException)`: it throws and catches the same
+object and can only fail if C++ itself is broken, much like `EXPECT_EQ(1, 1)`.
+Each assertion must be able to fail for some defect in the code under test.
+When the legacy test threw and caught its own object to exercise a print or a
+copy, keep the part that touches the class (`Print`, the copy constructor) and
+drop the throw. (N-Dekker, ITK PR #6956)
+
+#### One condition per `static_assert`
+
+Split a compound compile-time check so a failure names the property that broke:
+
+| Don't write | Write instead |
+|---|---|
+| `static_assert(std::is_nothrow_copy_constructible_v<T> && std::is_nothrow_copy_assignable_v<T>);` | `static_assert(std::is_nothrow_copy_constructible_v<T>);`<br>`static_assert(std::is_nothrow_copy_assignable_v<T>);` |
+
+(N-Dekker, ITK PR #6956)
+
+#### Name a value used more than once
+
+A string or number literal that appears twice in a test, typically once as the
+input and once as the expected value, becomes a named constant, so the input
+and the expectation cannot drift apart:
+
+```cpp
+const std::string testDescription = "test description";
+const TException  exception(__FILE__, __LINE__, testDescription);
+EXPECT_EQ(exception.GetDescription(), testDescription);
+```
+
+Compare a `const char *` getter with a `std::string` constant through
+`EXPECT_EQ`, which uses `std::string`'s `operator==` and prints both values.
+Derived strings are built from the constant (`"Description: " + testDescription`),
+never retyped. A literal used once stays inline. (N-Dekker, ITK PR #6956)
+
 ## Step 3: Augmenting existing GTest files
 
 If a `*GTest.cxx` already exists, **append** new `TEST()` blocks rather than
@@ -452,6 +489,10 @@ then follow steps 2c–2e.
   (`size()`, counts, dimensions): write `0u`/`3u`, or
   `static_cast<std::decay_t<decltype(expr)>>` in mixed-signedness template
   bodies, so converted tests do not re-introduce `-Wsign-compare`.
+- Do **not** assert tautologies (`EXPECT_THROW(throw e, E)`); every check must
+  be able to fail for a defect in the code under test.
+- One condition per `static_assert`, never `A && B`.
+- A literal used twice (input and expectation) becomes a named constant.
 - Do **not** combine multiple CTest files into one `*GTest.cxx`.
 - Do **not** remove scope-explaining comments.
 - The old driver called `itkFooTest(int argc, char* argv[])`; the GTest file is
