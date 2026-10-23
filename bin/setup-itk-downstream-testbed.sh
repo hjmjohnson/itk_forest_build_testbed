@@ -1658,8 +1658,10 @@ build_one(){ require cmake ninja ccache; require_pixi_toolchain build
   # A consumer that wraps itkPyBuffer.h needs Python.h, but ITK exports no
   # Python include directory: its wrapping adds one as a directory property
   # inside ITK's own tree only, so castxml fails everywhere else (ITK#6865).
-  # The directory holds Python's own headers, so it shadows nothing.
-  if [ "${name}" != ITK ] \
+  # The directory holds Python's own headers, so it shadows nothing -- except
+  # for Slicer, which builds its own CPython and would then compile PythonQt
+  # against this interpreter's headers while linking its own libpython.
+  if [ "${name}" != ITK ] && [ "${name}" != Slicer ] && [ "${name}" != SlicerExtensions ] \
      && grep -q '^ITK_WRAP_PYTHON:BOOL=ON' "${ITK_BUILD}/CMakeCache.txt" 2>/dev/null; then
     local _pyexe _pyinc
     _pyexe="$(itk_python_exe 2>/dev/null || true)"

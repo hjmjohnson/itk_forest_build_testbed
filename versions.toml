@@ -401,7 +401,10 @@ branch = "itk-forest-integration"
 # base e161a8a612d) + itk6 Slicer patches: custom ITK namespace only -- the
 # itkFileTools fix is already upstream in main. Re-minted off the integration
 # branch so Slicer's ITK is a variant of THIS forest's actual ITK base.
-ITK_GIT_TAG = "slicer-v6.0.0-2026-08-22-fee22c1e224"
+# 2026-10-22: re-minted off itk-forest-integration-itk-main (upstream/main
+# 86c6b62147 + ITK #6985 SetAutoloadPath API, base cac1e76775c) + the custom
+# ITK namespace patch. Pairs with Slicer branch itk-autoload-path-api.
+ITK_GIT_TAG = "slicer-v6.0.0-2026-10-22-cac1e76775c"
 # Slicer's SuperBuild.cmake pins BRAINSTools at ced799ad (2025-11-10), which
 # predates BRAINSTools vendoring ITK's now-private itkDCMTKFileReader.h, so
 # DWIConvert fails to compile against ITK main. Slicer_Remote_Add hardcodes

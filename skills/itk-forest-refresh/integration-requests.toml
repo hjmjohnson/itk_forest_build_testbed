@@ -29,7 +29,9 @@
 #   forests = ["itk-main"]
 
 [itk.v6]
-# Fixes the VariationalRegistration Python-wrapping defect this forest
-# disabled the module for (2026-09-28/10-03). Drop this and re-enable
-# Module_VariationalRegistration once it merges.
-prs = ["pr/6884"]
+# ITK #6985 (ObjectFactoryBase::SetAutoloadPath/GetAutoloadPath): Slicer's
+# in-process autoload-path registration (hjmjohnson/Slicer branch
+# itk-autoload-path-api) is validated against it. Drop once it merges.
+# #6884 (VariationalRegistration wrapping fix) merged upstream 2026-10-22 and
+# was removed; re-enable Module_VariationalRegistration on the next refresh.
+prs = ["pr/6985"]
