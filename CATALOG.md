@@ -75,6 +75,41 @@ Nothing the forest produces can be injected under it without a port. From
 Upstream is dormant: last push 2023-12-09, last release 1.9.0 on 2022-05-31, so
 a port has no upstream to merge back into. Revisit if CBICA resumes development.
 
+## Candidate consumers (not yet in the forest)
+
+Projects that consume ITK and could become trees. They are absent from
+`versions.toml`, so `pixi run checkout` does not materialize them and no build
+wiring exists.
+
+### Orfeo ToolBox
+
+Remote-sensing image processing library from CNES, Apache 2.0, built on ITK.
+Group https://gitlab.orfeo-toolbox.org/orfeotoolbox/ holds seven projects, of
+which `otb` is the library: https://gitlab.orfeo-toolbox.org/orfeotoolbox/otb,
+default branch `develop`. Active: 10.0.0-rc1 was tagged 2026-09-18 and 9.1.1 is
+the current stable release.
+
+ITK is mandatory, not optional, and reaches OTB through a single thin wrapper
+module, `Modules/ThirdParty/ITK`. Its `otb-module-init.cmake` consumes `ITK_DIR`
+and its `CMakeLists.txt` exports
+`find_package(ITK REQUIRED COMPONENTS ... HINTS ${ITK_DIR})`, so a
+non-SuperBuild OTB build accepts an injected ITK the way the other consumers do.
+`include(${ITK_USE_FILE})` is already commented out there, so the blocker that
+stops CaPTk does not apply.
+
+Two things to settle before wiring it:
+
+- The SuperBuild has no `USE_SYSTEM_ITK`.
+  `SuperBuild/CMake/External_itk.cmake` fetches ITK 5.3.0 from a fixed tarball
+  URL, so the forest would configure OTB directly against pre-built
+  dependencies rather than through its SuperBuild.
+- ITK 6 support is unverified: 5.3.0 is the only version OTB builds against
+  today. OTB also needs GDAL, Boost, GeoTIFF, and TinyXML, none of which the
+  forest currently supplies.
+
+It would be the first consumer on a self-hosted GitLab; Plastimatch already
+covers gitlab.com.
+
 ## ITK remote modules (built externally against the local ITK)
 
 `heavy` modules (CUDA / Java / Emscripten) build only with `HEAVY=1`.
