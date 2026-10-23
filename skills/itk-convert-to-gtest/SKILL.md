@@ -1,6 +1,6 @@
 ---
 name: itk-convert-to-gtest
-version: 1.7.0
+version: 1.8.0
 purpose: Mechanically convert no-argument ITK CTests in one module to GoogleTest, one test per commit, preserving behavior and git history, following N-Dekker's "one commit, one change" reviewer standard.
 description: Convert no-argument ITK CTests (itk_add_test with no trailing args) to GoogleTest format. Strictly mechanical, one test per git-mv-tracked commit, with assertion-macro mapping, CMakeLists rewiring, and mandatory per-commit build+test. Use when migrating an ITK module's legacy CTest functions to the GTest driver.
 triggers:
@@ -468,6 +468,30 @@ Compare a `const char *` getter with a `std::string` constant through
 Derived strings are built from the constant (`"Description: " + testDescription`),
 never retyped. A literal used once stays inline. (N-Dekker, ITK PR #6956)
 
+#### Name template parameters for their role
+
+A helper template's parameter names say what the argument must be, not a
+family relation: `TExpectedBaseClass`, not `TParent`, so the check reads
+`static_assert(std::is_base_of_v<TExpectedBaseClass, TException>);`.
+(N-Dekker, ITK PR #6956, nit)
+
+#### Substring checks: a local helper today, matchers later
+
+GoogleTest matchers (`EXPECT_THAT(text, ::testing::HasSubstr(part))`) are
+the preferred form, but they live in gMock, which ITK does not build
+(`BUILD_GMOCK OFF` in `Modules/ThirdParty/GoogleTest/src/CMakeLists.txt`).
+Until that changes, a small `Contains(text, part)` helper with
+`EXPECT_TRUE(Contains(...))` is accepted. (N-Dekker, ITK PR #6956: "As a
+future improvement ... But for now, `EXPECT_TRUE(Contains(...` is fine")
+
+#### Hand-written tests: one TEST per behavior, not per helper call
+
+This applies to new GoogleTest code, not to conversions, which keep
+`ConvertedLegacyTest`. When several TESTs would each only call one shared
+check helper with a different type, prefer one TEST that makes all the
+calls. N-Dekker calls it "a matter of taste, no show-stopper" (ITK PR
+#6956).
+
 ## Step 3: Augmenting existing GTest files
 
 If a `*GTest.cxx` already exists, **append** new `TEST()` blocks rather than
@@ -493,6 +517,9 @@ then follow steps 2c–2e.
   be able to fail for a defect in the code under test.
 - One condition per `static_assert`, never `A && B`.
 - A literal used twice (input and expectation) becomes a named constant.
+- Template parameters name their role (`TExpectedBaseClass`, not `TParent`).
+- No gMock matchers (`EXPECT_THAT`) until ITK builds gMock; a local
+  `Contains` helper is fine.
 - Do **not** combine multiple CTest files into one `*GTest.cxx`.
 - Do **not** remove scope-explaining comments.
 - The old driver called `itkFooTest(int argc, char* argv[])`; the GTest file is
