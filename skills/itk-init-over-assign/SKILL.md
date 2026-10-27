@@ -175,7 +175,10 @@ subject in `ioa.partition.SUBJECTS`.
    stops the run with exit 1; the report names it and quotes its stderr.
 5. `ioa.partition.plan` runs once over all stage records, then
    `ioa.partition.apply` commits each plan in kind order, reverting hunks
-   that strand a comment or fail the compile gate.
+   that strand a comment or fail the compile gate. Ownership and reverts
+   are site-atomic: the hunks of one manifest site (or of a `partners`
+   file pair in a manifest) go to the latest kind that touches any of
+   them, and a stranded comment or a gate failure on one reverts them all.
 6. `pre-commit run --all-files` is reported, never fixed: files a hook
    rewrites are listed under "pre-commit changed files (not committed)"
    and restored with `git checkout --`, so the build sees the branch tip,

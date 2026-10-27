@@ -277,3 +277,8 @@ def test_crashed_tus_are_parsed_from_run_clang_tidy_output():
         "/r/b.cxx: terminated by signal 11\n"
     )
     assert member_init.crashed_tus(text) == ["/r/a.cxx", "/r/b.cxx"]
+
+
+def test_manifest_records_header_and_source_partners(fixture_graph):
+    out = run_member_init(fixture_graph("shared_header"), apply=True)
+    assert out.manifest.partners == [(Path("a.cxx"), Path("foo.h")), (Path("b.cxx"), Path("foo.h"))]

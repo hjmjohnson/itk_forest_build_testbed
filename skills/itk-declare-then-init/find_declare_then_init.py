@@ -267,6 +267,14 @@ def has_top_level_comma(expr: str) -> bool:
     return False
 
 
+def trailing_comments(lines: list[str], f: Finding) -> list[str]:
+    """`//` comments on the declaration line and on every line the fix removes."""
+    end = f.init_end or f.init_line
+    picked = [f.decl_line - 1, *range(f.init_line - 1, end)]
+    return [lines[k][len(strip_comment(lines[k])):].strip() for k in picked
+            if strip_comment(lines[k]) != lines[k]]
+
+
 def check_indent_match(decl_indent: str, init_line: str) -> bool:
     """Verify the init line has the same indentation as the declaration."""
     return get_indent(init_line) == decl_indent
@@ -547,6 +555,10 @@ def analyze_file(
             result = declined_finding(
                 filepath, i, result.init_line - 1, vartype, varname, pattern, "gap-statement"
             )
+        if result and not result.declined and len(trailing_comments(lines, result)) > 1:
+            result = declined_finding(
+                filepath, i, result.init_line - 1, vartype, varname, pattern, "comment-stranded"
+            )
         if result and (keep_declined or not result.declined):
             findings.append(result)
 
@@ -646,11 +658,11 @@ def apply_findings(
             decl_idx = f.decl_line - 1
             init_idx = f.init_line - 1
             end = f.init_end or f.init_line
+            carried = trailing_comments(lines, f)
             del lines[init_idx:end]
             if deleted is not None:
                 deleted.setdefault(filepath, []).extend(range(f.init_line, end + 1))
-            # Replace the declaration line with the suggestion
-            lines[decl_idx] = f.suggestion + "\n"
+            lines[decl_idx] = " ".join([f.suggestion, *carried]) + "\n"
 
         with Path(filepath).open("w") as fh:
             fh.writelines(lines)
@@ -718,13 +730,17 @@ def record_sites(
 
     for s in sites:
         gone = removed.get(str(root / s.file), [])
-        s.start = s.end = s.start - sum(1 for n in gone if n < s.start)
+        s.start -= sum(1 for n in gone if n < s.start)
+        s.end -= sum(1 for n in gone if n <= s.end)
+        s.end = max(s.start, s.end)
     for f, reason in pending:
         rel = Path(f.file).resolve().relative_to(root)
         gone = removed.get(str(Path(f.file).resolve()), [])
         line = f.decl_line - sum(1 for n in gone if n < f.decl_line)
+        # An applied site spans its gap so the removal hunk belongs to it.
+        end = line if reason else line + f.init_line - f.decl_line - 1
         sites.append(
-            Site(rel, line, line, "local-init", f.pattern,
+            Site(rel, line, end, "local-init", f.pattern,
                  reason[0] if reason else None, reason[1] if reason else "")
         )
     return removed

@@ -298,6 +298,7 @@ def run(graph: Path, root: Path, manifest: Path | None, apply: bool) -> int:
                           skipped=s.reason, note=s.note))
 
     touched = sorted(set(p1.edits) | set(p2.edits))
+    bad: set[Path] = set()
     if touched:
         diff = subprocess.run(
             ["git", "-C", str(root), "diff", "-U0", "--", *map(str, touched)],
@@ -321,8 +322,12 @@ def run(graph: Path, root: Path, manifest: Path | None, apply: bool) -> int:
             for s in stranded
         ]
 
+    partners = sorted(
+        tuple(sorted(f.relative_to(root) for f in pair))
+        for pair in p2.partners if len(pair) == 2 and not pair & bad
+    )
     if manifest is not None:
-        Manifest(KIND, sites).write(manifest)
+        Manifest(KIND, sites, partners).write(manifest)
     applied = sum(1 for s in sites if s.skipped is None)
     print(f"member-init: {applied} applied, {len(sites) - applied} skipped, {len(dropped)} TU(s) dropped")
     return 0

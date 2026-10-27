@@ -171,3 +171,30 @@ def test_interactive_pattern_mode_keeps_max_gap_behavior(tree):
     (only / "Gap.cxx").write_text("void\nH()\n{\n  int x;\n  Prep();\n  x = F();\n}\n")
     r = run_finder(tree, "--pattern", "assign", "-r", "only")
     assert "[assign]" in r.stdout and "gap=1" in r.stdout
+
+
+def test_trailing_comment_of_removed_line_moves_to_declaration(tree):
+    only = tree / "only"
+    only.mkdir()
+    (only / "C.cxx").write_text("void\nH()\n{\n  int x;\n  x = F(); // why\n}\n")
+    m = run_manifest(tree, "--classes", "assign", "--apply", "-r", "only")
+    assert [s.skipped for s in m.sites] == [None]
+    assert "  int x = F(); // why\n}" in (only / "C.cxx").read_text()
+
+
+def test_two_trailing_comments_decline_the_site(tree):
+    only = tree / "only"
+    only.mkdir()
+    src = "void\nH()\n{\n  SizeType s;\n  s[0] = 1; // a\n  s[1] = 2; // b\n}\n"
+    (only / "C.cxx").write_text(src)
+    m = run_manifest(tree, "--classes", "elem_diff", "--apply", "-r", "only")
+    assert [(s.skipped, s.note) for s in m.sites] == [(Reason.COMMENT_STRANDED, "comment-stranded")]
+    assert (only / "C.cxx").read_text() == src
+
+
+def test_applied_site_spans_its_comment_gap(tree):
+    only = tree / "only"
+    only.mkdir()
+    (only / "C.cxx").write_text("void\nH()\n{\n  int x;\n  // a\n  // b\n  x = F();\n}\n")
+    m = run_manifest(tree, "--classes", "assign", "--apply", "-r", "only")
+    assert [(s.start, s.end) for s in m.sites] == [(4, 6)]

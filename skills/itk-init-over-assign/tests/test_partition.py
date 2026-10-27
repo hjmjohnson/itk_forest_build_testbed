@@ -382,3 +382,101 @@ def test_sites_match_stage_hunks_on_the_post_edit_side(tmp_path):
     plans = plan(r, stages)
     assert [s.start for s in hunk_at(plans, "k.cxx", 11).sites] == [10]
     assert [s.start for s in hunk_at(plans, "k.cxx", 3).sites] == [3]
+
+
+def _compiles(text: str) -> bool:
+    """Stand-in compiler: each local is assigned exactly once."""
+    return text.count("x = f();") == 1 and text.count("y = g();") == 1
+
+
+@pytest.fixture
+def fake_gate_compiles(monkeypatch):
+    calls = []
+
+    def fake(graph, files, repo_root):
+        failed = {f: "error: x" for f in files if not _compiles((repo_root / f).read_text())}
+        calls.append(sorted(failed))
+        return GateResult(ok=not failed, failed=failed)
+
+    monkeypatch.setattr(gate, "run", fake)
+    return calls
+
+
+@pytest.mark.skipif(_clang_format() is None, reason="no clang-format")
+def test_site_touched_by_a_later_kind_moves_whole_to_that_kind(tmp_path, fake_gate_compiles):
+    src = ["void", "F()", "{", "  int x;", "  // why", "  x = f();", "  Use(x);",
+           "  int y;", "  y = g();", "  Use(y);", "}"]
+    files = {"i.cxx": src}
+    r = make_repo.init_repo(tmp_path, files, ITK_CLANG_FORMAT.read_text())
+
+    def local(f):
+        f["i.cxx"][7:9] = ["  int y = g();"]
+        f["i.cxx"][3:6] = ["  int x = f();", "  // why"]
+
+    def const(f):
+        f["i.cxx"][3] = "  const int x = f();"
+
+    stages = [
+        make_repo.stage(r, files, "local-init", local, [("i.cxx", 4, 5), ("i.cxx", 7, 7)]),
+        make_repo.stage(r, files, "local-const", const, [("i.cxx", 4, 4)]),
+    ]
+    first, second = plan(r, stages)
+    assert [first.kind, second.kind] == ["local-init", "local-const"]
+    assert not any("  x = f();" in h.removed for h in first.hunks)
+    removed = [h.removed for h in second.hunks]
+    assert ["  int x;"] in removed and ["  x = f();"] in removed
+    assert any("moved to local-const" in n for n in first.notes)
+    for p in (first, second):
+        res = apply(r, p, tmp_path)
+        assert res.sha is not None and not res.reverted
+        assert _compiles(git(r, "show", "HEAD:i.cxx"))
+    assert "  int x;" in git(r, "show", "HEAD~1:i.cxx")
+    assert "const int x = f();" in git(r, "show", "HEAD:i.cxx")
+    assert all(not failed for failed in fake_gate_compiles)
+    assert git(r, "diff", "HEAD") == ""
+
+
+def test_stranded_comment_reverts_every_hunk_of_its_site(tmp_path, fake_gate_compiles):
+    src = ["void", "F()", "{", "  int x;", "  // keep", "  x = f(); // note", "  Use(x);",
+           "  int y;", "  y = g();", "}"]
+    files = {"j.cxx": src}
+    r = make_repo.init_repo(tmp_path, files, "DisableFormat: true\n")
+
+    def local(f):
+        f["j.cxx"][7:9] = ["  int y = g();"]
+        f["j.cxx"][3:6] = ["  int x = f();", "  // keep"]
+
+    stages = [make_repo.stage(r, files, "local-init", local, [("j.cxx", 4, 5), ("j.cxx", 7, 7)])]
+    [only] = plan(r, stages)
+    res = apply(r, only, tmp_path)
+    assert res.sha is not None
+    head = git(r, "show", "HEAD:j.cxx")
+    assert "  int x;\n  // keep\n  x = f(); // note\n" in head and "int y = g();" in head
+    assert [(s.start, s.skipped) for s in res.reverted] == [(4, Reason.COMMENT_STRANDED)]
+    assert git(r, "diff", "HEAD") == ""
+
+
+def test_gate_failure_in_a_header_reverts_its_partner_source(tmp_path, monkeypatch):
+    files = {
+        "foo.h": ["class Foo", "{", "  Foo();", "  int m_A;", "};"],
+        "foo.cxx": ["#include \"foo.h\"", "Foo::Foo()", "  : m_A(0)", "{", "}"],
+        "bar.cxx": ["int b1 = 1;", "int b2;"],
+    }
+    r = make_repo.init_repo(tmp_path, files, "DisableFormat: true\n")
+
+    def member(f):
+        f["foo.h"][3] = "  int m_A{ 0 };"
+        f["foo.cxx"][2:3] = []
+        f["bar.cxx"][1] = "int b2{};"
+
+    rec = make_repo.stage(r, files, "member-init", member,
+                          [("foo.h", 4, 4), ("foo.cxx", 2, 2), ("bar.cxx", 2, 2)])
+    rec.manifest.partners = [(Path("foo.cxx"), Path("foo.h"))]
+    monkeypatch.setattr(gate, "run", lambda g, fs, root: GateResult(
+        False, {f: "error: h" for f in fs if f.name == "foo.h"}))
+    [only] = plan(r, [rec])
+    res = apply(r, only, tmp_path)
+    assert res.sha is not None
+    assert git(r, "show", "--name-only", "--format=", "HEAD").split() == ["bar.cxx"]
+    assert {s.file.name for s in res.reverted} == {"foo.h", "foo.cxx"}
+    assert git(r, "diff", "HEAD") == ""

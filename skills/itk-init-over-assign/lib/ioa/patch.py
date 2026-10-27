@@ -19,6 +19,7 @@ class Hunk:
     body: list[str] = field(default_factory=list)
     kind: str = ""
     sites: list[Site] = field(default_factory=list)
+    group: int | None = None
 
     @property
     def removed(self) -> list[str]:

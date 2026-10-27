@@ -134,7 +134,11 @@ class (including block-boundary stops) are not recorded as sites. With
 `--manifest`, the classes `assign`, `elem_same`, `elem_diff`, `elem_zero`,
 `fill_zero`, `fill_nonzero`, and `setsize_fill` require every gap line to be
 blank or a comment; a statement in the gap declines the site (`gap-statement`)
-and `--max-gap` applies only to interactive `--pattern` runs.
+and `--max-gap` applies only to interactive `--pattern` runs. An applied
+site spans from the declaration through its comment gap, so the removal of the
+init line belongs to the same site. A trailing `//` comment on a removed line
+moves to the end of the new declaration; two or more such comments decline the
+site as `comment-stranded`.
 
 Manifest skip reasons: a hazard between declaration and init gives
 `try-read-after` (gap contains `try`), `preprocessor` (gap line starts with

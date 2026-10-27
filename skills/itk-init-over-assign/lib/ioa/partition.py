@@ -68,6 +68,7 @@ def plan(repo: Path, stages: list[StageRecord]) -> list[CommitPlan]:
         if owners:
             h.kind = owners[-1].record.kind
             h.sites = owners[-1].sites(h)
+    _group_sites(hunks, loaded, rank, notes)
     for file in dict.fromkeys(h.file for h in hunks):
         in_file = [h for h in hunks if h.file == file]
         covered = [h for h in in_file if h.kind]
@@ -91,6 +92,61 @@ def plan(repo: Path, stages: list[StageRecord]) -> list[CommitPlan]:
     if plans:
         plans[0].notes += [f"{f}: added or deleted file left out" for f in skipped]
     return plans
+
+
+def _group_sites(hunks: list[Hunk], loaded, rank: dict[str, int], notes) -> None:
+    """Join the hunks of each site group and give them all to the group's latest kind."""
+    parent = list(range(len(hunks)))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for st in loaded:
+        for spans in st.groups():
+            idx = [i for i, h in enumerate(hunks)
+                   if any(f == h.file and sp.meets(h) for f, sp in spans)]
+            for i in idx[1:]:
+                parent[find(i)] = find(idx[0])
+    members: dict[int, list[Hunk]] = {}
+    for i, h in enumerate(hunks):
+        h.group = find(i)
+        members.setdefault(h.group, []).append(h)
+    for group in members.values():
+        kinds = {h.kind for h in group if h.kind}
+        if len(group) < 2 or not kinds:
+            continue
+        last = max(kinds, key=rank.__getitem__)
+        sites = list({id(s): s for h in group for s in h.sites}.values())
+        for h in group:
+            if h.kind and h.kind != last:
+                notes[h.kind].append(
+                    f"{h.file}:{h.old_start}: hunk moved to {last} with the rest of its site"
+                )
+            h.kind, h.sites = last, sites
+
+
+def _site_group(h: Hunk, hunks: list[Hunk]) -> list[Hunk]:
+    if h.group is None:
+        return [h]
+    return [g for g in hunks if g.group == h.group]
+
+
+def _close_files(bad: set[Path], hunks: list[Hunk]) -> set[Path]:
+    """Grow a set of reverted files until no site group straddles its edge."""
+    bad = set(bad)
+    grew = True
+    while grew:
+        grew = False
+        for h in hunks:
+            if h.file in bad:
+                for g in _site_group(h, hunks):
+                    if g.file not in bad:
+                        bad.add(g.file)
+                        grew = True
+    return bad
 
 
 def _norm(lines: list[str]) -> tuple[str, ...]:
@@ -125,7 +181,7 @@ def _match(plan_hunks: list[Hunk], fresh: list[Hunk]) -> list[Hunk]:
                 continue
             f = min(cands, key=lambda f: abs(f.old_start - h.old_start))
             free.remove(f)
-            f.kind, f.sites = h.kind, h.sites
+            f.kind, f.sites, f.group = h.kind, h.sites, h.group
             found.append(f)
             matched.append(h)
     grew = bool(found)
@@ -241,9 +297,11 @@ def apply(repo: Path, commit_plan: CommitPlan, graph: Path) -> CommitResult:
             if not hits:
                 notes.append(f"{s.file}:{s.line}: stranded comment outside the plan: {s.text}")
             for h in hits:
-                if not any(h is g for g in gone):
-                    _revert_cached(repo, h.file, {h.old_start})
-                drop([h], Reason.COMMENT_STRANDED, s.text)
+                group = _site_group(h, selected)
+                for g in group:
+                    if not any(g is x for x in gone):
+                        _revert_cached(repo, g.file, {g.old_start})
+                drop(group, Reason.COMMENT_STRANDED, s.text)
         unformatted = {f: index_sha(repo, f) for f in files}
         spans: dict[Path, list[tuple[int, int]]] = {}
         clang_format = _clang_format()
@@ -256,6 +314,7 @@ def apply(repo: Path, commit_plan: CommitPlan, graph: Path) -> CommitResult:
         left = [Path(p) for p in diff(repo, "--cached", "--name-only").splitlines()]
         _sync_from_index(repo, dirty)
         bad, unplaced = _gate_failures(repo, graph, left) if left else (set(), [])
+        bad = _close_files(bad, selected)
         if unplaced:
             notes += [f"gate failure in {f} not attributed to a staged file" for f in unplaced]
             for f in bad:
@@ -265,6 +324,7 @@ def apply(repo: Path, commit_plan: CommitPlan, graph: Path) -> CommitResult:
             if rest and not gate.run(graph, rest, repo).ok:
                 notes.append("unattributed gate failure persists; reverted every staged file")
                 bad |= set(rest)
+        bad = _close_files(bad, selected)
         for f in sorted(bad):
             _revert_cached(repo, f, None)
             whole.add(f)

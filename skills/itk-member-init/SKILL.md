@@ -141,7 +141,9 @@ read a later member (`: m_A(m_B) { m_B = 2; }`).
 
 Each site has the post-edit 1-based line range, `kind: member-init`, and `cls`
 (`prefer-member-initializer` or `use-default-member-init`). Applied sites are
-the changed hunks; skipped sites carry `skipped` and a `note`. The master
+the changed hunks; skipped sites carry `skipped` and a `note`. `partners`
+lists each header and source pair that a default member initializer moved
+between, so the master commits and reverts the pair together. The master
 (`itk-init-over-assign`) partitions the diff by content; this stage only edits
 and reports.
 
