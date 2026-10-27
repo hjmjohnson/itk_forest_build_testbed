@@ -139,3 +139,35 @@ def test_multiline_removal_shifts_earlier_recorded_site(tree):
     assert lines[q.start - 1] == "  int q = Compute();"
     z = next(s for s in m.applied() if s.cls == "elem_zero")
     assert lines[z.start - 1] == "  SizeType size{};"
+
+
+def test_statement_between_declaration_and_assignment_is_skipped(tree):
+    src = (
+        "void\nH(Reader * reader)\n{\n  SpacingType x;\n  reader->Update();\n"
+        "  x = reader->GetOutput()->GetSpacing();\n  Use(x);\n}\n"
+    )
+    only = tree / "only"
+    only.mkdir()
+    (only / "Gap.cxx").write_text(src)
+    m = run_manifest(tree, "--classes", "assign", "--apply", "-r", "only")
+    assert (only / "Gap.cxx").read_text() == src
+    assert [(s.cls, s.skipped, s.note, s.start) for s in m.sites] == [
+        ("assign", Reason.LOOP_CARRIED, "gap-statement", 4)
+    ]
+
+
+def test_comment_only_gap_still_applies(tree):
+    only = tree / "only"
+    only.mkdir()
+    (only / "Gap.cxx").write_text("void\nH()\n{\n  int x;\n  // why\n\n  x = F();\n}\n")
+    m = run_manifest(tree, "--classes", "assign", "--apply", "-r", "only")
+    assert [s.skipped for s in m.sites] == [None]
+    assert "  int x = F();" in (only / "Gap.cxx").read_text()
+
+
+def test_interactive_pattern_mode_keeps_max_gap_behavior(tree):
+    only = tree / "only"
+    only.mkdir()
+    (only / "Gap.cxx").write_text("void\nH()\n{\n  int x;\n  Prep();\n  x = F();\n}\n")
+    r = run_finder(tree, "--pattern", "assign", "-r", "only")
+    assert "[assign]" in r.stdout and "gap=1" in r.stdout

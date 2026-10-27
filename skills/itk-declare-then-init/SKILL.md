@@ -130,7 +130,11 @@ commit methodology where each commit targets one regex pattern class.
 | `--manifest PATH` | Write skipped and applied sites (`kind: local-init`) | |
 
 `--manifest` requires `--apply`. Declarations whose next use never matched a
-class (including block-boundary stops) are not recorded as sites.
+class (including block-boundary stops) are not recorded as sites. With
+`--manifest`, the classes `assign`, `elem_same`, `elem_diff`, `elem_zero`,
+`fill_zero`, `fill_nonzero`, and `setsize_fill` require every gap line to be
+blank or a comment; a statement in the gap declines the site (`gap-statement`)
+and `--max-gap` applies only to interactive `--pattern` runs.
 
 Manifest skip reasons: a hazard between declaration and init gives
 `try-read-after` (gap contains `try`), `preprocessor` (gap line starts with

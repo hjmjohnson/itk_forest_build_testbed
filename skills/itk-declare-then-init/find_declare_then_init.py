@@ -496,6 +496,10 @@ PATTERN_ANALYZERS = {
     "setsize_fill": lambda *a, **kw: analyze_setsize_fill(*a, **kw),
 }
 
+GAP_STRICT_CLASSES = {
+    "assign", "elem_same", "elem_diff", "elem_zero", "fill_zero", "fill_nonzero", "setsize_fill",
+}
+
 
 def analyze_file(
     filepath: str,
@@ -504,8 +508,12 @@ def analyze_file(
     vartype_filter: re.Pattern | None = None,
     max_gap: int = 9999,
     keep_declined: bool = False,
+    strict_gap: bool = False,
 ) -> list[Finding]:
-    """Analyze a single file for ONE pattern class."""
+    """Analyze a single file for ONE pattern class.
+
+    With strict_gap, a statement between declaration and init declines the finding.
+    """
     findings: list[Finding] = []
     analyzer = PATTERN_ANALYZERS[pattern]
 
@@ -532,6 +540,13 @@ def analyze_file(
             continue
 
         result = analyzer(lines, i, indent, vartype, varname, filepath, max_gap)
+        if (
+            result and not result.declined and strict_gap and pattern in GAP_STRICT_CLASSES
+            and not gap_is_blank_or_comment(lines, i, result.init_line - 1)
+        ):
+            result = declined_finding(
+                filepath, i, result.init_line - 1, vartype, varname, pattern, "gap-statement"
+            )
         if result and (keep_declined or not result.declined):
             findings.append(result)
 
@@ -661,6 +676,10 @@ def skip_reason(f: Finding, lines: list[str]) -> tuple["Reason", str] | None:
     """Return (reason, note) when the finder declines `f`, else None."""
     from ioa.skip import Reason
 
+    if f.declined == "gap-statement":
+        gap = lines[f.decl_line : f.init_line - 1]
+        if any(g.lstrip().startswith("#") for g in gap):
+            return Reason.PREPROCESSOR, f.declined
     if f.declined:
         return Reason(DECLINE_REASONS.get(f.declined, "loop-carried")), f.declined
     if not f.forward_refs:
@@ -812,6 +831,7 @@ def main() -> None:
             vartype_filter=vartype_re,
             max_gap=args.max_gap,
             keep_declined=bool(args.manifest),
+            strict_gap=bool(args.manifest),
         )
         findings.extend(found)
         if args.manifest:
