@@ -6,7 +6,6 @@ Edits the working tree and writes a manifest; never commits.
 """
 
 import argparse
-import subprocess
 import sys
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -18,7 +17,7 @@ except ImportError:
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "itk-init-over-assign" / "lib"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from ioa.comments import check_hunks  # noqa: E402
+from ioa.comments import check_hunks, unified_diff  # noqa: E402
 from ioa.compile_commands import find_graph  # noqa: E402
 from ioa.manifest import Manifest, Site  # noqa: E402
 from ioa.query import run_query  # noqa: E402
@@ -74,13 +73,6 @@ def _site(root: Path, path: Path, a: int, b: int, cls: str, text: str, **kw) -> 
     return Site(path.relative_to(root), start, min(max(start, b), n), KIND, cls, **kw)
 
 
-def _git_diff(root: Path, paths: list[Path]) -> str:
-    return subprocess.run(
-        ["git", "-C", str(root), "diff", "-U0", "--", *map(str, paths)],
-        capture_output=True, text=True, check=True,
-    ).stdout
-
-
 def run(graph: Path, root: Path, manifest: Path | None, apply: bool) -> int:
     cands, dropped = candidates(graph, root)
     if dropped:
@@ -126,7 +118,10 @@ def run(graph: Path, root: Path, manifest: Path | None, apply: bool) -> int:
         first, last = (new.count("\n", 0, k) + 1 for k in counted[1:])
         sites.append(_site(root, path, first, last, r.cls, new, note=f"elements:{counted[0]}"))
 
-    stranded = check_hunks(_git_diff(root, sorted(edits))) if edits else []
+    stranded = check_hunks("".join(
+        unified_diff(path.relative_to(root).as_posix(), docs[path].text, after[path])
+        for path in sorted(edits)
+    ))
     for s in stranded:
         bad.setdefault((root / s.file).resolve(), "")
     for path in bad:

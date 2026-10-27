@@ -253,3 +253,16 @@ def test_element_count_mismatch_reverts_file_as_gate_failed(fixture_graph, monke
         (Path("a.cxx"), 8, Reason.GATE_FAILED, "element-count:2"),
         (Path("a.cxx"), 12, Reason.GATE_FAILED, "element-count:2"),
         (Path("h.h"), 7, None, "elements:2")]
+
+
+@needs_tools
+def test_comment_dropped_by_an_earlier_stage_is_not_charged_here(fixture_graph):
+    g = fixture_graph("push_back")
+    a = g.repo / "a.cxx"
+    text = a.read_text()
+    a.write_text(text.replace("std::size_t\nuse_a()", "// earlier note\nstd::size_t\nuse_a()"))
+    _git(g.repo, "commit", "-qam", "note")
+    a.write_text(text)
+    out = run_list_init(g)
+    assert "v{ 1, 2, 3 }" in out.read("a.cxx")
+    assert [s.skipped for s in out.manifest.sites if s.file == Path("a.cxx")] == [None, None]

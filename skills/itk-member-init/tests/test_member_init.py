@@ -282,3 +282,15 @@ def test_crashed_tus_are_parsed_from_run_clang_tidy_output():
 def test_manifest_records_header_and_source_partners(fixture_graph):
     out = run_member_init(fixture_graph("shared_header"), apply=True)
     assert out.manifest.partners == [(Path("a.cxx"), Path("foo.h")), (Path("b.cxx"), Path("foo.h"))]
+
+
+def test_comment_dropped_by_an_earlier_stage_is_not_charged_here(fixture_graph):
+    g = fixture_graph("basic")
+    src = g.repo / "foo.cxx"
+    text = src.read_text()
+    src.write_text(text.replace("Foo::Foo(int a)", "// earlier note\nFoo::Foo(int a)"))
+    _git(g.repo, "commit", "-qam", "note")
+    src.write_text(text)
+    out = run_member_init(g, apply=True)
+    assert ": m_A(1)\n  , m_B(2)" in out.read("foo.cxx")
+    assert Reason.COMMENT_STRANDED not in {s.skipped for s in out.manifest.sites}

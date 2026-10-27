@@ -20,7 +20,7 @@ except ImportError:
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import postfix as pf  # noqa: E402
-from ioa.comments import check_hunks  # noqa: E402
+from ioa.comments import check_hunks, unified_diff  # noqa: E402
 from ioa.compile_commands import find_graph  # noqa: E402
 from ioa.manifest import Manifest, Site  # noqa: E402
 from ioa.skip import Reason  # noqa: E402
@@ -300,11 +300,10 @@ def run(graph: Path, root: Path, manifest: Path | None, apply: bool) -> int:
     touched = sorted(set(p1.edits) | set(p2.edits))
     bad: set[Path] = set()
     if touched:
-        diff = subprocess.run(
-            ["git", "-C", str(root), "diff", "-U0", "--", *map(str, touched)],
-            capture_output=True, text=True, check=True,
-        ).stdout
-        stranded = check_hunks(diff)
+        stranded = check_hunks("".join(
+            unified_diff(path.relative_to(root).as_posix(), orig[path], final[path])
+            for path in touched
+        ))
         bad = {(root / s.file).resolve() for s in stranded}
         grew = True
         while grew:
