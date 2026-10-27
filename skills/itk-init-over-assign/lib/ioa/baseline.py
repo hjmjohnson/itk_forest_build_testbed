@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import re
@@ -61,16 +62,24 @@ def ctest_argv(build: Path, jobs: int | None = None) -> list[str]:
             "--output-on-failure"]
 
 
+CTEST_TIMEOUT = 1800
+
+
 def run_ctest(build: Path, jobs: int | None = None) -> str:
-    done = subprocess.run(ctest_argv(build, jobs), cwd=build, capture_output=True,
-                          text=True, check=False)
+    try:
+        done = subprocess.run(ctest_argv(build, jobs), cwd=build, capture_output=True,
+                              text=True, check=False, env=forest_env(None),
+                              timeout=CTEST_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return "T:timeout"
     return ctest_token(done.stdout or "")
 
 
 def _path(coords, kit: Path) -> Path:
     name = f"{coords.repo_slug}-{coords.sha}.json"
     if coords.forest_name == "standalone":
-        name = f"{coords.repo_slug}-standalone-{coords.sha}.json"
+        where = hashlib.sha1(str(coords.graph).encode()).hexdigest()[:8]
+        name = f"{coords.repo_slug}-standalone-{coords.sha}-{where}.json"
     return kit / ".devlocal" / "init-over-assign" / "baselines" / name
 
 

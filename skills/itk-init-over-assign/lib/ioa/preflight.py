@@ -218,6 +218,10 @@ def check_standalone(repo: Path, build: Path, upstream: str, kit: Path) -> Coord
         f"refresh with `git -C {repo} fetch {remote} && "
         f"git -C {repo} merge --ff-only {remote}/{branch}`"
     )
+    if not repo.is_dir() or subprocess.run(
+        ["git", "-C", str(repo), "rev-parse", "--git-dir"], capture_output=True, check=False
+    ).returncode != 0:
+        raise PreflightError("not-a-repo", f"{repo} is not a git checkout")
     if _git(repo, "status", "--porcelain", "--untracked-files=no", code="dirty-tree"):
         raise PreflightError("dirty-tree", f"{repo} has uncommitted changes")
     _git(repo, "fetch", "--quiet", remote, branch)

@@ -232,7 +232,8 @@ def full_build(kit: Path, repo_name: str, suffix: str, pc: PreCommit) -> Build:
 
 def full_build_standalone(build: Path, pc: PreCommit) -> Build:
     argv = ["ninja", "-C", str(build)]
-    done = subprocess.run(argv, cwd=build, capture_output=True, text=True, check=False)
+    done = subprocess.run(argv, cwd=build, capture_output=True, text=True, check=False,
+                          env=baseline.forest_env(None))
     return _built(done, shlex.join(argv), pc)
 
 

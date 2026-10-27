@@ -109,7 +109,8 @@ Usage (from the kit root, under pixi):
 
 Exit:  0 green   1 failing stage, raised step, pre-commit failure, build
                    error, ctest not run, or new ctest failure
-       2 refusal: preflight, existing branch, or baseline (no branch made)
+       2 refusal: preflight, existing branch, build-failed before the
+                   baseline, or baseline (no branch made)
 Out:   <kit>/.devlocal/init-over-assign/<repo>-<YYYYMMDD_HHMM>.md
        <kit>/.devlocal/pr-bodies/<repo>-init-over-assign.md
 ```
@@ -159,17 +160,23 @@ subject in `ioa.partition.SUBJECTS`.
    codes `dirty-tree`, `on-main`, `not-at-upstream-tip`, `no-graph`, and
    `tidy-series-mismatch`. An existing `style-init-over-assign-<YYYYMMDD>`
    branch is refused as `branch-exists`. Refusals exit 2.
-2. `ioa.baseline.ensure` runs ctest once per base SHA and caches it under
-   `.devlocal/init-over-assign/baselines/`. A baseline that cannot run
-   writes a report and exits 2 before the branch is created.
-3. The branch is created from HEAD. Each stage is bracketed by
+2. The build tree is rebuilt at HEAD before the baseline, so the baseline
+   never tests stale binaries: `pixi run build-<repo>` plus
+   `--check-artifact` in a forest, `ninja -C <build>` standalone. A failure
+   is refused as `build-failed`: exit 2, report written, no branch. The
+   report's notes record that the baseline build ran.
+3. `ioa.baseline.ensure` runs ctest once per base SHA and caches it under
+   `.devlocal/init-over-assign/baselines/`. A baseline that cannot run,
+   or a missing tool, writes a report and exits 2 before the branch is
+   created.
+4. The branch is created from HEAD. Each stage is bracketed by
    `ioa.stages.snapshot`; manifests go to `<run>/manifests/<kind>.json` and
    the tree pairs to `<run>/snapshots.json`. A stage that exits non-zero
    stops the run with exit 1; the report names it and quotes its stderr.
-4. `ioa.partition.plan` runs once over all stage records, then
+5. `ioa.partition.plan` runs once over all stage records, then
    `ioa.partition.apply` commits each plan in kind order, reverting hunks
    that strand a comment or fail the compile gate.
-5. `pre-commit run --all-files` is reported, never fixed: files a hook
+6. `pre-commit run --all-files` is reported, never fixed: files a hook
    rewrites are listed under "pre-commit changed files (not committed)"
    and restored with `git checkout --`, so the build sees the branch tip,
    and the run exits 1. Then `pixi run build-<repo>`,
@@ -178,16 +185,20 @@ subject in `ioa.partition.SUBJECTS`.
    `BUILD_FOREST_ROOT` removed. A failures token without
    `LastTestsFailed.log`, a run that did not execute, or a new failure
    against the baseline exits 1.
-6. Standalone mode (`--repo`/`--build`) runs `ioa.preflight.check_standalone`
-   instead: it fetches `--upstream`, refuses `dirty-tree`, `no-graph`,
-   `not-at-upstream-tip` (with the `fetch && merge --ff-only` hint), and
+7. Standalone mode (`--repo`/`--build`) runs `ioa.preflight.check_standalone`
+   instead: it fetches `--upstream`, refuses `not-a-repo`, `dirty-tree`,
+   `no-graph`, `not-at-upstream-tip` (with the `fetch && merge --ff-only`
+   hint), and
    `branch-exists`, but not `on-main`, since the run makes its own branch.
    An AppleClang build skips the tidy-series check and says so in the
    report's notes. The baseline, the build, and the ctest step run
    `ctest --test-dir <build> -j<N> --timeout 300 --output-on-failure` and
-   `ninja -C <build>` directly; the `T:<passed>/<total>` token is built
-   from ctest's summary line, so the same green rule applies.
-7. Any exception after the stages still writes the report, with the step,
+   `ninja -C <build>` directly, without inherited `FOREST` or
+   `BUILD_FOREST_ROOT`; the `T:<passed>/<total>` token is built from
+   ctest's summary line, so the same green rule applies, and a ctest run
+   past 1800 s counts as not run. Standalone baselines are keyed on the SHA
+   and the build directory.
+8. Any exception after the stages still writes the report, with the step,
    the exception, and its last frame under "Run error", and exits 1.
 
 The run never pushes, never calls `gh`, and writes into the consumer only

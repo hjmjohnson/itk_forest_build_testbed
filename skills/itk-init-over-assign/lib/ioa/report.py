@@ -46,8 +46,12 @@ class Failure:
     stderr_tail: str
 
 
+def _standalone(coords) -> bool:
+    return coords.forest_name == "standalone"
+
+
 def coordinate_line(coords) -> str:
-    if coords.forest_name == "standalone":
+    if _standalone(coords):
         return (
             f"Repo: {coords.repo_slug} ({coords.sha[:12]}) | "
             f"Standalone: {coords.repo}, build {coords.graph}"
@@ -99,12 +103,13 @@ def _skip_section(skips: list[Site]) -> list[str]:
     return out[1:]
 
 
-def _build_lines(build: Build | None) -> list[str]:
+def _build_lines(build: Build | None, coords) -> list[str]:
     if build is None:
         return ["Not run."]
+    label = "Full build" if _standalone(coords) else "Full build and artifact check"
     out = [
         f"- pre-commit: {build.precommit}",
-        f"- Full build and artifact check: {'pass' if build.ok else 'FAIL'}",
+        f"- {label}: {'pass' if build.ok else 'FAIL'}",
     ]
     if build.precommit_changed:
         out += ["", "### pre-commit changed files (not committed)", ""]
@@ -141,7 +146,12 @@ def _kit_commit(kit: Path) -> str:
 
 
 def _failure_lines(failed: Failure) -> list[str]:
-    if failed.returncode is None:
+    if failed.kind == "build-failed":
+        head = ["## Baseline build failed", "", _wrap(
+            "The build before the baseline ctest failed (build-failed); no branch "
+            "was created and no stage ran.")]
+        body = [failed.stderr_tail.rstrip()]
+    elif failed.returncode is None:
         head = ["## Run error", "", _wrap(
             f"Step `{failed.kind}` raised; the run stopped and left the branch "
             "and working tree in place.")]
@@ -181,7 +191,7 @@ def _report_text(coords, commits, skips, build, ctest, branch, tip, run_dir, fai
     lines.append(_wrap("Disjoint from every other commit (candidates for separate PRs):"))
     lines += [f"- `{_short(c.sha)}` {c.kind}" for c in alone] or ["- none"]
     lines += ["", "## Skip list", "", *_skip_section(skips)]
-    lines += ["", "## Build", "", *_build_lines(build)]
+    lines += ["", "## Build", "", *_build_lines(build, coords)]
     lines += ["", "## ctest", "", *_ctest_lines(ctest)]
     if notes:
         lines += ["", "## Notes", "", *(f"- {n}" for n in notes)]
@@ -203,7 +213,8 @@ def _pr_body(kit, coords, commits, skips, build, ctest, run_dir) -> str:
         f"- pre-commit: {build.precommit if build else 'not run'}"
         + (f"; changed and restored: {', '.join(build.precommit_changed)}"
            if build and build.precommit_changed else ""),
-        f"- Full build in {coords.forest_name}: "
+        ("- Full build with ninja in the standalone build tree: " if _standalone(coords)
+         else f"- Full build in {coords.forest_name}: ")
         + ("not run" if build is None else "pass" if build.ok else "FAIL"),
         f"- ctest: {ctest.token if ctest else 'not run'}"
         + (f", new failures: {', '.join(ctest.new)}" if ctest and ctest.new else "")

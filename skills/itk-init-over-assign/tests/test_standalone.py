@@ -9,6 +9,7 @@ from test_run import KINDS, World
 from ioa import baseline, pipeline, preflight, report
 from ioa.preflight import Coordinates, PreflightError
 
+ENSURE_STANDALONE = baseline.ensure_standalone
 APPLE_NOTE = "tidy-series: skipped (AppleClang 21.0.0 vs clang-tidy 19.1.7)"
 
 
@@ -128,6 +129,7 @@ class StandaloneWorld(World):
         super().__init__(tmp_path, monkeypatch)
         self.ctest_dir = self.graph
         self.summary = "100% tests passed, 0 tests failed out of 554\n"
+        self.ctest_kwargs: list[dict] = []
         self.coords = Coordinates(
             "BRAINSTools", "a" * 40, "standalone", self.graph, "6.0.0",
             repo=self.repo, note=APPLE_NOTE,
@@ -144,13 +146,16 @@ class StandaloneWorld(World):
                 log = self.ctest_dir / "Testing" / "Temporary" / "LastTestsFailed.log"
                 log.parent.mkdir(parents=True, exist_ok=True)
                 log.write_text("".join(f"{i}:{t}\n" for i, t in enumerate(self.ctest_failed)))
+            self.ctest_kwargs.append(kwargs)
             return subprocess.CompletedProcess(argv, 8 if self.ctest_failed else 0, self.summary, "")
         if argv[0] == "ninja":
             self.calls.append(argv)
             self.envs.append(kwargs.get("env"))
             assert not self.dirty, "build saw files rewritten by pre-commit"
             out = "[1/2] x\nfoo.cxx:3:1: warning: unused variable 'q'\n"
-            return subprocess.CompletedProcess(argv, self.build_rc, out, "")
+            self.builds += 1
+            rc = self.prebuild_rc if self.builds == 1 else self.build_rc
+            return subprocess.CompletedProcess(argv, rc, out, "")
         return super().record(argv, *args, **kwargs)
 
     def main(self, *extra: str) -> int:
@@ -177,8 +182,8 @@ def test_standalone_run_uses_ninja_and_ctest_after_the_stages(sworld, capsys):
     assert len(sworld.stage_calls()) == 11
     assert not any(c[:2] == ["pixi", "run"] for c in sworld.calls)
     assert not any(any(a.endswith("run-matrix.sh") for a in c) for c in sworld.calls)
-    ninja = sworld.calls.index(["ninja", "-C", str(sworld.graph)])
-    ctest = next(i for i, c in enumerate(sworld.calls) if c[0] == "ctest")
+    ninja = max(i for i, c in enumerate(sworld.calls) if c == ["ninja", "-C", str(sworld.graph)])
+    ctest = max(i for i, c in enumerate(sworld.calls) if c[0] == "ctest")
     assert sworld.calls.index(sworld.stage_calls()[-1]) < ninja < ctest
     argv = sworld.calls[ctest]
     assert argv[:3] == ["ctest", "--test-dir", str(sworld.graph)]
@@ -188,6 +193,9 @@ def test_standalone_run_uses_ninja_and_ctest_after_the_stages(sworld, capsys):
     assert f"Standalone: {sworld.repo}, build {sworld.graph}" in text
     assert "- Result: T:554/554" in text and APPLE_NOTE in text
     assert "warning: unused variable 'q'" in text
+    assert "- Full build: pass" in text and "artifact check" not in text
+    body = (sworld.kit / ".devlocal" / "pr-bodies" / "BRAINSTools-init-over-assign.md").read_text()
+    assert "- Full build with ninja in the standalone build tree: pass" in body
 
 
 def test_standalone_new_ctest_failure_exits_1(sworld):
@@ -294,3 +302,79 @@ def test_report_coordinate_line_for_standalone(tmp_path):
     assert report.coordinate_line(coords) == (
         f"Repo: BRAINSTools (bbbbbbbbbbbb) | Standalone: {tmp_path / 'src'}, build {tmp_path / 'bld'}"
     )
+
+
+def test_standalone_builds_before_the_baseline_ctest(sworld, monkeypatch):
+    monkeypatch.setattr(baseline, "ensure_standalone", ENSURE_STANDALONE)
+    assert sworld.main() == 0
+    ninja = [i for i, c in enumerate(sworld.calls) if c[0] == "ninja"]
+    ctest = [i for i, c in enumerate(sworld.calls) if c[0] == "ctest"]
+    first_stage = sworld.calls.index(sworld.stage_calls()[0])
+    assert len(ninja) == 2 and len(ctest) == 2
+    assert ninja[0] < ctest[0] < first_stage < ninja[1] < ctest[1]
+    assert "baseline build:" in _report(sworld)
+
+
+def test_failing_standalone_baseline_build_refuses_without_branch(sworld, capsys):
+    sworld.prebuild_rc = 1
+    assert sworld.main() == 2
+    assert "refused (build-failed)" in capsys.readouterr().err
+    assert not any("checkout" in c for c in sworld.calls)
+    assert not any(c[0] == "ctest" for c in sworld.calls)
+    text = _report(sworld)
+    assert "## Baseline build failed" in text and f"ninja -C {sworld.graph} exited 1" in text
+
+
+def test_standalone_build_and_ctest_drop_forest_env(sworld, monkeypatch):
+    monkeypatch.setenv("FOREST", "/elsewhere")
+    monkeypatch.setenv("BUILD_FOREST_ROOT", "/elsewhere")
+    sworld.main()
+    envs = [e for c, e in zip(sworld.calls, sworld.envs) if c[0] in ("ninja", "ctest")]
+    assert len(envs) == 3
+    for env in envs:
+        assert env is not None and "FOREST" not in env and "BUILD_FOREST_ROOT" not in env
+    assert all(kw.get("timeout") == 1800 for kw in sworld.ctest_kwargs)
+
+
+def test_standalone_baseline_oserror_is_a_refusal(sworld, monkeypatch, capsys):
+    def boom(coords, kit, jobs=None):
+        raise FileNotFoundError("ctest: not found")
+
+    monkeypatch.setattr(baseline, "ensure_standalone", boom)
+    assert sworld.main() == 2
+    assert "refused (baseline)" in capsys.readouterr().err
+
+
+def test_standalone_baseline_is_keyed_on_the_build_dir(tmp_path, monkeypatch):
+    _fake_ctest(monkeypatch, "100% tests passed, 0 tests failed out of 3\n", [])
+    kit = tmp_path / "kit"
+    paths = []
+    for name in ("b1", "b2"):
+        coords = Coordinates("BRAINSTools", "abc", "standalone", tmp_path / name, "6.0.0",
+                             repo=tmp_path)
+        paths.append(baseline.ensure_standalone(coords, kit))
+    import hashlib
+    want = hashlib.sha1(str(tmp_path / "b1").encode()).hexdigest()[:8]
+    assert paths[0].name == f"BRAINSTools-standalone-abc-{want}.json"
+    assert paths[0] != paths[1]
+
+
+def test_ctest_timeout_is_did_not_run(tmp_path, monkeypatch):
+    def slow(argv, *a, **kw):
+        assert kw["timeout"] == 1800
+        raise subprocess.TimeoutExpired(argv, kw["timeout"])
+
+    monkeypatch.setattr(subprocess, "run", slow)
+    coords = Coordinates("BRAINSTools", "abc", "standalone", tmp_path, "6.0.0", repo=tmp_path)
+    with pytest.raises(RuntimeError, match="did not run.*T:timeout"):
+        baseline.ensure_standalone(coords, tmp_path / "kit")
+    got = pipeline.run_ctest_standalone(tmp_path, tmp_path / "b.json", tmp_path / "run")
+    assert not got.ok and got.token == "T:timeout" and got.note == "ctest did not run"
+
+
+def test_non_git_repo_is_named(tmp_path):
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    with pytest.raises(PreflightError) as e:
+        preflight.check_standalone(plain, tmp_path, "origin/main", tmp_path)
+    assert e.value.code == "not-a-repo" and "not a git" in e.value.message

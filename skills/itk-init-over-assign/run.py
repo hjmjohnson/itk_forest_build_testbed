@@ -134,8 +134,20 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     notes = [coords.note] if coords.note else []
     try:
+        built = harness.build(coords, pipeline.PreCommit("not run (baseline build)", True, []))
+    except OSError as exc:
+        built = report.Build("not run", False, f"{type(exc).__name__}: {exc}")
+    if not built.ok:
+        path = _write(repo, coords, [], [], None, None, f"{branch} (not created)", run_dir,
+                      report.Failure("build-failed", [], None, built.detail), notes)
+        print(f"refused (build-failed): the build before the baseline failed; report: {path}",
+              file=sys.stderr)
+        return 2
+    notes.append(f"baseline build: rebuilt {coords.graph} at {coords.sha[:12]} "
+                 "before the baseline ctest")
+    try:
         base = harness.baseline(coords)
-    except RuntimeError as exc:
+    except (RuntimeError, OSError) as exc:
         path = _write(repo, coords, [], [], None, None, f"{branch} (not created)", run_dir,
                       _error("baseline", exc), notes)
         print(f"refused (baseline): {exc}; report: {path}", file=sys.stderr)

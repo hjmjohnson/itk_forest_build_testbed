@@ -52,6 +52,8 @@ class World:
         self.ctest_failed: list[str] = []
         self.ctest_token = "T:10/10"
         self.build_rc = 0
+        self.prebuild_rc = 0
+        self.builds = 0
         self.apply_raises = False
         self.precommit_rewrites: list[str] = []
         self.dirty: set[str] = set()
@@ -125,7 +127,8 @@ class World:
             out = f"{self.ctest_dir}\n"
         elif argv[:2] == ["pixi", "run"]:
             out = "[1/2] x\nfoo.cxx:3:1: warning: unused variable 'q'\n"
-            rc = self.build_rc
+            self.builds += 1
+            rc = self.prebuild_rc if self.builds == 1 else self.build_rc
             assert not self.dirty, "build saw files rewritten by pre-commit"
         manifest = _flag(argv, "--manifest")
         if manifest and "sizetype_filled.py" in joined:
@@ -201,7 +204,7 @@ def test_run_partitions_once_after_all_stages(world, capsys):
     assert all(s.endswith(want) for s, want in zip(seen, SCRIPTS))
     kinds = [_flag(c, "--kind") for c in calls if _flag(c, "--kind")]
     assert kinds == ["local-const", "container-const", "itk-helpers-constexpr"]
-    plan_at = world.calls.index(next(c for c in world.calls if c[:2] == ["pixi", "run"]))
+    plan_at = max(i for i, c in enumerate(world.calls) if c[:2] == ["pixi", "run"])
     last_stage = world.calls.index(calls[-1])
     assert last_stage < plan_at
     assert world.applied == ["local-init", "narrow-scope"]
@@ -230,7 +233,7 @@ def test_run_exits_1_on_failing_stage_and_names_it(world):
     text = _report(world)
     assert "## Failing stage" in text and "container-list-init" in text and "boom: stage blew up" in text
     assert world.plan_args == []
-    assert not any(c[:2] == ["pixi", "run"] for c in world.calls)
+    assert sum(c[:2] == ["pixi", "run"] for c in world.calls) == 1
 
 
 def test_disjoint_commits_listed_in_report(world):
@@ -333,7 +336,7 @@ def test_build_and_ctest_pin_the_forest_env(world, monkeypatch):
     world.run.main(["BRAINSTools"])
     pinned = [e for c, e in zip(world.calls, world.envs)
               if c[:2] == ["pixi", "run"] or any(a.endswith("run-matrix.sh") for a in c)]
-    assert len(pinned) == 4
+    assert len(pinned) == 6
     for env in pinned:
         assert env["FOREST_REFERENCE_SUFFIX"] == "itk-main"
         assert "FOREST" not in env and "BUILD_FOREST_ROOT" not in env
@@ -407,3 +410,40 @@ def test_report_lists_forest_local_commits(tmp_path):
     comment = body.split("<!--")[1]
     assert "COMP: forest-local tbb patch" in comment and "drop them before" in comment
     assert "COMP: forest-local" not in body.split("<!--")[0]
+
+
+def test_forest_builds_before_the_baseline(world, monkeypatch):
+    real = world.ensure
+
+    def ensure(coords, kit):
+        world.calls.append(["<baseline>"])
+        world.envs.append(None)
+        return real(coords, kit)
+
+    monkeypatch.setattr(baseline, "ensure", ensure)
+    assert world.run.main(["BRAINSTools"]) == 0
+    build = next(i for i, c in enumerate(world.calls) if c == ["pixi", "run", "build-BRAINSTools"])
+    artifact = next(i for i, c in enumerate(world.calls) if "--check-artifact" in c)
+    assert build < artifact < world.calls.index(["<baseline>"])
+    assert "baseline build:" in _report(world)
+
+
+def test_failing_baseline_build_refuses_without_branch(world, monkeypatch, capsys):
+    monkeypatch.setattr(baseline, "ensure", lambda c, k: pytest.fail("baseline ran"))
+    world.prebuild_rc = 2
+    assert world.run.main(["BRAINSTools"]) == 2
+    assert "refused (build-failed)" in capsys.readouterr().err
+    assert not any("checkout" in c for c in world.calls)
+    assert world.stage_calls() == []
+    text = _report(world)
+    assert "build-failed" in text and "(not created)" in text
+
+
+def test_baseline_oserror_is_a_refusal(world, monkeypatch, capsys):
+    def boom(coords, kit):
+        raise FileNotFoundError("ctest: not found")
+
+    monkeypatch.setattr(baseline, "ensure", boom)
+    assert world.run.main(["BRAINSTools"]) == 2
+    assert "refused (baseline)" in capsys.readouterr().err
+    assert "FileNotFoundError" in _report(world)
