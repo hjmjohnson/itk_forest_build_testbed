@@ -39,15 +39,7 @@ KINDS = ("local-const", "container-const", "itk-helpers-constexpr")
 CONST, CONSTEXPR = "const", "constexpr"
 MESSAGE = re.compile(r"^variable '([^']+)' of type '([^']*)'(?: \(aka '([^']*)'\))? can be declared 'const'")
 SOURCE_SUFFIXES = {".cxx", ".cpp", ".cc", ".c++", ".C"}
-AUTO = re.compile(r"(?<![\w:])auto(\s+)([A-Za-z_]\w*)\s*=(?!=)")
-LAMBDA = re.compile(r"\[[^\]]*\]\s*(?:\(|\{|mutable\b)")
-
-
-@dataclass
-class Rewrite:
-    at: int
-    old: int
-    new: int
+AUTO = re.compile(r"(?<![\w:])auto\b(?=\s*[&*]*\s*[A-Za-z_]\w*\s*[={(])")
 
 
 @dataclass(frozen=True)
@@ -130,56 +122,30 @@ def translation_units(files: list[Path], graph: Path, root: Path) -> list[Path]:
     return tus
 
 
-def rewrite_autos(path: Path, ranges: list[tuple[int, int]]) -> tuple[str, list[Rewrite]]:
-    """Spell `auto x = e;` as `__decay(decltype(e)) x = e;` so clang-tidy analyzes it.
-
-    misc-const-correctness ignores every auto-typed variable.
-    """
-    text = path.read_text(errors="surrogateescape")
-    code = mask(text, literals=True)
-    out, rewrites, last, shift = [], [], 0, 0
+def auto_plans(doc: Doc, code: str, ranges: list[tuple[int, int]]) -> list[tuple]:
+    """Plain `auto` locals near a prior site; misc-const-correctness never reports them."""
+    out = []
     for m in AUTO.finditer(code):
-        line = text.count("\n", 0, m.start()) + 1
         prev = code[: m.start()].rstrip()
-        if not near(ranges, line, line) or (prev and prev[-1] not in ";{}"):
+        if prev and prev[-1] not in ";{}":
             continue
-        start = m.end()
-        end = statement_end(code, start)
-        init = text[start:end].strip()
-        if (end >= len(code) or code[end] != ";" or not init or init.startswith("{")
-                or has_second_declarator(code, start, end) or LAMBDA.search(code[start:end])
-                or re.search(r"^\s*#", code[m.start():end], re.M)):
-            continue
-        spelled = f"__decay(decltype({init}))"
-        out.append(text[last:m.start()] + spelled)
-        last = m.start() + 4
-        rewrites.append(Rewrite(m.start() + shift, 4, len(spelled)))
-        shift += len(spelled) - 4
-    out.append(text[last:])
-    return "".join(out), rewrites
+        end = statement_end(code, m.start())
+        first, last = doc.line(m.start()) + 1, doc.line(end) + 1
+        if near(ranges, first, last):
+            plan = Plan(doc.path, m.start(), end, CONST, Reason.GATE_FAILED, "auto-unanalyzed")
+            out.append((plan, first, last))
+    return out
 
 
-def unshift(rewrites: list[Rewrite], x: int) -> int:
-    """Map a character offset in the rewritten text back to the original."""
-    delta = 0
-    for r in rewrites:
-        if x < r.at:
-            break
-        if x < r.at + r.new:
-            return r.at - delta
-        delta += r.new - r.old
-    return x - delta
-
-
-def locate(diags: list[Diag], seen: dict[Path, Doc], rewrites: dict[Path, list[Rewrite]]) -> list[Hit]:
-    """Diagnostics on the analyzed files, at character offsets of the original text."""
+def locate(diags: list[Diag], docs: dict[Path, Doc]) -> list[Hit]:
+    """Diagnostics on the analyzed files, at character offsets."""
     out = []
     for d in diags:
         msg = MESSAGE.match(d.message)
-        if d.file is None or d.offset is None or msg is None or d.file.resolve() not in seen:
+        if d.file is None or d.offset is None or msg is None or d.file.resolve() not in docs:
             continue
         path = d.file.resolve()
-        out.append(Hit(path, unshift(rewrites.get(path, []), seen[path].c(d.offset)), msg[1], msg[3] or msg[2]))
+        out.append(Hit(path, docs[path].c(d.offset), msg[1], msg[3] or msg[2]))
     return out
 
 
@@ -214,7 +180,10 @@ def plan_hits(hits: list[Hit], docs: dict[Path, Doc], ranges: dict[Path, list[tu
         elif promotable(decl, name, ctype):
             plan.cls = CONSTEXPR
         out.append((plan, first, last))
-    return out
+    for path in sorted(ranges):
+        code = masked.setdefault(path, mask(docs[path].text, literals=True))
+        out += auto_plans(docs[path], code, ranges[path])
+    return sorted(out, key=lambda t: (t[0].file, t[0].begin))
 
 
 def site(root: Path, path: Path, first: int, last: int, kind: str, cls: str, text: str, **kw) -> Site:
@@ -227,27 +196,9 @@ def run(graph: Path, root: Path, manifest: Path | None, only_from: Path, kind: s
     ranges = {p: r for p, r in ranges_of(Manifest.read(only_from), root).items() if p.is_file()}
     files = sorted(ranges)
     tus = translation_units(files, graph, root)
-    originals = {p: p.read_bytes() for p in files}
-    rewrites: dict[Path, list[Rewrite]] = {}
-    seen: dict[Path, Doc] = {}
-    try:
-        for p in files:
-            text, rw = rewrite_autos(p, ranges[p])
-            if rw:
-                p.write_bytes(text.encode("utf-8", "surrogateescape"))
-                rewrites[p] = rw
-            seen[p] = Doc(p)
-        diags, dropped = run_tidy(graph, root, CHECK, OPTIONS, tus)
-    finally:
-        for p in rewrites:
-            p.write_bytes(originals[p])
+    diags, dropped = run_tidy(graph, root, CHECK, OPTIONS, tus)
     docs = {p: Doc(p) for p in files}
-    hits = locate(diags, seen, rewrites)
-    if rewrites and dropped:
-        failed = {d.split(" ")[0] for d in dropped}
-        retry = [t for t in tus if t.is_relative_to(root) and str(t.relative_to(root)) in failed]
-        diags, dropped = run_tidy(graph, root, CHECK, OPTIONS, retry)
-        hits += locate(diags, docs, {})
+    hits = locate(diags, docs)
     if dropped:
         print(f"const-promote: dropped {len(dropped)} TU(s) that failed to compile: {', '.join(dropped)}")
     plans = plan_hits(hits, docs, ranges)

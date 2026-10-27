@@ -110,14 +110,16 @@ def test_never_mutated_local_becomes_const(fixture_graph):
 def test_filled_literal_becomes_constexpr(fixture_graph):
     out = run_promote(fixture_graph("constexpr"), kind="itk-helpers-constexpr")
     text = out.read("a.cxx")
-    assert "  constexpr auto size = SizeType::Filled(2);\n" in text
+    assert "  constexpr SizeType size = SizeType::Filled(2);\n" in text
     assert "  constexpr int lit = 3;\n" in text
     assert "  const int n = f();\n" in text
     assert "  constexpr double big = std::numeric_limits<double>::max();\n" in text
     assert "  constexpr int arr[] = { 1, 2 };\n" in text
     assert "  auto w = f();\n" in text
-    assert sorted((s.start, s.cls) for s in out.manifest.sites) == [
-        (26, "constexpr"), (28, "constexpr"), (30, "const"), (32, "constexpr"), (34, "constexpr")]
+    assert sorted((s.start, s.cls, s.skipped, s.note) for s in out.manifest.sites) == [
+        (26, "constexpr", None, ""), (28, "constexpr", None, ""), (30, "const", None, ""),
+        (32, "constexpr", None, ""), (34, "constexpr", None, ""),
+        (36, "const", Reason.GATE_FAILED, "auto-unanalyzed")]
     assert {s.kind for s in out.manifest.sites} == {"itk-helpers-constexpr"}
 
 
@@ -173,16 +175,5 @@ def test_dry_run_prints_counts_and_writes_nothing(fixture_graph, capsys):
     assert _git(g.repo, "status", "--porcelain") == ""
     assert "constexpr a.cxx 4" in out.stdout
     assert "const a.cxx 1" in out.stdout
+    assert "skipped:gate-failed a.cxx 1" in out.stdout
 
-
-def test_auto_respelling_maps_offsets_back(tmp_path):
-    src = tmp_path / "a.cxx"
-    text = "void g()\n{\n  auto a = f(1, 2);\n  auto b = { 1 };\n  auto c = h(); // c\n}\n"
-    src.write_text(text)
-    out, rewrites = const_promote.rewrite_autos(src, [(3, 5)])
-    assert "  __decay(decltype(f(1, 2))) a = f(1, 2);\n" in out
-    assert "  auto b = { 1 };\n" in out
-    assert "  __decay(decltype(h())) c = h(); // c\n" in out
-    for name in ("a", "c"):
-        assert const_promote.unshift(rewrites, out.index(f") {name} =") - 1) == text.index(f"auto {name}")
-        assert const_promote.unshift(rewrites, out.index(f"{name} =")) == text.index(f"{name} =")

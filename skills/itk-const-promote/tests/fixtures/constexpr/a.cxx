@@ -23,7 +23,7 @@ f();
 double
 use()
 {
-  auto size = SizeType::Filled(2);
+  SizeType size = SizeType::Filled(2);
 
   int lit = 3;
 
@@ -34,6 +34,5 @@ use()
   int arr[] = { 1, 2 };
 
   auto w = f();
-  w += 1;
   return size.m_Size[0] + lit + n + big + arr[1] + w;
 }

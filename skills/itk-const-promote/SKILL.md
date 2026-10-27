@@ -87,7 +87,7 @@ Usage:
                lines and write nothing
 
 Classes:   const, constexpr
-Skips:     static-local, gate-failed (declaration-not-found,
+Skips:     static-local, gate-failed (auto-unanalyzed, declaration-not-found,
            multiple-declarators, unsupported-specifier)
 ```
 
@@ -104,19 +104,18 @@ falling back to `PATH`. Run through `pixi run` so `CONDA_PREFIX` is set.
    `AnalyzeValues`, `AnalyzeReferences`, `TransformValues`, and
    `TransformReferences` on, and `WarnPointersAsValues` and
    `TransformPointersAsValues` off.
-3. clang-tidy 19 never reports `auto` variables. For the run only,
-   `auto x = e;` near a prior site is spelled `__decay(decltype(e)) x = e;`
-   (clang's builtin decay, which is what `auto` deduces), and the file is
-   restored afterward, also in a dry run. Brace initializers, multiple
-   declarators, lambdas, and statements with a preprocessor line are left as
-   `auto` and not analyzed. A TU that fails to compile with the respelling is
-   analyzed again without it.
+3. clang-tidy 19 never reports `auto` variables, and this stage does not
+   analyze them: declare-then-init emits explicit types, and the ITK-helper
+   stage emits `const auto` / `constexpr auto` itself. A plain `auto` local
+   near a prior site is recorded `gate-failed` with note `auto-unanalyzed`
+   and left unedited.
 4. A diagnostic is kept only when its declaration lies within, or one line
    next to, an applied site range of the prior manifest for that file, so the
    const commit stays tied to the stage that enabled it. Others are ignored
    and not recorded.
 5. `const ` (or `constexpr `) is inserted at the start of the declaration,
-   west-const style, instead of clang-tidy's `int const n`. Nothing else on
+   west-const (`const int n`), which is ITK style, instead of clang-tidy's
+   `int const n`. Nothing else on
    the line moves, so trailing comments stay. `clang-format --style=file`
    then runs on the changed lines.
 6. `constexpr` replaces `const` when the initializer is (`constexpr_rule.py`):
