@@ -39,7 +39,7 @@ def test_mentions_ignore_members_comments_and_strings():
 
 
 def test_block_move():
-    code = "void f(int c)\n{\n  @int t = 0;\n  if (c)\n  {\n    t = c;\n    c = t;\n  }\n}\n"
+    code = "void f(int c)\n{\n  @int t = 0;\n  if (c)\n  {\n    t = c;\n    g(t);\n  }\n}\n"
     assert moved(code, "t").startswith("void f(int c)\n{\n  if (c)\n  {\n    int t = 0;\n    t = c;\n")
 
 
@@ -70,12 +70,12 @@ def test_call_initializer_may_not_cross_code():
 
 
 def test_call_initializer_enters_immediately_following_bare_block():
-    code = "void f(int & n)\n{\n  @auto p = make();\n  {\n    n = p;\n  }\n}\n"
-    assert moved(code, "p") == "void f(int & n)\n{\n  {\n    auto p = make();\n    n = p;\n  }\n}\n"
+    code = "void f()\n{\n  @auto p = make();\n  {\n    use(p);\n  }\n}\n"
+    assert moved(code, "p") == "void f()\n{\n  {\n    auto p = make();\n    use(p);\n  }\n}\n"
 
 
 def test_dead_initial_value_may_read_state():
-    code = "void f(int c, int a)\n{\n  @int t = a;\n  c += 1;\n  if (c)\n  {\n    t = c;\n    a = t;\n  }\n}\n"
+    code = "void f(int c, int a)\n{\n  @int t = a;\n  c += 1;\n  if (c)\n  {\n    t = c;\n    use(t);\n  }\n}\n"
     assert "  {\n    int t = a;\n    t = c;\n" in moved(code, "t")
 
 
@@ -113,7 +113,7 @@ def test_bitwise_and_is_not_address_taken():
 
 
 def test_declaration_sharing_its_line_is_not_a_site():
-    _, mv = move("void f(int c)\n{\n  @int t = 0; int u = 1;\n  if (c)\n  {\n    c = t + u;\n  }\n}\n", "t")
+    _, mv = move("void f(int c)\n{\n  @int t = 0; int u = 1;\n  if (c)\n  {\n    g(t, u);\n  }\n}\n", "t")
     assert mv is None
 
 
@@ -124,34 +124,34 @@ def test_shadowing_declaration_in_target_is_not_a_site():
 
 
 def test_two_moves_into_one_block_keep_their_order():
-    code = "void f(int c)\n{\n  int a = 0;\n  int b = 1;\n  if (c)\n  {\n    c = a + b;\n  }\n}\n"
+    code = "void f(int c)\n{\n  int a = 0;\n  int b = 1;\n  if (c)\n  {\n    g(a, b);\n  }\n}\n"
     src = Source(code)
     mvs = [plan(src, Decl(code.index("int a"), "a", True, False)),
            plan(src, Decl(code.index("int b"), "b", True, False))]
-    assert apply_text(src, mvs) == "void f(int c)\n{\n  if (c)\n  {\n    int a = 0;\n    int b = 1;\n    c = a + b;\n  }\n}\n"
+    assert apply_text(src, mvs) == "void f(int c)\n{\n  if (c)\n  {\n    int a = 0;\n    int b = 1;\n    g(a, b);\n  }\n}\n"
 
 
 def test_only_one_declaration_takes_an_init_statement():
-    code = "void f()\n{\n  double lo = 0.5;\n  double hi = 2.0;\n  if (lo < hi)\n  {\n  }\n}\n"
+    code = "void f()\n{\n  double lo = 0.5;\n  double hi = 2.0;\n  if (g(lo, hi))\n  {\n  }\n}\n"
     src = Source(code)
     mvs = [plan(src, Decl(code.index("double lo"), "lo", True, False)),
            plan(src, Decl(code.index("double hi"), "hi", True, False))]
     assert [mv.target.form for mv in mvs] == ["init-statement", "init-statement"]
     assert accept(src, mvs) == mvs[:1]
-    assert "  double hi = 2.0;\n  if (double lo = 0.5; lo < hi)\n" in apply_text(src, mvs)
+    assert "  double hi = 2.0;\n  if (double lo = 0.5; g(lo, hi))\n" in apply_text(src, mvs)
 
 
 def test_removal_leaves_no_doubled_blank_line():
-    code = "void f(int c)\n{\n  int a = 1;\n\n  int t = 0;\n  int u = 0;\n\n  g(a);\n  if (c)\n  {\n    c = t + u;\n  }\n}\n"
+    code = "void f(int c)\n{\n  int a = 1;\n\n  int t = 0;\n  int u = 0;\n\n  g(a);\n  if (c)\n  {\n    g(t, u);\n  }\n}\n"
     src = Source(code)
     mvs = [plan(src, Decl(code.index("int t"), "t", True, False)),
            plan(src, Decl(code.index("int u"), "u", True, False))]
     assert apply_text(src, mvs) == ("void f(int c)\n{\n  int a = 1;\n\n  g(a);\n  if (c)\n  {\n"
-                                    "    int t = 0;\n    int u = 0;\n    c = t + u;\n  }\n}\n")
+                                    "    int t = 0;\n    int u = 0;\n    g(t, u);\n  }\n}\n")
 
 
 def test_handler_block_is_still_a_target():
-    code = "void f()\n{\n  @int t = 0;\n  try\n  {\n    g();\n  }\n  catch (...)\n  {\n    t = 1;\n    ++t;\n  }\n}\n"
+    code = "void f()\n{\n  @int t = 0;\n  try\n  {\n    g();\n  }\n  catch (...)\n  {\n    t = 1;\n    h(t);\n  }\n}\n"
     assert "  catch (...)\n  {\n    int t = 0;\n    t = 1;\n" in moved(code, "t")
 
 
@@ -182,13 +182,35 @@ def test_accumulating_a_trivial_value_does_not_escape():
     assert "  {\n    double v;\n    v = i;\n" in moved(code, "v")
 
 
-def test_variable_or_member_call_result_passed_to_a_call_escapes():
-    for use in ("g(t);", "g(1, t.Data());", "h->Set(t);"):
-        code = "void f(int c)\n{\n  @int t = 0;\n  if (c)\n  {\n    t = c;\n    " + use + "\n  }\n}\n"
+def test_trivial_variable_passed_whole_to_a_call_still_moves():
+    code = "void f(int c)\n{\n  @int t = 0;\n  if (c)\n  {\n    t = c;\n    g(t);\n  }\n}\n"
+    assert move(code, "t")[1].skipped is None
+
+
+def test_member_call_result_passed_to_a_call_escapes_for_any_type():
+    for use in ("g(1, t.Data());", "h->Set(t.GetPointer());"):
+        code = "void f(int c)\n{\n  @T t;\n  if (c)\n  {\n    t[0] = c;\n    " + use + "\n  }\n}\n"
         _, mv = move(code, "t")
         assert (mv.skipped, mv.note) == (Reason.LOOP_CARRIED, "escapes"), use
-    code = "void f(int c)\n{\n  @int t = 0;\n  if (c)\n  {\n    t = c;\n    g(t + 1);\n  }\n}\n"
-    assert move(code, "t")[1].skipped is None
+
+
+def test_non_trivial_variable_passed_whole_to_a_call_escapes():
+    code = "int f(int c)\n{\n  @T t;\n  if (c)\n  {\n    return g(t);\n  }\n  return 0;\n}\n"
+    _, mv = move(code, "t", trivial=False)
+    assert (mv.skipped, mv.note) == (Reason.LOOP_CARRIED, "escapes")
+
+
+def test_string_c_str_passed_to_a_call_escapes():
+    code = ("int f(int c)\n{\n  @std::string s;\n  if (c)\n  {\n    return g(s.c_str());\n  }\n"
+            "  return 0;\n}\n")
+    _, mv = move(code, "s", trivial=False)
+    assert (mv.skipped, mv.note) == (Reason.LOOP_CARRIED, "escapes")
+
+
+def test_array_passed_whole_to_a_call_escapes():
+    code = "int f(int c)\n{\n  @double b[3];\n  if (c)\n  {\n    return g(b);\n  }\n  return 0;\n}\n"
+    _, mv = move(code, "b")
+    assert (mv.skipped, mv.note) == (Reason.LOOP_CARRIED, "escapes")
 
 
 def test_type_without_trivial_destructor_is_a_costly_construct():

@@ -249,9 +249,14 @@ def warning_keys(log: str, repo: Path | None, base: Path | None) -> list[str]:
     return list(out)
 
 
+def _unlined(key: str) -> str:
+    return re.sub(r":\d+: warning: ", ": warning: ", key, count=1)
+
+
 def new_warnings(before: list[str], after: list[str]) -> list[str]:
-    seen = set(before)
-    return [w for w in after if w not in seen]
+    """Rebuild warnings whose (file, text) the baseline lacks; a shifted line is not new."""
+    seen = {_unlined(w) for w in before}
+    return [w for w in after if _unlined(w) not in seen]
 
 
 def _built(done: subprocess.CompletedProcess, label: str, pc: PreCommit,

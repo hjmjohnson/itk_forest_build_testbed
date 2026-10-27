@@ -307,10 +307,10 @@ def test_array_decay_and_data_pointer_escapes_are_skipped(fixture_graph):
 def test_call_argument_escapes_are_skipped(fixture_graph):
     g = fixture_graph("call_escape")
     out = run_narrow(g)
-    assert out.sites()[:2] == [(19, 19, Reason.LOOP_CARRIED, "escapes"),
-                               (30, 30, Reason.LOOP_CARRIED, "escapes")]
-    assert out.sites()[2][2] is None
-    assert "    int x = 0;\n    x = c;" in out.read()
+    sites = out.sites()
+    assert sites[0][2] is None and "    int x = 0;\n    h.Set(x);" in out.read()
+    assert sites[1] == (30, 30, Reason.LOOP_CARRIED, "escapes")
+    assert sites[2][2] is None
 
 
 @needs_tools

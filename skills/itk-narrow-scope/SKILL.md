@@ -141,9 +141,11 @@ falling back to `PATH`. Run through `pixi run` so `CONDA_PREFIX` is set.
      `p = pt.GetDataPointer();`), or a bare array name that decays
      (`p = buf;`). The variable's lifetime would end earlier. A plain value
      copy of a trivial variable (`sum += v;`) is not an escape. The same note
-     applies, checked last, when the variable or a member-call result on it is
-     a whole argument of a call in the target (`h.Set(x);`, `Use(x.Data());`);
-     casts and control heads are not calls, and `g(x + 1)` is not an escape.
+     applies, checked last, when a member-call result on the variable is a
+     whole argument of a call in the target (`Use(x.Data());`), or the
+     variable itself is (`h.Set(x);`) and its type is not trivially
+     constructible or it is an array; casts and control heads are not calls,
+     and `g(x + 1)` is not an escape.
    - `costly-construct`, note `nontrivial-dtor`: outside loops, a type that is
      not trivially destructible (a user-provided or virtual destructor, or a
      field or base that is not a builtin, pointer, enum, or array of those)

@@ -202,9 +202,10 @@ subject in `ioa.partition.SUBJECTS`.
    `BUILD_FOREST_ROOT` removed. A failures token without
    `LastTestsFailed.log`, a run that did not execute, or a new failure
    against the baseline exits 1. Compiler warnings are normalized to
-   `file:line: warning: text` with repo-relative paths; any in the rebuild
-   that the baseline build did not report are listed under "New warnings"
-   and exit 1.
+   `file:line: warning: text` with repo-relative paths and compared by
+   file and text only, so a warning whose line shifted is not new; any in
+   the rebuild that the baseline build did not report are listed, with
+   their lines, under "New warnings" and exit 1.
 7. Standalone mode (`--repo`/`--build`) runs `ioa.preflight.check_standalone`
    instead: it fetches `--upstream`, refuses `not-a-repo`, `dirty-tree`,
    `no-graph`, `not-at-upstream-tip` (with the `fetch && merge --ff-only`

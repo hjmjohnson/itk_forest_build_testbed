@@ -533,13 +533,21 @@ def test_new_warning_in_the_rebuild_is_reported_and_not_green(world):
     old = "foo.cxx:3:1: warning: unused variable 'q' [-Wunused-variable]\n"
     world.build_outs = {
         1: old,
-        2: old + f"{world.repo}/Common/bar.cxx:9:5: warning: unused variable 'r'\n",
+        2: "foo.cxx:30:1: warning: unused variable 'q' [-Wunused-variable]\n"
+           f"{world.repo}/Common/bar.cxx:9:5: warning: unused variable 'r'\n",
     }
     assert world.run.main(["BRAINSTools"]) == 1
     text = _report(world)
     assert "### New warnings" in text
     assert "- `Common/bar.cxx:9: warning: unused variable 'r'`" in text
-    assert "foo.cxx:3: warning" not in text.split("### New warnings")[1].split("Warnings in")[0]
+    new = text.split("### New warnings")[1].split("Warnings in")[0]
+    assert "foo.cxx:" not in new
+
+
+def test_shifted_warning_is_not_new():
+    before = ["a.cxx:3: warning: unused variable 'q'"]
+    after = ["a.cxx:30: warning: unused variable 'q'", "a.cxx:31: warning: unused variable 'r'"]
+    assert pipeline.new_warnings(before, after) == ["a.cxx:31: warning: unused variable 'r'"]
 
 
 def test_unchanged_warnings_keep_the_run_green(world):

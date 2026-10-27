@@ -435,10 +435,12 @@ def _args(m: str, open_: int) -> list[str]:
     return [*out, m[start:close]]
 
 
-def call_argument(m: str, name: str, a: int, b: int) -> bool:
-    """True when name, or a member-call result on it, is a whole argument of a call in m[a:b]."""
-    whole = re.compile(rf"\s*{re.escape(name)}(?:\s*(?:\.|->)\s*~?[A-Za-z_]\w*\s*(?:<[^;]*?>\s*)?\(.*\))?\s*",
-                       re.S)
+def call_argument(m: str, name: str, a: int, b: int, whole: bool = True, array: bool = False) -> bool:
+    """True when a call in m[a:b] takes a member-call result on name, or name itself when
+    whole (a non-trivial type) or array (it decays to a pointer)."""
+    member = rf"\s*(?:\.|->)\s*~?[A-Za-z_]\w*\s*(?:<[^;]*?>\s*)?\(.*\)"
+    tail = rf"(?:{member})?" if whole or array else member
+    arg = re.compile(rf"\s*{re.escape(name)}{tail}\s*", re.S)
     for k in range(a, b):
         if m[k] != "(":
             continue
@@ -448,7 +450,7 @@ def call_argument(m: str, name: str, a: int, b: int) -> bool:
         callee = re.search(r"([A-Za-z_]\w*)\s*(?:<[^;(){}]*>)?$", m[:j + 1])
         if callee and callee[1] in NOT_CALLS:
             continue
-        if any(whole.fullmatch(arg) for arg in _args(m, k)):
+        if any(arg.fullmatch(x) for x in _args(m, k)):
             return True
     return False
 
@@ -489,7 +491,8 @@ def _check(src: Source, mv: Move, t: Target, ms: list[int], init: str) -> tuple[
         reads = any(w not in LITERAL_WORDS for w in IDENT.findall(init))
         if (call or mutates or reads and not dead) and "".join(crossed.split()) not in ENTRIES.get(t.form, set()):
             return Reason.COSTLY_CONSTRUCT, "side-effect"
-    if call_argument(m, mv.decl.name, t.at, _end(src, t)):
+    if call_argument(m, mv.decl.name, t.at, _end(src, t), whole=not mv.decl.trivial,
+                     array=init.lstrip().startswith("[")):
         return Reason.LOOP_CARRIED, "escapes"
     return None
 
