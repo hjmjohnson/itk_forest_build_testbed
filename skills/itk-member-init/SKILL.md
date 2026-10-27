@@ -84,7 +84,8 @@ Usage:
 
 Classes:   prefer-member-initializer, use-default-member-init
 Skips:     order-violation, comment-stranded, preprocessor,
-           gate-failed (ctor-unparsed, class-not-found, unknown-initializer)
+           gate-failed (ctor-unparsed, class-not-found, unknown-initializer,
+           internal-error:<ExceptionType>)
 ```
 
 The tools come from `$CONDA_PREFIX/bin` (the kit's pixi env, LLVM 19.1.7), falling
@@ -105,7 +106,9 @@ back to `PATH`. Run through `pixi run` so `CONDA_PREFIX` is set.
    is sorted into declaration order; base-class initializers stay first.
    A constructor that cannot be parsed, whose class is not found, or whose list
    would need an unknown entry moved is recorded `gate-failed` with the notes
-   `ctor-unparsed`, `class-not-found`, or `unknown-initializer`. A preprocessor
+   `ctor-unparsed`, `class-not-found`, or `unknown-initializer`. A qualified
+   name may have spaces around `::` (`Foo ::Foo()`); a qualifier with no
+   identifier, or unbalanced parentheses, is `ctor-unparsed`. A preprocessor
    line between the signature and the body skips it as `preprocessor`, and a
    directive on the line before or after a moved assignment skips that
    assignment as `preprocessor`.
@@ -124,7 +127,12 @@ back to `PATH`. Run through `pixi run` so `CONDA_PREFIX` is set.
    initializer is added only when every constructor of the class in that file
    that writes the same initializer can drop it; if one of them cannot be
    parsed, the whole group is skipped as `gate-failed` (`ctor-unparsed`).
-7. Backstop: `ioa.comments.check_hunks` on `git diff -U0` of the touched files.
+7. Every planning and applying step runs per site: an unexpected exception
+   skips that constructor, initializer group, or file (with its partner
+   files) as `gate-failed`, note `internal-error:<ExceptionType>`, prints
+   one line to stderr with the file and line, and the stage goes on. The
+   stage exits 1 only when every site failed that way.
+8. Backstop: `ioa.comments.check_hunks` on `git diff -U0` of the touched files.
    A file with a stranded comment is restored, together with every file
    reachable from it through default-member-init fixes (header and
    constructor files, to a fixed point), and recorded `comment-stranded`.

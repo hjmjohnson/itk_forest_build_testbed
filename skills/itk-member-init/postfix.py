@@ -111,6 +111,10 @@ def name_back(m: str, k: int) -> int:
             k -= 1
         elif m[k] == ":" and k > 0 and m[k - 1] == ":":
             k -= 2
+            while k >= 0 and m[k].isspace():
+                k -= 1
+        elif m[k].isspace() and (j := prev_code(m, k + 1)) > 0 and m[j - 1:j + 1] == "::":
+            k = j
         else:
             break
     return k + 1
@@ -206,6 +210,8 @@ def parse_ctor(text: str, m: str, comments: list[tuple[int, int]], body_open: in
     colon, p = None, pos
     while True:
         j = match_back(m, p)
+        if j < 0:
+            return None
         k = prev_code(m, j)
         s = name_back(m, k)
         if s > k:
@@ -221,13 +227,18 @@ def parse_ctor(text: str, m: str, comments: list[tuple[int, int]], body_open: in
             colon = q
         break
     params = prev_code(m, colon) if colon is not None else pos
-    if m[params] != ")":
+    if params < 0 or m[params] != ")" or match_back(m, params) < 0:
         return None
     k = prev_code(m, match_back(m, params))
-    name = re.sub(r"\s+", "", m[name_back(m, k):k + 1])
+    name = re.sub(r"\s+", "", m[name_back(m, k):k + 1]) if k >= 0 else ""
+    if not IDENT.search(name):
+        return None
     if "::" in name:
         qual = re.sub(r"<[^<>]*>", "", name.rsplit("::", 1)[0])
-        cls, in_class = IDENT.findall(qual)[-1], False
+        ids = IDENT.findall(qual)
+        if not ids:
+            return None
+        cls, in_class = ids[-1], False
     else:
         cls, in_class = name, True
     sig_end = params + 1

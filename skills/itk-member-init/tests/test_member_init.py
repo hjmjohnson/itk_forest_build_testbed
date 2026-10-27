@@ -309,3 +309,56 @@ def test_initializer_list_removed_whole_keeps_its_source_site_in_the_header_grou
     assert set(groups) == {"foo.h", "foo.cxx"}
     assert groups["foo.cxx"] and groups["foo.cxx"] == groups["foo.h"]
     assert groups["foo.h"].startswith("member-init:")
+
+
+@pytest.mark.parametrize("sig,cls", [
+    ("TensorToAnisotropyImageFilter ::TensorToAnisotropyImageFilter()", "TensorToAnisotropyImageFilter"),
+    ("Foo:: Foo()", "Foo"),
+    ("ns::Foo<T> ::Foo()", "Foo"),
+])
+def test_qualified_constructor_with_spaces_around_the_scope_operator_parses(sig, cls):
+    text = f"{sig}\n{{\n  m_A = 1;\n}}\n"
+    m, comments = postfix.mask(text)
+    ctor = postfix.parse_ctor(text, m, comments, text.index("{"))
+    assert ctor is not None and ctor.cls == cls and not ctor.in_class
+
+
+@pytest.mark.parametrize("sig", ["::Foo()", "Foo())", ":: ()"])
+def test_unparsable_constructor_shapes_return_none(sig):
+    text = f"{sig}\n{{\n}}\n"
+    m, comments = postfix.mask(text)
+    assert postfix.parse_ctor(text, m, comments, text.index("{")) is None
+
+
+def test_internal_error_skips_one_constructor_and_the_rest_apply(fixture_graph, monkeypatch, capsys):
+    real = postfix.parse_ctor
+    blown = []
+
+    def flaky(text, m, comments, body):
+        ctor = real(text, m, comments, body)
+        if ctor is not None and "Foo(int a)" in text[ctor.sig_end - 12:ctor.sig_end] and not blown:
+            blown.append(body)
+            raise RuntimeError("boom")
+        return ctor
+
+    monkeypatch.setattr(postfix, "parse_ctor", flaky)
+    out = run_member_init(fixture_graph("basic"), apply=True)
+    errors = [s for s in out.manifest.sites if s.note == "internal-error:RuntimeError"]
+    assert blown and len(errors) == 1 and errors[0].skipped == Reason.GATE_FAILED
+    assert "m_A = 1;" in out.read("foo.cxx")
+    assert out.manifest.applied()
+    assert "internal error at" in capsys.readouterr().err
+
+
+def test_stage_fails_only_when_every_site_hit_an_internal_error(fixture_graph, monkeypatch):
+    def boom(*args):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(postfix, "parse_ctor", boom)
+    g = fixture_graph("basic")
+    manifest = g.repo.parent / "manifest.json"
+    rc = member_init.main(["--graph", str(g.build), "--repo", str(g.repo),
+                           "--manifest", str(manifest), "--apply"])
+    sites = Manifest.read(manifest).sites
+    assert rc == 1 and sites and all(s.note == "internal-error:RuntimeError" for s in sites)
+    assert _git(g.repo, "status", "--porcelain") == ""

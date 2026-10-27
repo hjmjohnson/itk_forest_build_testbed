@@ -64,6 +64,7 @@ class Planner:
         self.skips: list[Skip] = []
         self.partners: set[frozenset[Path]] = set()
         self.moves: list[list[tuple[Path, int]]] = []
+        self.errors = 0
         self._index: list[str] | None = None
 
     def doc(self, path: Path) -> Doc:
@@ -74,6 +75,13 @@ class Planner:
 
     def skip(self, doc: Doc, a: int, b: int, reason: Reason, note: str, cls: str) -> None:
         self.skips.append(Skip(doc.path, doc.line(a), doc.line(b), reason, note, cls))
+
+    def failed(self, doc: Doc, at: int, cls: str, exc: Exception) -> None:
+        """Skip one site after an unexpected error so the stage goes on."""
+        self.errors += 1
+        self.skip(doc, at, at, Reason.GATE_FAILED, f"internal-error:{type(exc).__name__}", cls)
+        print(f"member-init: internal error at {doc.path}:{doc.line(at) + 1}: "
+              f"{type(exc).__name__}: {exc}", file=sys.stderr)
 
     def _files(self) -> list[str]:
         if self._index is None:
@@ -118,7 +126,10 @@ class Planner:
                 a, b = doc.c(rem[0].offset), doc.c(rem[0].offset + rem[0].length)
                 groups[(doc.path, body)].append((seq, at, a, b, ins[0].text))
         for (path, body), items in groups.items():
-            self._plan_ctor(self.docs[path], body, items)
+            try:
+                self._plan_ctor(self.docs[path], body, items)
+            except Exception as exc:
+                self.failed(self.docs[path], body, PMI, exc)
 
     def _plan_ctor(self, doc: Doc, body: int, items: list) -> None:
         ctor = pf.parse_ctor(doc.text, doc.m, doc.comments, body)
@@ -181,64 +192,83 @@ class Planner:
         self._refused: set[tuple[Path, int]] = set()
         plans: dict[tuple[Path, int], tuple] = {}
         for d in diags:
-            ins = [r for r in d.repls if r.length == 0 and r.text.startswith("{")]
-            rem = [r for r in d.repls if r.text == "" and r.length > 0]
-            if len(ins) != 1 or len(rem) != 1:
-                continue
-            hdoc, cdoc = self.doc(ins[0].file), self.doc(rem[0].file)
-            at = hdoc.c(ins[0].offset)
-            if (hdoc.path, at) in plans or pf.POINTERISH.search(pf.decl_head(hdoc.m, at)):
-                continue
-            ra = cdoc.c(rem[0].offset)
-            body = pf.body_after(cdoc.m, ra)
-            ctor = self._dmi_ctor(cdoc, body) if body is not None else None
-            entry = ctor and next((e for e in ctor.entries if e.start <= ra <= e.end), None)
-            if entry is None:
-                continue
-            holders = [(cdoc, body, entry, False)]
-            for other in pf.ctor_bodies(cdoc.m, ctor.cls):
-                if other == body:
-                    continue
-                c2 = self._parse(cdoc, other)
-                if c2 is None:
-                    holders.append((cdoc, other, None, False))
-                    continue
-                if c2.cls != ctor.cls:
-                    continue
-                same = next((e for e in c2.entries if e.name == entry.name and e.text == entry.text), None)
-                if same is not None:
-                    holders.append((cdoc, other, same, pf.has_directive(cdoc.text, c2.sig_end, other)))
-            plans[(hdoc.path, at)] = (hdoc, at, ins[0].text, holders)
+            try:
+                self._plan_dmi_diag(d, plans)
+            except Exception as exc:
+                rem = next((r for r in d.repls if r.text == ""), d.repls[0])
+                doc = self.doc(rem.file)
+                self.failed(doc, doc.c(rem.offset), DMI, exc)
+        self._finish_dmi(plans)
 
+    def _plan_dmi_diag(self, d: Diag, plans: dict) -> None:
+        ins = [r for r in d.repls if r.length == 0 and r.text.startswith("{")]
+        rem = [r for r in d.repls if r.text == "" and r.length > 0]
+        if len(ins) != 1 or len(rem) != 1:
+            return
+        hdoc, cdoc = self.doc(ins[0].file), self.doc(rem[0].file)
+        at = hdoc.c(ins[0].offset)
+        if (hdoc.path, at) in plans or pf.POINTERISH.search(pf.decl_head(hdoc.m, at)):
+            return
+        ra = cdoc.c(rem[0].offset)
+        body = pf.body_after(cdoc.m, ra)
+        ctor = self._dmi_ctor(cdoc, body) if body is not None else None
+        entry = ctor and next((e for e in ctor.entries if e.start <= ra <= e.end), None)
+        if entry is None:
+            return
+        holders = [(cdoc, body, entry, False)]
+        for other in pf.ctor_bodies(cdoc.m, ctor.cls):
+            if other == body:
+                continue
+            c2 = self._parse(cdoc, other)
+            if c2 is None:
+                holders.append((cdoc, other, None, False))
+                continue
+            if c2.cls != ctor.cls:
+                continue
+            same = next((e for e in c2.entries if e.name == entry.name and e.text == entry.text), None)
+            if same is not None:
+                holders.append((cdoc, other, same, pf.has_directive(cdoc.text, c2.sig_end, other)))
+        plans[(hdoc.path, at)] = (hdoc, at, ins[0].text, holders)
+
+    def _finish_dmi(self, plans: dict) -> None:
         removed: dict[tuple[Path, int], list[pf.Entry]] = defaultdict(list)
         for hdoc, at, text, holders in plans.values():
-            if any(e is None for _, _, e, _ in holders):
-                for cdoc, body, e, _ in holders:
-                    a, b = (e.start, e.end) if e is not None else (body, body)
-                    self.skip(cdoc, a, b, Reason.GATE_FAILED, "ctor-unparsed", DMI)
-                continue
-            ls, le = pf.line_bounds(hdoc.text, at, at)
-            trails = {e.trail for _, _, e, _ in holders if e.trail}
-            header_comment = any(ls <= c0 < le for c0, _ in hdoc.comments)
-            directive = any(d for *_, d in holders)
-            if directive or any(e.lead for _, _, e, _ in holders) or len(trails) > 1 or (trails and header_comment):
-                reason = Reason.PREPROCESSOR if directive else Reason.COMMENT_STRANDED
-                note = "a constructor sharing this initializer cannot drop it"
-                for cdoc, _, e, _ in holders:
-                    self.skip(cdoc, e.start, e.end, reason, note, DMI)
-                continue
-            self.edits[hdoc.path].append((at, at, text))
-            if trails:
-                self.edits[hdoc.path].append((le, le, " " + trails.pop()))
-            for cdoc, body, e, _ in holders:
-                removed[(cdoc.path, body)].append(e)
-                self.partners.add(frozenset((hdoc.path, cdoc.path)))
-            self.moves.append([(hdoc.path, hdoc.line(at)),
-                               *((cdoc.path, cdoc.line(e.start)) for cdoc, _, e, _ in holders)])
+            try:
+                self._dmi_group(hdoc, at, text, holders, removed)
+            except Exception as exc:
+                self.failed(hdoc, at, DMI, exc)
         for (path, body), gone in removed.items():
-            ctor = self._ctors[(path, body)]
-            keep = [e for e in ctor.entries if e not in gone]
-            self.edits[path].append((ctor.sig_end, body, pf.render(ctor, keep)))
+            try:
+                ctor = self._ctors[(path, body)]
+                keep = [e for e in ctor.entries if e not in gone]
+                self.edits[path].append((ctor.sig_end, body, pf.render(ctor, keep)))
+            except Exception as exc:
+                self.failed(self.docs[path], body, DMI, exc)
+
+    def _dmi_group(self, hdoc: Doc, at: int, text: str, holders: list, removed: dict) -> None:
+        if any(e is None for _, _, e, _ in holders):
+            for cdoc, body, e, _ in holders:
+                a, b = (e.start, e.end) if e is not None else (body, body)
+                self.skip(cdoc, a, b, Reason.GATE_FAILED, "ctor-unparsed", DMI)
+            return
+        ls, le = pf.line_bounds(hdoc.text, at, at)
+        trails = {e.trail for _, _, e, _ in holders if e.trail}
+        header_comment = any(ls <= c0 < le for c0, _ in hdoc.comments)
+        directive = any(d for *_, d in holders)
+        if directive or any(e.lead for _, _, e, _ in holders) or len(trails) > 1 or (trails and header_comment):
+            reason = Reason.PREPROCESSOR if directive else Reason.COMMENT_STRANDED
+            note = "a constructor sharing this initializer cannot drop it"
+            for cdoc, _, e, _ in holders:
+                self.skip(cdoc, e.start, e.end, reason, note, DMI)
+            return
+        self.edits[hdoc.path].append((at, at, text))
+        if trails:
+            self.edits[hdoc.path].append((le, le, " " + trails.pop()))
+        for cdoc, body, e, _ in holders:
+            removed[(cdoc.path, body)].append(e)
+            self.partners.add(frozenset((hdoc.path, cdoc.path)))
+        self.moves.append([(hdoc.path, hdoc.line(at)),
+                           *((cdoc.path, cdoc.line(e.start)) for cdoc, _, e, _ in holders)])
 
 
 def site(root: Path, path: Path, first: int, last: int, cls: str, text: str, **kw) -> Site:
@@ -273,6 +303,39 @@ def _group_moves(sites: list[Site], dmi: list[tuple[int, Path, int, int]],
         sites[i].group = f"{KIND}:{token}:dmi-{find(ks[0])}"
 
 
+def _apply(planner: Planner, cls: str, before: dict[Path, str]) -> None:
+    """Apply a pass's edits; a file that fails is restored and skipped with its partners."""
+    if not planner.edits:
+        return
+    try:
+        apply_edits(planner.edits, planner.docs)
+        for path in planner.edits:
+            format_changed(path, before[path])
+        return
+    except Exception:
+        for path in planner.edits:
+            path.write_text(before[path], errors="surrogateescape")
+    bad: set[Path] = set()
+    for path, items in planner.edits.items():
+        try:
+            apply_edits({path: items}, planner.docs)
+            format_changed(path, before[path])
+        except Exception as exc:
+            bad.add(path)
+            planner.failed(planner.docs[path], min(a for a, _, _ in items), cls, exc)
+    grew = True
+    while grew:
+        grew = False
+        for pair in planner.partners:
+            if pair & bad and not pair <= bad:
+                bad |= pair
+                grew = True
+    for path in bad:
+        path.write_text(before[path], errors="surrogateescape")
+        planner.edits.pop(path, None)
+    planner.moves = [mv for mv in planner.moves if not any(f in bad for f, _ in mv)]
+
+
 def run(graph: Path, root: Path, manifest: Path | None, apply: bool) -> int:
     pmi, dropped = run_tidy(graph, root, CHECKS[PMI])
     if dropped:
@@ -290,10 +353,7 @@ def run(graph: Path, root: Path, manifest: Path | None, apply: bool) -> int:
     p1.plan_pmi(pmi)
     orig = {p: d.text for p, d in p1.docs.items()}
     raw = {p: d.data for p, d in p1.docs.items()}
-    if p1.edits:
-        apply_edits(p1.edits, p1.docs)
-        for path in p1.edits:
-            format_changed(path, orig[path])
+    _apply(p1, PMI, orig)
     post1 = {p: p.read_text(errors="surrogateescape") for p in orig}
 
     p2 = Planner(root)
@@ -302,10 +362,7 @@ def run(graph: Path, root: Path, manifest: Path | None, apply: bool) -> int:
         orig.setdefault(p, d.text)
         raw.setdefault(p, d.data)
         post1.setdefault(p, d.text)
-    if p2.edits:
-        apply_edits(p2.edits, p2.docs)
-        for path in p2.edits:
-            format_changed(path, post1[path])
+    _apply(p2, DMI, post1)
     final = {p: p.read_text(errors="surrogateescape") for p in orig}
 
     sites: list[Site] = []
@@ -357,8 +414,10 @@ def run(graph: Path, root: Path, manifest: Path | None, apply: bool) -> int:
     if manifest is not None:
         Manifest(KIND, sites).write(manifest)
     applied = sum(1 for s in sites if s.skipped is None)
-    print(f"member-init: {applied} applied, {len(sites) - applied} skipped, {len(dropped)} TU(s) dropped")
-    return 0
+    errors = p1.errors + p2.errors
+    print(f"member-init: {applied} applied, {len(sites) - applied} skipped, {len(dropped)} TU(s) dropped, "
+          f"{errors} internal error(s)")
+    return 1 if errors and errors == len(sites) else 0
 
 
 def main(argv: list[str] | None = None) -> int:
