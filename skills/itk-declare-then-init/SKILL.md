@@ -125,6 +125,9 @@ commit methodology where each commit targets one regex pattern class.
 | `--graph DIR` | File set from `compile_commands.json` plus included headers | |
 | `--manifest PATH` | Write skipped and applied sites (`kind: local-init`) | |
 
+`--manifest` requires `--apply`. Declarations whose next use never matched a
+class (including block-boundary stops) are not recorded as sites.
+
 Manifest skip reasons: a hazard between declaration and init gives
 `try-read-after` (gap contains `try`), `preprocessor` (gap line starts with
 `#`), else `loop-carried`; an indent mismatch gives `loop-carried` with a note.

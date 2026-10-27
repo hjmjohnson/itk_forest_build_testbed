@@ -318,10 +318,8 @@ def analyze_elem_assign(
     m = ELEMENT_ASSIGN_PATTERN.match(clean)
     if not m or m.group(1) != varname or m.group(2) != "0":
         return None
-    if not check_indent_match(indent, lines[j]):
-        return declined_finding(
-            filepath, i, j, vartype, varname, f"elem_{want}", "indent-mismatch"
-        )
+    mismatch = not check_indent_match(indent, lines[j])
+    seq_indent = get_indent(lines[j])
 
     # Collect consecutive element assignments [0], [1], [2], ...
     values = [m.group(3)]
@@ -339,7 +337,7 @@ def analyze_elem_assign(
             k_m
             and k_m.group(1) == varname
             and int(k_m.group(2)) == expected_idx
-            and check_indent_match(indent, lines[k])
+            and check_indent_match(seq_indent, lines[k])
         ):
             values.append(k_m.group(3))
             last = k
@@ -360,6 +358,11 @@ def analyze_elem_assign(
         return None
     if want == "diff" and (all_same or all_zero):
         return None
+
+    if mismatch:
+        return declined_finding(
+            filepath, i, j, vartype, varname, f"elem_{want}", "indent-mismatch"
+        )
 
     if all_zero:
         suggestion = f"{indent}{vartype} {varname}{{}};"
@@ -581,7 +584,7 @@ def apply_findings(
         for s in skipped:
             print(
                 f"  {s.file}:{s.decl_line}: {s.varname} — "
-                f"Fill arg references {s.forward_refs} defined between decl and init",
+                f"init expression references {s.forward_refs} defined between decl and init",
                 file=sys.stderr,
             )
         print(file=sys.stderr)
@@ -635,24 +638,27 @@ def skip_reason(f: Finding, lines: list[str]) -> tuple["Reason", str] | None:
 
 
 def record_sites(
-    sites: list, findings: list[Finding], repo_root: Path, applying: bool
+    sites: list, findings: list[Finding], repo_root: Path
 ) -> dict[str, list[int]]:
     """Append a Site per finding, shifting earlier sites for lines this pass removes.
 
-    Returns the removed-line map keyed by resolved path (empty unless applying).
+    Applies the findings; exits before any edit if a file is outside repo_root.
+    Returns the removed-line map keyed by resolved path.
     """
     from ioa.manifest import Site
 
+    root = repo_root.resolve()
+    for f in findings:
+        if not Path(f.file).resolve().is_relative_to(root):
+            sys.exit(f"error: {f.file} is outside --repo-root {root}; nothing edited")
     raw: dict[str, list[int]] = {}
     pending = []
     for f in findings:
         with Path(f.file).open(encoding="utf-8", errors="replace") as fh:
             reason = skip_reason(f, fh.readlines())
         pending.append((f, reason))
-    if applying:
-        apply_findings(findings, raw)
+    apply_findings(findings, raw)
     removed = {str(Path(k).resolve()): v for k, v in raw.items()}
-    root = repo_root.resolve()
 
     for s in sites:
         gone = removed.get(str(root / s.file), [])
@@ -722,6 +728,8 @@ def main() -> None:
         parser.error("one of --pattern or --classes is required")
     if not args.paths and not args.graph:
         parser.error("give paths to scan, or --graph")
+    if args.manifest and not args.apply:
+        parser.error("--manifest requires --apply")
     args.exclude.append(r"/ThirdParty/")
 
     vartype_re = re.compile(args.vartype) if args.vartype else None
@@ -738,6 +746,11 @@ def main() -> None:
         if args.paths:
             roots = [Path(p).resolve() for p in args.paths]
             files = [f for f in files if any(f.is_relative_to(r) for r in roots)]
+
+    if args.manifest:
+        outside = [p for p in args.paths if not Path(p).resolve().is_relative_to(repo_root)]
+        if outside:
+            parser.error(f"{outside[0]} is outside --repo-root {repo_root}")
 
     sites: list = []
     findings: list[Finding] = []
@@ -756,15 +769,14 @@ def main() -> None:
         )
         findings.extend(found)
         if args.manifest:
-            record_sites(sites, found, repo_root, args.apply)
+            from ioa.manifest import Manifest
+
+            record_sites(sites, found, repo_root)
+            Manifest("local-init", sites).write(args.manifest)
         elif args.apply:
             apply_findings(found)
 
-    if args.manifest:
-        from ioa.manifest import Manifest
-
-        Manifest("local-init", sites).write(args.manifest)
-    elif args.apply:
+    if args.manifest or args.apply:
         pass
     elif args.json:
         print(json.dumps(

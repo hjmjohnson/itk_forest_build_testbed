@@ -55,7 +55,7 @@ def test_classes_and_pattern_together_is_an_error(tree):
 
 
 def test_preprocessor_gap_is_skipped_with_reason(tree):
-    m = run_manifest(tree, "--classes", "assign", "-r", ".")
+    m = run_manifest(tree, "--classes", "assign", "--apply", "-r", ".")
     assert any(s.skipped == Reason.PREPROCESSOR for s in m.sites)
 
 
@@ -90,3 +90,52 @@ def test_pattern_alone_keeps_interactive_output(tree):
     r = run_finder(tree, "--pattern", "elem_zero", "-r", ".")
     assert "[elem_zero] SizeType size;" in r.stdout
     assert "Found 1 pattern(s)" in r.stderr
+
+
+def test_manifest_without_apply_is_an_error_and_writes_nothing(tree):
+    out = tree.parent / "manifest.json"
+    r = run_finder(tree, "--classes", "assign", "--manifest", str(out), "-r", ".", check=False)
+    assert r.returncode != 0 and "--manifest requires --apply" in r.stderr
+    assert not out.exists()
+
+
+def test_path_outside_repo_root_fails_before_any_edit(tree):
+    out = tree.parent / "manifest.json"
+    sub = tree / "sub"
+    sub.mkdir()
+    before = (tree / "Assign.cxx").read_text()
+    r = run_finder(
+        tree, "--classes", "assign", "--apply", "--manifest", str(out),
+        "--repo-root", str(sub), str(tree / "Assign.cxx"), check=False,
+    )
+    assert r.returncode != 0 and "Assign.cxx" in r.stderr and "outside" in r.stderr
+    assert (tree / "Assign.cxx").read_text() == before
+    assert not out.exists()
+
+
+def test_indent_mismatch_in_elem_sequence_yields_one_skipped_site(tree):
+    (tree / "Mismatch.cxx").write_text(
+        "void\nM()\n{\n  SizeType size;\n    size[0] = 0;\n    size[1] = 0;\n}\n"
+    )
+    only = tree / "only"
+    only.mkdir()
+    (tree / "Mismatch.cxx").rename(only / "Mismatch.cxx")
+    m = run_manifest(
+        tree, "--classes", "elem_same,elem_diff,elem_zero", "--apply", "-r", "only"
+    )
+    assert [(s.cls, s.skipped, s.note) for s in m.sites] == [
+        ("elem_zero", Reason.LOOP_CARRIED, "indent-mismatch")
+    ]
+
+
+def test_multiline_removal_shifts_earlier_recorded_site(tree):
+    (tree / "Shift.cxx").write_text(
+        "void\nG()\n{\n  SizeType size;\n  size[0] = 0;\n  size[1] = 0;\n"
+        "  size[2] = 0;\n  int q;\n  q = Compute();\n}\n"
+    )
+    m = run_manifest(tree, "--classes", "assign,elem_zero", "--apply", "Shift.cxx")
+    lines = (tree / "Shift.cxx").read_text().splitlines()
+    q = next(s for s in m.applied() if s.cls == "assign")
+    assert lines[q.start - 1] == "  int q = Compute();"
+    z = next(s for s in m.applied() if s.cls == "elem_zero")
+    assert lines[z.start - 1] == "  SizeType size{};"
