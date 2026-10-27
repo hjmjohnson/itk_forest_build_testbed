@@ -471,7 +471,8 @@ def test_gate_failure_in_a_header_reverts_its_partner_source(tmp_path, monkeypat
 
     rec = make_repo.stage(r, files, "member-init", member,
                           [("foo.h", 4, 4), ("foo.cxx", 2, 2), ("bar.cxx", 2, 2)])
-    rec.manifest.partners = [(Path("foo.cxx"), Path("foo.h"))]
+    for site in rec.manifest.sites[:2]:
+        site.group = "dmi-0"
     monkeypatch.setattr(gate, "run", lambda g, fs, root: GateResult(
         False, {f: "error: h" for f in fs if f.name == "foo.h"}))
     [only] = plan(r, [rec])
@@ -508,3 +509,37 @@ def test_index_formatting_never_falls_back_to_a_default_style(tmp_path):
     fake.chmod(0o755)
     partition._format(r, Path("n.cxx"), str(fake))
     assert "--fallback-style=none" in log.read_text().split()
+
+
+def test_only_the_member_site_a_later_kind_touches_moves_with_its_source(tmp_path, fake_gate_ok):
+    files = {
+        "foo.h": ["class Foo", "{", "  Foo();", "  Foo(int);", "  int m_A;", "",
+                  "  int m_B;", "  int m_C;", "};"],
+        "foo.cxx": ["#include \"foo.h\"", "Foo::Foo()", "  : m_A(0)", "{}", "",
+                    "Foo::Foo(int)", "  : m_B(1)", "{}"],
+    }
+    r = make_repo.init_repo(tmp_path, files, "DisableFormat: true\n")
+
+    def member(f):
+        f["foo.h"][4] = "  int m_A{ 0 };"
+        f["foo.h"][6] = "  int m_B{ 1 };"
+        del f["foo.cxx"][6]
+        del f["foo.cxx"][2]
+
+    def default(f):
+        f["foo.h"][7] = "  int m_C{};"
+
+    mi = make_repo.stage(r, files, "member-init", member,
+                         [("foo.h", 5, 5), ("foo.cxx", 2, 2), ("foo.h", 7, 7), ("foo.cxx", 5, 5)])
+    for site, group in zip(mi.manifest.sites, ["dmi-0", "dmi-0", "dmi-1", "dmi-1"]):
+        site.group = group
+    dmi = make_repo.stage(r, files, "member-default-init", default, [("foo.h", 8, 8)])
+    first, second = plan(r, [mi, dmi])
+    assert [first.kind, second.kind] == ["member-init", "member-default-init"]
+    assert sorted((h.file.name, h.old_start) for h in first.hunks) == [("foo.cxx", 3), ("foo.h", 5)]
+    assert sorted((h.file.name, h.old_start) for h in second.hunks) == [("foo.cxx", 7), ("foo.h", 7)]
+    assert apply(r, first, tmp_path).sha and apply(r, second, tmp_path).sha
+    head1 = git(r, "show", "HEAD~1:foo.cxx")
+    assert "m_A(0)" not in head1 and "m_B(1)" in head1
+    assert "m_B{ 1 }" not in git(r, "show", "HEAD~1:foo.h")
+    assert git(r, "diff", "HEAD") == ""

@@ -445,9 +445,9 @@ def call_argument(m: str, name: str, a: int, b: int, whole: bool = True, array: 
         if m[k] != "(":
             continue
         j = _back(m, k)
-        if j < 0 or not (m[j].isalnum() or m[j] in "_>)]"):
+        if j < 0 or not (m[j].isalnum() or m[j] in "_)]"):
             continue
-        callee = re.search(r"([A-Za-z_]\w*)\s*(?:<[^;(){}]*>)?$", m[:j + 1])
+        callee = re.search(r"([A-Za-z_]\w*)$", m[:j + 1])
         if callee and callee[1] in NOT_CALLS:
             continue
         if any(arg.fullmatch(x) for x in _args(m, k)):

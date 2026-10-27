@@ -68,7 +68,7 @@ class _Site:
     spans: list[Span]
     added: set[str]
     removed: set[str]
-    group: int = 0
+    group: str = ""
 
 
 @dataclass
@@ -88,8 +88,8 @@ class Stage:
         return bool(self.removed.get(h.file, set()) & _texts(h.removed))
 
     def groups(self) -> list[list[tuple[Path, Span]]]:
-        """Spans that must commit or revert together: one site, or a partner file set."""
-        out: dict[int, list[tuple[Path, Span]]] = {}
+        """Spans that must commit or revert together: one site, or sites sharing a group id."""
+        out: dict[str, list[tuple[Path, Span]]] = {}
         for s in self.sites_at:
             out.setdefault(s.group, []).extend((s.site.file, sp) for sp in s.spans)
         return [g for g in out.values() if g]
@@ -130,20 +130,8 @@ def load(repo: Path, rec: StageRecord) -> Stage:
                 [span_of[id(h)] for h in hit],
                 set().union(*(_texts(h.added) for h in hit)),
                 set().union(*(_texts(h.removed) for h in hit)),
-                len(st.sites_at),
+                s.group or f"site-{len(st.sites_at)}",
             )
         )
-    comp = _partner_components(rec.manifest.partners)
-    for s in st.sites_at:
-        if s.site.file in comp:
-            s.group = -1 - comp[s.site.file]
     return st
 
-
-def _partner_components(pairs: list[tuple[Path, Path]]) -> dict[Path, int]:
-    comp: dict[Path, int] = {}
-    for n, (a, b) in enumerate(pairs):
-        ca, cb = comp.get(a, n), comp.get(b, n)
-        comp.update({f: ca for f, c in comp.items() if c == cb})
-        comp[a] = comp[b] = ca
-    return comp

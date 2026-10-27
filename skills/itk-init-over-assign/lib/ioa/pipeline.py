@@ -114,7 +114,6 @@ def _merge(kind: str, parts: list[str], dest: Path, notes: list[str]) -> Manifes
         if p.exists():
             part = Manifest.read(p)
             merged.sites += part.sites
-            merged.partners += part.partners
             merged.notes += part.notes
             notes += [f"{kind}: {n}" for n in part.notes]
         else:

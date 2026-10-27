@@ -62,6 +62,7 @@ class Planner:
         self.edits: dict[Path, list[tuple[int, int, str]]] = defaultdict(list)
         self.skips: list[Skip] = []
         self.partners: set[frozenset[Path]] = set()
+        self.moves: list[list[tuple[Path, int]]] = []
         self._index: list[str] | None = None
 
     def doc(self, path: Path) -> Doc:
@@ -231,6 +232,8 @@ class Planner:
             for cdoc, body, e, _ in holders:
                 removed[(cdoc.path, body)].append(e)
                 self.partners.add(frozenset((hdoc.path, cdoc.path)))
+            self.moves.append([(hdoc.path, hdoc.line(at)),
+                               *((cdoc.path, cdoc.line(e.start)) for cdoc, _, e, _ in holders)])
         for (path, body), gone in removed.items():
             ctor = self._ctors[(path, body)]
             keep = [e for e in ctor.entries if e not in gone]
@@ -241,6 +244,31 @@ def site(root: Path, path: Path, first: int, last: int, cls: str, text: str, **k
     n = max(1, text.count("\n"))
     start = min(max(1, first + 1), n)
     return Site(path.relative_to(root), start, min(max(start, last), n), KIND, cls, **kw)
+
+
+def _group_moves(sites: list[Site], dmi: list[tuple[int, Path, int, int]],
+                 moves: list[list[tuple[Path, int]]], ops: dict[Path, list[tuple]]) -> None:
+    """Give the header and source sites of each default-member-init move one group id."""
+    parent = list(range(len(moves)))
+
+    def find(k: int) -> int:
+        while parent[k] != k:
+            parent[k] = parent[parent[k]]
+            k = parent[k]
+        return k
+
+    hits: dict[int, list[int]] = {}
+    for k, points in enumerate(moves):
+        for path, line in points:
+            at = map_line(ops.get(path, []), line, False) + 1
+            for i, p, a, b in dmi:
+                if p == path and a <= at <= b:
+                    hits.setdefault(i, []).append(k)
+    for ks in hits.values():
+        for k in ks[1:]:
+            parent[find(k)] = find(ks[0])
+    for i, ks in hits.items():
+        sites[i].group = f"dmi-{find(ks[0])}"
 
 
 def run(graph: Path, root: Path, manifest: Path | None, apply: bool) -> int:
@@ -279,6 +307,7 @@ def run(graph: Path, root: Path, manifest: Path | None, apply: bool) -> int:
     final = {p: p.read_text(errors="surrogateescape") for p in orig}
 
     sites: list[Site] = []
+    dmi: list[tuple[int, Path, int, int]] = []
     for path in sorted(set(p1.edits) | set(p2.edits)):
         o, m, f = orig[path], post1[path], final[path]
         later = _opcodes(m, f)
@@ -286,7 +315,9 @@ def run(graph: Path, root: Path, manifest: Path | None, apply: bool) -> int:
             a, b = map_line(later, j1, False), map_line(later, j2, True)
             sites.append(site(root, path, a, b, PMI, f))
         for j1, j2 in changed_ranges(m, f) if path in p2.edits else []:
+            dmi.append((len(sites), path, j1 + 1, j2))
             sites.append(site(root, path, j1, j2, DMI, f))
+    _group_moves(sites, dmi, p2.moves, {p: _opcodes(post1[p], final[p]) for p in p2.edits})
     for s in p1.skips + p2.skips:
         f = final[s.file]
         ops = _opcodes(post1[s.file], f)
@@ -321,12 +352,8 @@ def run(graph: Path, root: Path, manifest: Path | None, apply: bool) -> int:
             for s in stranded
         ]
 
-    partners = sorted(
-        tuple(sorted(f.relative_to(root) for f in pair))
-        for pair in p2.partners if len(pair) == 2 and not pair & bad
-    )
     if manifest is not None:
-        Manifest(KIND, sites, partners).write(manifest)
+        Manifest(KIND, sites).write(manifest)
     applied = sum(1 for s in sites if s.skipped is None)
     print(f"member-init: {applied} applied, {len(sites) - applied} skipped, {len(dropped)} TU(s) dropped")
     return 0

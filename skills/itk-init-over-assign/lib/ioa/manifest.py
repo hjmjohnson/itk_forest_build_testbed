@@ -14,9 +14,11 @@ class Site:
     cls: str
     skipped: Reason | None = None
     note: str = ""
+    group: str = ""
+    """Sites sharing a non-empty group commit and revert together, e.g. a header and source edit."""
 
     def to_dict(self) -> dict:
-        return {
+        d = {
             "file": str(self.file),
             "start": self.start,
             "end": self.end,
@@ -25,6 +27,9 @@ class Site:
             "skipped": str(self.skipped) if self.skipped else None,
             "note": self.note,
         }
+        if self.group:
+            d["group"] = self.group
+        return d
 
     @classmethod
     def from_dict(cls, d: dict) -> "Site":
@@ -36,6 +41,7 @@ class Site:
             d["cls"],
             Reason(d["skipped"]) if d.get("skipped") else None,
             d.get("note", ""),
+            d.get("group", ""),
         )
 
 
@@ -43,14 +49,10 @@ class Site:
 class Manifest:
     kind: str
     sites: list[Site] = field(default_factory=list)
-    partners: list[tuple[Path, Path]] = field(default_factory=list)
-    """File pairs whose sites the partitioner keeps together, e.g. a header and its .cxx."""
     notes: list[str] = field(default_factory=list)
 
     def write(self, path: Path) -> None:
         data: dict = {"kind": self.kind, "sites": [s.to_dict() for s in self.sites]}
-        if self.partners:
-            data["partners"] = [[str(a), str(b)] for a, b in self.partners]
         if self.notes:
             data["notes"] = self.notes
         path.write_text(json.dumps(data, indent=2) + "\n")
@@ -58,8 +60,7 @@ class Manifest:
     @classmethod
     def read(cls, path: Path) -> "Manifest":
         data = json.loads(path.read_text())
-        pairs = [(Path(a), Path(b)) for a, b in data.get("partners", [])]
-        return cls(data["kind"], [Site.from_dict(s) for s in data["sites"]], pairs,
+        return cls(data["kind"], [Site.from_dict(s) for s in data["sites"]],
                    list(data.get("notes", [])))
 
     def applied(self) -> list[Site]:

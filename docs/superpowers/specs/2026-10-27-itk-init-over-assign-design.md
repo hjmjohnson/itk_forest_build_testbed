@@ -183,10 +183,10 @@ example clang-format spill) is attached to the stage that touched the
 nearest line above it. The per-stage const/constexpr commit is built
 the same way from `itk-const-promote`'s manifest.
 
-Ownership and reverts are site-atomic. Each manifest site, and each
-`partners` file pair a manifest lists (a header and the source whose
-initializer moved into it), forms a site group of the final hunks its
-stage edits meet. When a later kind owns any hunk of a group, every hunk
+Ownership and reverts are site-atomic. Each manifest site, joined with
+the sites that share its optional `group` id (member-init gives a header
+insertion and the source edits of the same move one id), forms a site
+group of the final hunks its stage edits meet. When a later kind owns any hunk of a group, every hunk
 of the group moves to that kind, so no commit holds half a site. A
 stranded comment or a compile-gate failure on any hunk of a group reverts
 every hunk of the group, never one hunk or one file of it.

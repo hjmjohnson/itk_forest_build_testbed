@@ -188,8 +188,9 @@ subject in `ioa.partition.SUBJECTS`.
 5. `ioa.partition.plan` runs once over all stage records, then
    `ioa.partition.apply` commits each plan in kind order, reverting hunks
    that strand a comment or fail the compile gate. Ownership and reverts
-   are site-atomic: the hunks of one manifest site (or of a `partners`
-   file pair in a manifest) go to the latest kind that touches any of
+   are site-atomic: the hunks of one manifest site, or of sites sharing a
+   `group` id (member-init gives a header insertion and the source edits
+   of the same move one id), go to the latest kind that touches any of
    them, and a stranded comment or a gate failure on one reverts them all.
    Changes no commit took are listed under "Unpartitioned changes"; the
    build and ctest still run, and the run exits 1.

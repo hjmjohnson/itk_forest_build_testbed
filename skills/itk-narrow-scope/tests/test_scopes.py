@@ -218,3 +218,8 @@ def test_type_without_trivial_destructor_is_a_costly_construct():
     src = Source(code.replace("@", "", 1))
     mv = plan(src, Decl(code.index("@"), "s", False, False, trivial_dtor=False))
     assert (mv.skipped, mv.note) == (Reason.COSTLY_CONSTRUCT, "nontrivial-dtor")
+
+
+def test_parenthesized_operand_after_a_comparison_is_not_a_call():
+    code = "int f(int c)\n{\n  @T t;\n  if (c)\n  {\n    return c > (t);\n  }\n  return 0;\n}\n"
+    assert move(code, "t", trivial=False)[1].skipped is None

@@ -279,11 +279,16 @@ def test_crashed_tus_are_parsed_from_run_clang_tidy_output():
     assert member_init.crashed_tus(text) == ["/r/a.cxx", "/r/b.cxx"]
 
 
-def test_manifest_records_header_and_source_partners(fixture_graph):
+def test_each_default_member_move_pairs_its_header_and_source_sites(fixture_graph):
     out = run_member_init(fixture_graph("shared_header"), apply=True)
-    assert out.manifest.partners == [(Path("a.cxx"), Path("foo.h")), (Path("b.cxx"), Path("foo.h"))]
-
-
+    dmi = [(s.file.name, s.start, s.group) for s in out.manifest.applied()
+           if s.cls == "use-default-member-init"]
+    by_file = {}
+    for name, _, group in dmi:
+        by_file.setdefault(name, set()).add(group)
+    assert all(g for _, _, g in dmi), dmi
+    assert by_file["a.cxx"] <= by_file["foo.h"] and by_file["b.cxx"] <= by_file["foo.h"]
+    assert by_file["a.cxx"].isdisjoint(by_file["b.cxx"])
 def test_comment_dropped_by_an_earlier_stage_is_not_charged_here(fixture_graph):
     g = fixture_graph("basic")
     src = g.repo / "foo.cxx"
