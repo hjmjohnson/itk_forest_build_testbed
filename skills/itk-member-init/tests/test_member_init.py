@@ -299,3 +299,13 @@ def test_comment_dropped_by_an_earlier_stage_is_not_charged_here(fixture_graph):
     out = run_member_init(g, apply=True)
     assert ": m_A(1)\n  , m_B(2)" in out.read("foo.cxx")
     assert Reason.COMMENT_STRANDED not in {s.skipped for s in out.manifest.sites}
+
+
+def test_initializer_list_removed_whole_keeps_its_source_site_in_the_header_group(fixture_graph):
+    out = run_member_init(fixture_graph("list_removed"), apply=True)
+    assert ": m_A" not in out.read("foo.cxx")
+    dmi = [s for s in out.manifest.applied() if s.cls == "use-default-member-init"]
+    groups = {s.file.name: s.group for s in dmi}
+    assert set(groups) == {"foo.h", "foo.cxx"}
+    assert groups["foo.cxx"] and groups["foo.cxx"] == groups["foo.h"]
+    assert groups["foo.h"].startswith("member-init:")

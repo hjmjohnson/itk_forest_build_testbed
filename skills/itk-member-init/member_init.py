@@ -7,6 +7,7 @@ Edits the working tree and writes a manifest; never commits.
 
 import argparse
 import re
+import secrets
 import subprocess
 import sys
 from collections import defaultdict
@@ -267,8 +268,9 @@ def _group_moves(sites: list[Site], dmi: list[tuple[int, Path, int, int]],
     for ks in hits.values():
         for k in ks[1:]:
             parent[find(k)] = find(ks[0])
+    token = secrets.token_hex(4)
     for i, ks in hits.items():
-        sites[i].group = f"dmi-{find(ks[0])}"
+        sites[i].group = f"{KIND}:{token}:dmi-{find(ks[0])}"
 
 
 def run(graph: Path, root: Path, manifest: Path | None, apply: bool) -> int:
@@ -315,7 +317,7 @@ def run(graph: Path, root: Path, manifest: Path | None, apply: bool) -> int:
             a, b = map_line(later, j1, False), map_line(later, j2, True)
             sites.append(site(root, path, a, b, PMI, f))
         for j1, j2 in changed_ranges(m, f) if path in p2.edits else []:
-            dmi.append((len(sites), path, j1 + 1, j2))
+            dmi.append((len(sites), path, j1 + 1, max(j2, j1 + 1)))
             sites.append(site(root, path, j1, j2, DMI, f))
     _group_moves(sites, dmi, p2.moves, {p: _opcodes(post1[p], final[p]) for p in p2.edits})
     for s in p1.skips + p2.skips:

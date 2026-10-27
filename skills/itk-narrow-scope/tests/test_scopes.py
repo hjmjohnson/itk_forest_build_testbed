@@ -223,3 +223,9 @@ def test_type_without_trivial_destructor_is_a_costly_construct():
 def test_parenthesized_operand_after_a_comparison_is_not_a_call():
     code = "int f(int c)\n{\n  @T t;\n  if (c)\n  {\n    return c > (t);\n  }\n  return 0;\n}\n"
     assert move(code, "t", trivial=False)[1].skipped is None
+
+
+def test_template_call_takes_its_parenthesized_argument():
+    code = "int f(int c)\n{\n  @T t;\n  if (c)\n  {\n    return g<int>(t);\n  }\n  return 0;\n}\n"
+    _, mv = move(code, "t", trivial=False)
+    assert (mv.skipped, mv.note) == (Reason.LOOP_CARRIED, "escapes")

@@ -435,6 +435,22 @@ def _args(m: str, open_: int) -> list[str]:
     return [*out, m[start:close]]
 
 
+def _template_head(m: str, gt: int) -> int:
+    """Offset of the identifier's last char before the `<` matching m[gt], else -1."""
+    depth = 0
+    for i in range(gt, -1, -1):
+        if m[i] == ">":
+            depth += 1
+        elif m[i] == "<":
+            depth -= 1
+            if depth == 0:
+                j = _back(m, i)
+                return j if j >= 0 and (m[j].isalnum() or m[j] == "_") else -1
+        elif m[i] in ";{}()":
+            return -1
+    return -1
+
+
 def call_argument(m: str, name: str, a: int, b: int, whole: bool = True, array: bool = False) -> bool:
     """True when a call in m[a:b] takes a member-call result on name, or name itself when
     whole (a non-trivial type) or array (it decays to a pointer)."""
@@ -445,6 +461,8 @@ def call_argument(m: str, name: str, a: int, b: int, whole: bool = True, array: 
         if m[k] != "(":
             continue
         j = _back(m, k)
+        if j >= 0 and m[j] == ">":
+            j = _template_head(m, j)
         if j < 0 or not (m[j].isalnum() or m[j] in "_)]"):
             continue
         callee = re.search(r"([A-Za-z_]\w*)$", m[:j + 1])
