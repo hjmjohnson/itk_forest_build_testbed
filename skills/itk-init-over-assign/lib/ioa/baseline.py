@@ -1,4 +1,5 @@
 import json
+import re
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,9 +17,9 @@ def failed_tests(ctest_dir: Path) -> list[str]:
     if not log.exists():
         return []
     names = {
-        line.split(":", 1)[1].strip()
-        for line in log.read_text().splitlines()
-        if ":" in line
+        m.group(1).strip()
+        for m in map(re.compile(r"^\d+:(.+)$").match, log.read_text().splitlines())
+        if m
     }
     return sorted(names)
 
@@ -34,7 +35,16 @@ def ensure(coords, kit: Path) -> Path:
     if got.returncode != 0 or not got.stdout.strip():
         raise RuntimeError(f"run-matrix.sh --ctest-dir failed: {got.stderr.strip()}")
     ctest_dir = Path(got.stdout.strip().splitlines()[-1])
-    _matrix(kit, "--run-ctest", coords.repo_slug)
+    log = ctest_dir / "Testing" / "Temporary" / "LastTestsFailed.log"
+    log.unlink(missing_ok=True)
+    run = _matrix(kit, "--run-ctest", coords.repo_slug)
+    tokens = [t for t in run.stdout.split() if t.startswith("T:")]
+    token = tokens[-1] if tokens else "no token"
+    m = re.fullmatch(r"T:(\d+)/(\d+)", token)
+    if not m or int(m.group(2)) == 0:
+        raise RuntimeError(f"ctest did not run for {coords.repo_slug}: {token}")
+    if m.group(1) != m.group(2) and not log.exists():
+        raise RuntimeError(f"ctest reported failures ({token}) but wrote no {log}")
     record = {
         "repo": coords.repo_slug,
         "sha": coords.sha,

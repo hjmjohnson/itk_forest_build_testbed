@@ -38,8 +38,10 @@ def world(tmp_path, monkeypatch):
     graph = repo / "build" / "BRAINSTools-build"
     graph.mkdir(parents=True)
     (graph / "compile_commands.json").write_text("[]")
-    (graph / "CMakeCache.txt").write_text(
-        "CMAKE_CXX_COMPILER_VERSION:STRING=19.1.7\nITK_DIR:PATH=" + str(tmp_path / "itk") + "\n"
+    (graph / "CMakeCache.txt").write_text("ITK_DIR:PATH=" + str(tmp_path / "itk") + "\n")
+    (graph / "CMakeFiles" / "4.3.4").mkdir(parents=True)
+    (graph / "CMakeFiles" / "4.3.4" / "CMakeCXXCompiler.cmake").write_text(
+        'set(CMAKE_CXX_COMPILER_VERSION "19.1.7")\n'
     )
     (tmp_path / "itk").mkdir()
     (tmp_path / "itk" / "ITKConfigVersion.cmake").write_text('set(PACKAGE_VERSION "6.0.0")\n')
@@ -105,3 +107,55 @@ def test_url_spellings_are_equivalent():
 
 def test_itk_version_unknown_when_unreadable(tmp_path):
     assert preflight.itk_version(tmp_path) == "unknown"
+
+
+def test_ssh_url_forms_are_equivalent():
+    want = preflight._norm_url("https://github.com/a/b")
+    assert preflight._norm_url("ssh://git@github.com/a/b.git") == want
+    assert preflight._norm_url("ssh://git@github.com:a/b") == want
+
+
+def test_worktree_behind_upstream_tip_is_refused(world, tmp_path):
+    repo, forest, kit = world
+    git(repo, "checkout", "-q", "main")
+    commit(repo, "b")
+    git(repo, "push", "-q", "upstream", "main")
+    git(repo, "checkout", "-q", "BRAINSTools-itk-downstream-itk-main")
+    with pytest.raises(PreflightError) as e:
+        preflight.check(repo, forest, kit)
+    assert e.value.code == "not-at-upstream-tip"
+
+
+def test_staged_change_is_dirty(world):
+    repo, forest, kit = world
+    (repo / "new").write_text("x")
+    git(repo, "add", "new")
+    with pytest.raises(PreflightError) as e:
+        preflight.check(repo, forest, kit)
+    assert e.value.code == "dirty-tree"
+
+
+@pytest.mark.parametrize("name", ["master", "release", "dashboard"])
+def test_other_protected_branches_are_refused(world, name):
+    repo, forest, kit = world
+    git(repo, "checkout", "-q", "-b", name)
+    with pytest.raises(PreflightError) as e:
+        preflight.check(repo, forest, kit)
+    assert e.value.code == "on-main"
+
+
+def test_detached_head_is_refused(world):
+    repo, forest, kit = world
+    git(repo, "checkout", "-q", "--detach")
+    with pytest.raises(PreflightError) as e:
+        preflight.check(repo, forest, kit)
+    assert e.value.code == "not-at-upstream-tip" and "detached" in str(e.value)
+
+
+def test_unusable_clang_tidy_is_a_preflight_error(world, monkeypatch):
+    repo, forest, kit = world
+    monkeypatch.undo()
+    monkeypatch.setattr(preflight.tidy, "tool", lambda n: "/nonexistent/clang-tidy")
+    with pytest.raises(PreflightError) as e:
+        preflight.check(repo, forest, kit)
+    assert e.value.code == "tidy-series-mismatch"

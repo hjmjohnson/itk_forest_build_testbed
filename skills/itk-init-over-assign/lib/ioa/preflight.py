@@ -24,21 +24,21 @@ class Coordinates:
     itk_version: str
 
 
-def _git(repo: Path, *args: str, check: bool = True) -> str:
+def _git(repo: Path, *args: str, code: str = "not-at-upstream-tip") -> str:
     done = subprocess.run(
         ["git", "-C", str(repo), *args], capture_output=True, text=True, check=False
     )
-    if check and done.returncode != 0:
-        raise PreflightError("not-at-upstream-tip", f"git {' '.join(args)}: {done.stderr.strip()}")
+    if done.returncode != 0:
+        raise PreflightError(code, f"git {' '.join(args)} failed: {done.stderr.strip()}")
     return done.stdout.strip()
 
 
 def _norm_url(url: str) -> str:
-    url = url.strip().removesuffix(".git")
-    m = re.match(r"^git@([^:]+):(.*)$", url)
+    url = url.strip().rstrip("/").removesuffix(".git")
+    m = re.match(r"^(?:ssh://)?git@([^:/]+)[:/](.*)$", url)
     if m:
         url = f"https://{m.group(1)}/{m.group(2)}"
-    return url.removeprefix("ssh://git@").rstrip("/")
+    return url
 
 
 def catalog_entry(kit: Path, tree: str) -> tuple[str, str]:
@@ -69,9 +69,13 @@ def _upstream_tip(repo: Path, url: str, branch: str, refresh: str) -> str:
 
 
 def tidy_version() -> str:
-    out = subprocess.run(
-        [tidy.tool("clang-tidy"), "--version"], capture_output=True, text=True, check=True
-    ).stdout
+    try:
+        out = subprocess.run(
+            [tidy.tool("clang-tidy"), "--version"],
+            capture_output=True, text=True, check=True,
+        ).stdout
+    except (SystemExit, OSError, subprocess.CalledProcessError) as exc:
+        raise PreflightError("tidy-series-mismatch", f"clang-tidy is unusable: {exc}") from exc
     m = re.search(r"version\s+(\d+\.\d+)", out)
     return m.group(1) if m else "unknown"
 
@@ -85,9 +89,11 @@ def _cache_value(graph: Path, pattern: str) -> str | None:
 
 
 def compiler_version(graph: Path) -> str:
-    v = _cache_value(graph, r"^CMAKE_CXX_COMPILER_VERSION:[A-Z]+=(.+)$")
-    m = re.match(r"(\d+\.\d+)", v or "")
-    return m.group(1) if m else "unknown"
+    for f in sorted(graph.glob("CMakeFiles/*/CMakeCXXCompiler.cmake")):
+        m = re.search(r'set\(CMAKE_CXX_COMPILER_VERSION "(\d+\.\d+)', f.read_text())
+        if m:
+            return m.group(1)
+    return "unknown"
 
 
 def itk_version(graph: Path) -> str:
@@ -125,6 +131,8 @@ def check(repo: Path, forest: Path, kit: Path) -> Coordinates:
     if _git(repo, "status", "--porcelain", "--untracked-files=no"):
         raise PreflightError("dirty-tree", f"{repo} has uncommitted changes")
     branch = _git(repo, "rev-parse", "--abbrev-ref", "HEAD")
+    if branch == "HEAD":
+        raise PreflightError("not-at-upstream-tip", f"{repo} has a detached HEAD; {refresh}")
     if branch in PROTECTED:
         raise PreflightError("on-main", f"{repo} is on protected branch {branch}")
     url, floating = catalog_entry(kit, repo.name)
