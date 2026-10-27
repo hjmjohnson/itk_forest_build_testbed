@@ -60,6 +60,7 @@ numpy = ">=1.26"  # ITK_WRAP_PYTHON: Bridge/NumPy build + the array-bridge tests
 pytorch = ">=2.12"  # CPU build; a py314 variant exists, so the interpreter does not move
 textual = ">=1.0"  # noarch, so the wizard TUI is available on every platform
 pytest = ">=8.0"  # skills/*/tests (`pixi run test`) + bin/tests (tri-platform gate)
+clang-tools = "19.1.*"  # clang-tidy/clang-query/clang-apply-replacements; must match the clang series above
 
 # gengetopt has no win-64 build on conda-forge (linux/osx only). Only RTK's
 # applications need it (they generate *_ggo.{h,c}); nothing on the ITK or Slicer
@@ -110,7 +111,7 @@ description = "Run the Python test suites that ship with skills/"
 [tasks.test.env]
 # Each skill vendors its support modules under <skill>/lib; put them on the
 # path so `import agent_skills.<mod>` resolves to the vendored copy under test.
-PYTHONPATH = "skills/gh-comment-cache/lib"
+PYTHONPATH = "skills/gh-comment-cache/lib:skills/itk-init-over-assign/lib"
 
 [tasks.status]
 cmd = "bash ./bin/setup-itk-downstream-testbed.sh status"
