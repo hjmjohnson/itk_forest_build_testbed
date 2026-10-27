@@ -72,6 +72,7 @@ a list entry and the sub-skill that implements it. The initial list:
 | # | Kind | Sub-skill | Engine |
 |---|------|-----------|--------|
 | 1 | Member init | `itk-member-init` (new) | clang-tidy `cppcoreguidelines-prefer-member-initializer`, then `modernize-use-default-member-init` |
+| 1b | Member default init | `in-class-member-init` pattern of `itk-mechanical-cleanup` | append `{}` to uninitialized non-static members, skipping smart-pointer types; kind `member-default-init` |
 | 2 | Local declare-then-init | `itk-declare-then-init` (refined) | existing Python finder, classes `assign`, `elem_diff`, `elem_zero`, plus the four new classes below |
 | 2c | const/constexpr after 2 | `itk-const-promote` (new) | clang-tidy `misc-const-correctness` on locals; constexpr by rule (below) |
 | 3 | Container list init | `itk-container-list-init` (new) | clang-query match of `push_back`/`operator[]` runs after a default construction; rewrite to brace list |
@@ -176,10 +177,19 @@ deletion, removed) lines intersect it, building one commit per stage with
 `git apply --cached` of the selected hunks. Ownership is by content
 because each stage's finder runs on the previous stage's output, so
 manifest line numbers refer to different trees; manifests supply the
-site counts and the skip list only. A hunk no stage produced (for
+site counts, the skip list, and the site groups below, with each site in
+its own stage's output lines. A hunk no stage produced (for
 example clang-format spill) is attached to the stage that touched the
 nearest line above it. The per-stage const/constexpr commit is built
 the same way from `itk-const-promote`'s manifest.
+
+Ownership and reverts are site-atomic. Each manifest site, and each
+`partners` file pair a manifest lists (a header and the source whose
+initializer moved into it), forms a site group of the final hunks its
+stage edits meet. When a later kind owns any hunk of a group, every hunk
+of the group moves to that kind, so no commit holds half a site. A
+stranded comment or a compile-gate failure on any hunk of a group reverts
+every hunk of the group, never one hunk or one file of it.
 
 Commit messages: `STYLE: <kind sentence> across <repo short name>`, with
 a body listing the count of sites and the count skipped, and no
@@ -187,6 +197,7 @@ reference to prior code. Examples:
 
 ```
 STYLE: Initialize members in constructor initializer lists
+STYLE: Give uninitialized members a default initializer
 STYLE: Initialize locals at declaration instead of assigning
 STYLE: Make initialized locals const where never mutated
 STYLE: Replace push_back and index sequences with list initialization
