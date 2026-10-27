@@ -21,6 +21,7 @@ _COMMON = [
 class GateResult:
     ok: bool
     failed: dict[Path, str] = field(default_factory=dict)
+    passed: list[Path] = field(default_factory=list)
 
 
 def warning_flags(argv: list[str]) -> list[str]:
@@ -36,7 +37,11 @@ def strip_output_flags(argv: list[str]) -> list[str]:
             skip = False
         elif a in _DROP_WITH_ARG:
             skip = True
-        elif a not in _DROP:
+        elif a in _DROP:
+            continue
+        elif a.startswith("-o") or a.startswith(("-MF", "-MT", "-MQ")):
+            continue
+        else:
             out.append(a)
     return out
 
@@ -66,7 +71,10 @@ def _compile(tu: Path, graph: Path, repo_root: Path) -> str | None:
     argv = strip_output_flags(base)
     argv = argv + warning_flags(base)
     env = {**os.environ, "CCACHE_DISABLE": "1"}
-    p = subprocess.run(argv, cwd=graph, env=env, capture_output=True, text=True)
+    try:
+        p = subprocess.run(argv, cwd=graph, env=env, capture_output=True, text=True)
+    except OSError as exc:
+        return f"cannot run {argv[0]}: {exc}"
     if p.returncode == 0:
         return None
     lines = [
@@ -79,23 +87,33 @@ def _compile(tu: Path, graph: Path, repo_root: Path) -> str | None:
 def run(graph: Path, files: list[Path], repo_root: Path) -> GateResult:
     tus, dead = expand(files, graph, repo_root)
     failed = {h: "no-including-tu" for h in dead}
+    passed: list[Path] = []
     for tu in tus:
         try:
             msg = _compile(tu, graph, repo_root)
         except KeyError:
             msg = "no-compile-command"
-        if msg is not None:
+        if msg is None:
+            passed.append(tu)
+        else:
             failed[tu] = msg
-    return GateResult(ok=not failed, failed=failed)
+    return GateResult(ok=not failed, failed=failed, passed=passed)
 
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="ioa.gate")
-    ap.add_argument("--expand", action="store_true", required=True)
+    ap.add_argument("--expand", action="store_true")
     ap.add_argument("--graph", type=Path, required=True)
     ap.add_argument("--repo-root", type=Path, required=True)
     ap.add_argument("files", nargs="+", type=Path)
     a = ap.parse_args(argv)
+    if not a.expand:
+        r = run(a.graph, a.files, a.repo_root)
+        for tu in r.passed:
+            print(f"PASS {tu}")
+        for f, msg in r.failed.items():
+            print(f"FAIL {f}: {msg.splitlines()[0]}")
+        return 0 if r.ok else 1
     tus, dead = expand(a.files, a.graph, a.repo_root)
     for tu in tus:
         print(tu)

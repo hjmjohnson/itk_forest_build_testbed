@@ -33,6 +33,8 @@ def test_command_is_syntax_only_with_fatal_warnings(fake_graph, repo_root, monke
     argv, kw = calls[0]
     assert "-fsyntax-only" in argv and "-Werror=unused-variable" in argv
     assert "-c" not in argv and "-o" not in argv and "IO/tu0.cxx.o" not in argv
+    for flag in ("-MF", "-MT", "-MD", "-MMD"):
+        assert flag not in argv
     assert str(repo_root / "IO/tu0.cxx") in argv
     assert kw["env"]["CCACHE_DISABLE"] == "1"
 
@@ -57,3 +59,17 @@ def test_expand_cli_prints_tus_and_exit_3_for_dead(fake_graph, repo_root, capsys
 def test_warning_flags_follow_compiler_family():
     assert "-Wunused-local-typedef" in gate.warning_flags(["/x/clang++", "a.cxx"])
     assert "-Wunused-local-typedefs" in gate.warning_flags(["g++", "a.cxx"])
+
+
+def test_strip_output_flags_handles_joined_and_mixed_forms():
+    argv = "cc -MMD -MT a.o -MF a.d -MD -o a.o -c x.cxx -MM -ofoo.o -MFfile.d -MQq".split()
+    assert gate.strip_output_flags(argv) == ["cc", "x.cxx"]
+
+
+def test_missing_compiler_is_a_failure_not_a_raise(fake_graph, repo_root, monkeypatch):
+    def boom(argv, **kw):
+        raise FileNotFoundError(argv[0])
+
+    monkeypatch.setattr(gate.subprocess, "run", boom)
+    r = gate.run(fake_graph, [Path("IO/tu0.cxx")], repo_root)
+    assert not r.ok and "cannot run" in r.failed[Path("IO/tu0.cxx")]
