@@ -15,6 +15,8 @@ from find_declare_then_init import (
 def analyze(
     lines: list[str], i: int, indent: str, vartype: str, varname: str, filepath: str, max_gap: int
 ) -> Finding | None:
+    if re.search(r"\bconst\b", vartype) and not re.search(r"\bauto\b", vartype):
+        return None
     j = find_next_use(lines, i + 1, varname, indent, max_gap)
     if j is None or not gap_is_blank_or_comment(lines, i, j):
         return None
@@ -23,6 +25,10 @@ def analyze(
         return None
     expr = m.group(2)
     if expr.startswith("=") or re.search(rf"\b{re.escape(varname)}\b", expr):
+        return None
+    if re.search(r"\bauto\b", vartype):
+        return declined_finding(filepath, i, j, vartype, varname, "placeholder", "auto-type")
+    if "&" in vartype:
         return None
     if not check_indent_match(indent, lines[j]):
         return declined_finding(filepath, i, j, vartype, varname, "placeholder", "indent-mismatch")

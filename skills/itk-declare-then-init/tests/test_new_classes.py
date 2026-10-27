@@ -10,6 +10,7 @@ from ioa.skip import Reason
 
 FINDER = Path(__file__).parent.parent / "find_declare_then_init.py"
 FIXTURES = Path(__file__).parent / "fixtures"
+GOLDEN = Path(__file__).parent / "golden"
 CLASSES = ["sized_ctor", "stream_open", "bool_branch", "placeholder"]
 
 
@@ -87,18 +88,43 @@ def test_bool_branch_later_write_is_loop_carried(tmp_path):
     assert [(s.skipped, s.note) for s in m.skipped()] == [(Reason.LOOP_CARRIED, "later-write")]
 
 
-def test_existing_fixture_results_unchanged_by_new_classes(tmp_path):
-    base = FIXTURES
+OLD_CLASSES = "fill_zero,fill_nonzero,elem_same,elem_diff,elem_zero,assign,setsize_fill"
+GOLDEN_FILES = ["Assign.cxx", "ElemZero.cxx", "Hdr.h", "NotInBuild.cxx"]
+
+
+@pytest.mark.parametrize("classes", [OLD_CLASSES, OLD_CLASSES + "," + ",".join(CLASSES)])
+def test_existing_fixture_results_match_pre_task6_goldens(tmp_path, classes):
     env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
-    runs = []
-    for classes in ("assign,elem_zero", "assign,elem_zero,sized_ctor,stream_open,bool_branch,placeholder"):
-        out = tmp_path / classes.replace(",", "_")
-        out.mkdir()
-        for name in ("Assign.cxx", "ElemZero.cxx"):
-            (out / name).write_text((base / name).read_text())
-        subprocess.run(
-            [sys.executable, str(FINDER), "--classes", classes, "--apply", "Assign.cxx", "ElemZero.cxx"],
-            cwd=out, env=env, capture_output=True, text=True, check=True,
-        )
-        runs.append({n: (out / n).read_text() for n in ("Assign.cxx", "ElemZero.cxx")})
-    assert runs[0] == runs[1]
+    for name in GOLDEN_FILES:
+        (tmp_path / name).write_text((FIXTURES / name).read_text())
+    subprocess.run(
+        [sys.executable, str(FINDER), "--classes", classes, "--apply", *GOLDEN_FILES],
+        cwd=tmp_path, env=env, capture_output=True, text=True, check=True,
+    )
+    for name in GOLDEN_FILES:
+        assert (tmp_path / name).read_text() == (GOLDEN / name).read_text()
+
+
+def test_placeholder_declines_auto_as_narrowing(tmp_path):
+    src = fixture("placeholder", "skip_auto")
+    m, text = run_class(tmp_path, "placeholder", src)
+    assert text == src and m.applied() == []
+    assert [(s.skipped, s.note) for s in m.skipped()] == [(Reason.NARROWING, "auto-type")]
+
+
+def test_placeholder_skips_same_line_conditional(tmp_path):
+    src = fixture("placeholder", "skip_conditional_same_line")
+    m, text = run_class(tmp_path, "placeholder", src)
+    assert text == src and m.applied() == []
+
+
+@pytest.mark.parametrize(
+    ("name", "note"),
+    [("skip_by_ref_arg", "by-ref-arg"), ("skip_compound_write", "later-write"),
+     ("skip_self_or", "later-write")],
+)
+def test_bool_branch_declines_later_use_hazards(tmp_path, name, note):
+    src = fixture("bool_branch", name)
+    m, text = run_class(tmp_path, "bool_branch", src)
+    assert text == src and m.applied() == []
+    assert [(s.skipped, s.note) for s in m.skipped()] == [(Reason.LOOP_CARRIED, note)]

@@ -65,8 +65,8 @@ DECL_PATTERN = re.compile(
 
 INIT_DECL_PATTERN = re.compile(
     r"^(\s*)"
-    r"((?:[\w:]+(?:<[^>]*>)?(?:::[\w]+(?:<[^>]*>)?)*)(?:\s*\*)*)"
-    r"(?:\s+|(?<=\*))"
+    r"((?:const\s+)?(?:[\w:]+(?:<[^>]*>)?(?:::[\w]+(?:<[^>]*>)?)*)(?:\s*[*&])*)"
+    r"(?:\s+|(?<=[*&]))"
     r"(\w+)"
     r"\s*=\s*(nullptr|NULL|true|false|[-+]?\d[\w.]*|\"\"|\{\})\s*;\s*$"
 )
@@ -650,7 +650,11 @@ def apply_findings(
     return applied
 
 
-DECLINE_REASONS = {"vector-bool": "init-list-ctor", "comment-stranded": "comment-stranded"}
+DECLINE_REASONS = {
+    "vector-bool": "init-list-ctor",
+    "comment-stranded": "comment-stranded",
+    "auto-type": "narrowing",
+}
 
 
 def skip_reason(f: Finding, lines: list[str]) -> tuple["Reason", str] | None:
@@ -710,7 +714,7 @@ def record_sites(
 sys.modules.setdefault("find_declare_then_init", sys.modules[__name__])
 if str(Path(__file__).resolve().parent) not in sys.path:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
-from classes import bool_branch, placeholder, sized_ctor, stream_open  # noqa: E402
+from dti_classes import bool_branch, placeholder, sized_ctor, stream_open  # noqa: E402
 
 for _mod in (sized_ctor, stream_open, bool_branch, placeholder):
     PATTERN_ANALYZERS[_mod.__name__.rsplit(".", 1)[1]] = _mod.analyze

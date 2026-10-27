@@ -33,17 +33,28 @@ def _writes(varname: str) -> re.Pattern:
     )
 
 
-def _later_write(lines: list[str], start: int, varname: str) -> bool:
+CONTROL_KEYWORDS = {"if", "while", "for", "switch", "return", "sizeof", "decltype"}
+
+
+def _bare_call_arg(varname: str) -> re.Pattern:
+    return re.compile(rf"(?:([\w:.>-]*)\s*\(|,)\s*{re.escape(varname)}\s*(?=[,)])")
+
+
+def _later_use_hazard(lines: list[str], start: int, varname: str) -> str | None:
     writes = _writes(varname)
+    arg = _bare_call_arg(varname)
     depth = 0
     for line in lines[start:]:
         code = _mask(strip_comment(line))
         if writes.search(code):
-            return True
+            return "later-write"
+        if any(m.group(1) not in CONTROL_KEYWORDS and (m.group(1) or m.group().startswith(","))
+               for m in arg.finditer(code)):
+            return "by-ref-arg"
         depth += code.count("{") - code.count("}")
         if depth < 0:
-            return False
-    return False
+            return None
+    return None
 
 
 def _body(lines: list[str], j: int, rest: str, varname: str):
@@ -118,9 +129,14 @@ def analyze(
         return decline("comment-stranded")
     if not check_indent_match(indent, lines[j]):
         return decline("indent-mismatch")
-    if _later_write(lines, end + 1, varname):
-        return decline("later-write")
-    expr = cond if value == "true" else f"!({cond})"
+    hazard = _later_use_hazard(lines, end + 1, varname)
+    if hazard:
+        return decline(hazard)
+    bare = re.fullmatch(r"[A-Za-z_][\w:]*(?:(?:\.|->)\w+)*", cond) and cond not in ("true", "false")
+    if value == "true":
+        expr = f"static_cast<bool>({cond})" if bare else cond
+    else:
+        expr = f"!{cond}" if bare else f"!({cond})"
     return Finding(
         file=filepath,
         decl_line=i + 1,

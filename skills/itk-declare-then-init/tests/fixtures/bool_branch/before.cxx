@@ -1,5 +1,5 @@
 void
-F(int c, int d, int e)
+F(int c, int d, int e, Foo * ptr)
 {
   bool a = false;
   if (c > 0) { a = true; }
@@ -11,5 +11,10 @@ F(int c, int d, int e)
   {
     g = false;
   }
-  use(a, b, g);
+  bool found = false;
+  if (ptr) found = true;
+  bool missing = true;
+  if (ptr)
+    missing = false;
+  consume(a && b && g && found && missing);
 }
