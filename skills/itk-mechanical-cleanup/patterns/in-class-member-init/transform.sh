@@ -2,16 +2,27 @@
 # Append '{}' before the trailing ';' of uninitialized non-static members.
 # Safe bare-{} case only; never touches constructors. Dry-run by default;
 # --apply to write. Never commits. Re-run clang-format + build afterward.
+# --manifest <path> (with --apply) clang-formats the edits and writes an
+# itk-helpers manifest; --graph <dir> is accepted for the common CLI.
 set -uo pipefail
 
 APPLY=0
 REPO="."
-for a in "$@"; do
-  case "$a" in
+MANIFEST=""
+while [ $# -gt 0 ]; do
+  case "$1" in
     --apply) APPLY=1 ;;
-    *) REPO="$a" ;;
+    --manifest) MANIFEST="${2:-}"; shift ;;
+    --graph) shift ;;
+    *) REPO="$1" ;;
   esac
+  shift
 done
+case "$MANIFEST" in
+  ""|/*) ;;
+  *) MANIFEST="$PWD/$MANIFEST" ;;
+esac
+HELPER="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../lib" && pwd)/manifest_from_diff.py"
 
 PAT='^[[:space:]]+[A-Za-z_][A-Za-z0-9_:<>,* ]*[ *]m_[A-Za-z0-9_]+(\[[^]]*\])?[[:space:]]*;[[:space:]]*(//.*)?$'
 
@@ -26,6 +37,12 @@ else
 fi
 
 changed=0
+SAVED=""
+PAIRS=()
+if [ "$APPLY" -eq 1 ] && [ -n "$MANIFEST" ]; then
+  SAVED=$(mktemp -d)
+  trap 'rm -rf "$SAVED"' EXIT
+fi
 while IFS= read -r f; do
   [ -n "$f" ] || continue
   # Insert {} before the ; on matching lines lacking static/=/{/&.
@@ -51,6 +68,10 @@ while IFS= read -r f; do
   if [ "$out" != "$(cat "$f")" ]; then
     changed=$((changed+1))
     if [ "$APPLY" -eq 1 ]; then
+      if [ -n "$SAVED" ]; then
+        cp "$f" "$SAVED/$changed"
+        PAIRS+=("$SAVED/$changed=$f")
+      fi
       printf '%s\n' "$out" > "$f"
       echo "APPLIED: $f"
     else
@@ -58,6 +79,11 @@ while IFS= read -r f; do
     fi
   fi
 done <<< "$FILES"
+
+if [ -n "$SAVED" ]; then
+  "${PYTHON:-python3}" "$HELPER" --repo . --cls in-class-member-init --manifest "$MANIFEST" \
+    ${PAIRS[@]+"${PAIRS[@]}"} || exit 1
+fi
 
 echo "---"
 echo "files_changed: $changed  (apply=$APPLY)"

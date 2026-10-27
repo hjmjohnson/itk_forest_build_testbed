@@ -1,0 +1,8 @@
+# A default-constructed local of a class type that has (or inherits) a Fill member.
+set output dump
+set bind-root false
+match varDecl(
+  hasAutomaticStorageDuration(),
+  hasInitializer(cxxConstructExpr(argumentCountIs(0))),
+  hasType(hasUnqualifiedDesugaredType(recordType(hasDeclaration(cxxRecordDecl(
+    isSameOrDerivedFrom(cxxRecordDecl(hasMethod(hasName("Fill")))))))))).bind("fill")

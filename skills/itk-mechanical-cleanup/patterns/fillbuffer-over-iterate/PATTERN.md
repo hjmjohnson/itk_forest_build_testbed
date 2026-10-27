@@ -60,21 +60,28 @@ Pre-filter (what `detect.sh` runs): files where an
 `.Set(` on a single argument, or a `*it = ` assignment. This over-reports;
 every hit must be read to confirm it is a full-buffer constant fill.
 
-## Transformation approach (review-only)
+## Transformation approach
 
-This is **not** a safe regex/sed rewrite — correctness depends on the AST:
-the loop must span the full buffered/largest region, the value must be
-loop-invariant, and the index must be unused. Verify those three facts at each
-site by reading the code, then by hand:
+`transform.sh` rewrites one shape, which it can prove from the text: a
+`for` loop whose init declares an `ImageRegionIterator` (or an alias of
+one) on `img, img->GetBufferedRegion()` or
+`img, img->GetLargestPossibleRegion()`, whose increment is `++it`, and whose
+body is the single statement `it.Set(<expr>);`. A `while (!it.IsAtEnd())`
+loop qualifies when the iterator declaration (and an optional
+`it.GoToBegin();`) directly precedes it, its body is `it.Set(<expr>); ++it;`,
+and `it` is not used after the loop. `<expr>` must not mention the iterator,
+increment, assign, or call anything except casts, `NumericTraits` constants,
+and `...Type(...)` conversions. The loop becomes `img->FillBuffer(<expr>);`.
 
-1. Replace the entire `for`/`while` loop with `<image>->FillBuffer(<constant>);`.
-2. Delete the iterator `using`/`typedef` if unreferenced elsewhere.
-3. Delete the iterator `#include` if no other use remains in the file.
+Every other candidate loop is reported as `SKIPPED` and left for review: a
+sub-region, a value read from the iterator, a counter, more than one body
+statement, or a comment inside the replaced span. The iterator `using` and
+`#include` are left in place; drop them by hand if nothing else uses them.
 
-For a scripted assist, a clang-query matcher can narrow candidates:
-`forStmt(hasBody(...cxxMemberCallExpr(callee(...„Set"))))` — but the final
-edit stays human-confirmed. `detect.sh` is the deliverable; there is no
-`transform.sh` because the safe-rewrite preconditions can't be proven by text.
+```bash
+bash transform.sh <repo>                                  # dry run
+bash transform.sh <repo> --apply [--manifest m.json]      # write
+```
 
 ## Verification (pattern-specific)
 

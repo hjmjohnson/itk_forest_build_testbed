@@ -36,8 +36,9 @@ contract:
     writes_to_repo: true
     writes_to_repo_paths:
       - "Modules/**"
-    writes_outside_repo: false
-    writes_outside_repo_paths: []
+    writes_outside_repo: true
+    writes_outside_repo_paths:
+      - "<manifest path given by --manifest>"
     modifies_working_tree: true
     network_required: false
     git_required: true
@@ -52,15 +53,18 @@ contract:
     has_ai_derived_layer: false
     derivation_version: 0
 dependencies:
-  skills: []
+  skills:
+    - itk-init-over-assign
   external_tools:
     - git
     - clang-format
   python_packages: []
   scripts:
     - list-patterns.sh
+    - lib/manifest_from_diff.py
     - patterns/*/detect.sh
     - patterns/*/transform.sh
+    - patterns/fillbuffer-over-iterate/fill_loops.py
 deployment:
   tier: project
   target_projects:
@@ -79,7 +83,7 @@ directory under `patterns/<name>/`:
 |---|---|
 | `PATTERN.md` | before/after, detection notes, pattern-specific caveats |
 | `detect.sh` | candidate scanner (see the detector contract below) |
-| `transform.sh` | dry-run by default, `--apply` writes, never commits (9 of 14) |
+| `transform.sh` | dry-run by default, `--apply` writes, never commits (10 of 14) |
 
 > **Constraint — C++17, ITKv5 + ITKv6:** target C++17 idioms valid against both
 > ITK >= 5.4 and ITKv6; never require C++20+. Verify transformed output by
@@ -98,6 +102,33 @@ bash patterns/<name>/transform.sh <repo> --apply   # write (never commits)
 Read `patterns/<name>/PATTERN.md` before applying — it holds the before/after
 shape, the false positives the detector deliberately over-reports, and the
 caveats that decide whether a hit is real.
+
+### Manifest mode (`in-class-member-init`, `fillbuffer-over-iterate`)
+
+These two transforms also take the common init-over-assign flags, so the
+`itk-init-over-assign` master can run them as `itk-helpers` stages:
+
+```bash
+bash patterns/<name>/transform.sh <repo> --apply --manifest m.json [--graph <build-dir>]
+```
+
+- `--manifest <path>`: with `--apply`, the script saves each file before
+  editing it, then `lib/manifest_from_diff.py` clang-formats the edited
+  lines and writes a manifest of kind `itk-helpers`, class `<name>`, one
+  site per changed hunk at post-edit lines. A file whose edit strands a
+  comment is restored and its sites marked `comment-stranded`. A relative
+  path is taken from the caller's directory. Without `--apply` nothing is
+  written.
+- `--graph <dir>`: accepted for the common CLI and otherwise unused; both
+  transforms are textual.
+
+`fillbuffer-over-iterate` rewrites only a `for`/`while` loop over an
+`ImageRegionIterator` on `img->GetBufferedRegion()` or
+`img->GetLargestPossibleRegion()` whose body is exactly
+`it.Set(<loop-invariant expr>);` (plus `++it;` in a `while`). Every other
+loop on `!it.IsAtEnd()` that calls `it.Set(` is recorded as skipped
+(`loop-carried`, note `not-fill-shape`), or `comment-stranded` with note
+`comment-in-loop` when the loop holds a comment.
 
 To sweep a pattern across many sites one class per commit, use
 `itk-incremental-refactor-loop` with this skill's pattern name as the payload.
@@ -118,7 +149,7 @@ tree will correctly report zero.
 | `ctad-iterator` | — | — | ✔ |
 | `emplace-back-construct` | `modernize-use-emplace` | merged #5824 | ✔ |
 | `equals-default-special-members` | `modernize-use-equals-default` | merged `bc66259` | review |
-| `fillbuffer-over-iterate` | — | — | review |
+| `fillbuffer-over-iterate` | — | — | ✔ (one shape) |
 | `in-class-member-init` | `modernize-use-default-member-init` | merged `b21dbbb` | ✔ |
 | `iterator-drop-withindex` | — | — | ✔ |
 | `prefer-prefix-increment` | — | — | ✔ |

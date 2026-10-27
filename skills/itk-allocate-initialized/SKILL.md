@@ -1,12 +1,15 @@
 ---
 name: itk-allocate-initialized
-version: 1.0.0
-purpose: Scans the ITK codebase for `->Allocate(true)` and `.Allocate(true)` call sites (excluding ThirdParty and the definition in itkImageBase.h) and replaces them with the more readable `->AllocateInitialized()` / `.AllocateInitialized()` equivalent.
+version: 1.1.0
+purpose: Replace `->Allocate(true)` and `.Allocate(true)` call sites (excluding ThirdParty and the AllocateInitialized definition) with the more readable `AllocateInitialized()` equivalent.
 description: >-
-  Scans the ITK codebase for `->Allocate(true)` and `.Allocate(true)` call sites
-  (excluding ThirdParty and the definition in itkImageBase.h) and replaces them with
-  the more readable `->AllocateInitialized()` / `.AllocateInitialized()` equivalent.
-  Creates a branch and PR on InsightSoftwareConsortium/ITK.
+  Replaces `->Allocate(true)` and `.Allocate(true)` call sites (excluding
+  ThirdParty and the definition in itkImageBase.h) with the more readable
+  `AllocateInitialized()` equivalent. `allocate_initialized.py` does it
+  unattended (`--graph --repo --manifest [--apply]`), writing an itk-helpers
+  manifest for the itk-init-over-assign master; it records `itk-version`
+  skips when the graph's ITK is older than 5.3, edits the working tree, and
+  never commits.
 
   Trigger when the user mentions: AllocateInitialized, Allocate(true) replacement,
   ITK image allocation readability, or references N-Dekker's suggestion to use
@@ -16,7 +19,7 @@ triggers:
   - /itk-allocate-initialized
 user_invocable: true
 cmd: false
-argument_hint: null
+argument_hint: "--graph <build-dir> --repo <path> --manifest <path> [--apply]"
 contract:
   inputs:
     - cwd
@@ -24,15 +27,19 @@ contract:
   outputs:
     - stdout
   side_effects:
-    writes_to_repo: false
-    writes_to_repo_paths: []
-    writes_outside_repo: false
-    writes_outside_repo_paths: []
-    modifies_working_tree: false
-    network_required: true
-    git_required: false
+    writes_to_repo: true
+    writes_to_repo_paths:
+      - "**/*.cxx"
+      - "**/*.h"
+      - "**/*.hxx"
+    writes_outside_repo: true
+    writes_outside_repo_paths:
+      - "<manifest path given by --manifest>"
+    modifies_working_tree: true
+    network_required: false
+    git_required: true
     user_confirmation_required: false
-  determinism: hybrid
+  determinism: deterministic
   cache:
     has_cache: false
     cache_root:
@@ -42,10 +49,14 @@ contract:
     has_ai_derived_layer: false
     derivation_version: 0
 dependencies:
-  skills: []
-  external_tools: []
+  skills:
+    - itk-init-over-assign
+  external_tools:
+    - clang-format
+    - git
   python_packages: []
-  scripts: []
+  scripts:
+    - allocate_initialized.py
 deployment:
   tier: always
   target_projects: []
@@ -64,9 +75,9 @@ If invoked without arguments, print this and ask what the user wants:
 itk-allocate-initialized — Replace Allocate(true) with AllocateInitialized()
 
 Usage:
-  /itk-allocate-initialized             Scan ITK and replace all instances
+  /itk-allocate-initialized             Scan the repo and replace all instances
 
-Scans for ->Allocate(true) and .Allocate(true), creates branch + PR.
+Scans for ->Allocate(true) and .Allocate(true) and rewrites them; never commits.
 ```
 
 Replace `Allocate(true)` with the self-documenting `AllocateInitialized()` alias.
@@ -100,146 +111,41 @@ grid->AllocateInitialized();
 
 ---
 
-## Step 1: Locate ITK source tree
+## Running it
 
 ```bash
-ITK_SRC=~/Dashboard/src/ITK
-git -C "$ITK_SRC" branch --show-current
+python3 allocate_initialized.py --graph <build-dir> --repo <path>   # dry run
+python3 allocate_initialized.py --graph <build-dir> --repo <path> \
+    --manifest m.json --apply
 ```
 
----
+The dry run prints the call count per file and writes nothing. The script
+scans the git-tracked C++ sources of the repo outside `ThirdParty`, `build`,
+and `Utilities`, ignores matches in comments and string literals and the
+body of `AllocateInitialized()` itself, and rewrites the rest in place.
 
-## Step 2: Create a new branch from upstream/main
+`--graph` is the build directory the repo is configured in. Its
+`CMakeCache.txt` names `ITK_DIR`, whose `ITKConfig.cmake` gives
+`ITK_VERSION_MAJOR`/`MINOR`. `AllocateInitialized()` needs ITK 5.3, so on an
+older ITK every site is recorded as skipped (`itk-version`, note
+`itk:<major>.<minor>`) and nothing is edited. When the version cannot be
+read, the script says so, assumes a new enough ITK, and notes
+`itk-version:unknown` on each site.
+
+Each call is a site of class `allocate_true` in an `itk-helpers` manifest,
+at its post-edit line. Edited lines are clang-formatted; a file whose edit
+strands a comment is restored and its sites recorded as `comment-stranded`.
+`--apply` requires `--manifest`.
+
+## Verify
 
 ```bash
-cd "$ITK_SRC"
-git fetch upstream
-git checkout -b style-allocate-initialized upstream/main
+git -C <repo> diff
+git -C <repo> grep -n "Allocate(true)" -- '*.cxx' '*.h' '*.hxx'
 ```
 
----
-
-## Step 3: Find all Allocate(true) call sites
-
-```bash
-grep -rn "Allocate(true)" "$ITK_SRC/Modules" \
-  --include="*.cxx" --include="*.h" --include="*.hxx" \
-  | grep -v "ThirdParty" \
-  | grep -v "itkImageBase.h"
-```
-
-Review the list. The expected hits are:
-- `Modules/IO/TransformMINC/src/itkMINCTransformIO.cxx` (2 occurrences)
-- Any test files that use `->Allocate(true)` for zero-initialized test images
-
-Also check the `Testing/` and `Examples/` trees if present:
-```bash
-grep -rn "Allocate(true)" "$ITK_SRC" \
-  --include="*.cxx" --include="*.h" --include="*.hxx" \
-  | grep -v ThirdParty \
-  | grep -v "itkImageBase.h" \
-  | grep -v "\.git/"
-```
-
----
-
-## Step 4: Apply replacements
-
-For each confirmed call site, replace `->Allocate(true)` with `->AllocateInitialized()`
-and `.Allocate(true)` with `.AllocateInitialized()`.
-
-This is a pure mechanical text substitution — no semantic change, just readability.
-
-Use the Edit tool per file, or apply via sed:
-```bash
-# Dry run first
-grep -rln "Allocate(true)" "$ITK_SRC/Modules" \
-  --include="*.cxx" --include="*.hxx" --include="*.h" \
-  | grep -v ThirdParty | grep -v "itkImageBase.h" \
-  | xargs sed -n 's/->Allocate(true)/->AllocateInitialized()/gp'
-
-# Apply
-grep -rln "Allocate(true)" "$ITK_SRC/Modules" \
-  --include="*.cxx" --include="*.hxx" --include="*.h" \
-  | grep -v ThirdParty | grep -v "itkImageBase.h" \
-  | xargs sed -i '' 's/->Allocate(true)/->AllocateInitialized()/g'
-
-# Handle dot-access version (rare)
-grep -rln "\.Allocate(true)" "$ITK_SRC/Modules" \
-  --include="*.cxx" --include="*.hxx" --include="*.h" \
-  | grep -v ThirdParty | grep -v "itkImageBase.h" \
-  | xargs sed -i '' 's/\.Allocate(true)/.AllocateInitialized()/g'
-```
-
-**IMPORTANT**: On macOS, `sed -i ''` is correct (BSD sed). On Linux, use `sed -i`.
-
----
-
-## Step 5: Verify changes
-
-```bash
-git -C "$ITK_SRC" diff
-```
-
-Confirm:
-- Only `Allocate(true)` → `AllocateInitialized()` changes
-- No changes to `itkImageBase.h` (the definition stays as-is)
-- No changes in ThirdParty
-
-Also verify no remaining `Allocate(true)` call sites (excluding the definition):
-```bash
-grep -rn "Allocate(true)" "$ITK_SRC/Modules" \
-  --include="*.cxx" --include="*.h" --include="*.hxx" \
-  | grep -v ThirdParty | grep -v "itkImageBase.h"
-# Should return empty
-```
-
----
-
-## Step 6: Commit and create PR
-
-```bash
-git -C "$ITK_SRC" add -p
-git -C "$ITK_SRC" commit -m "STYLE: Replace Allocate(true) with AllocateInitialized() for readability
-
-AllocateInitialized() is an alias for Allocate(true) introduced in itkImageBase.h
-to make zero-initialization intent explicit. Replace all call sites outside of
-ThirdParty and the definition itself.
-
-Suggested by N-Dekker in ITK PR #6003."
-
-gh pr create --draft --repo InsightSoftwareConsortium/ITK \
-  --title "STYLE: Replace Allocate(true) with AllocateInitialized()" \
-  --body "$(cat <<'EOF'
-Mechanical replacement of `->Allocate(true)` with the self-documenting alias `->AllocateInitialized()` throughout the ITK `Modules/` tree. Pure readability — no semantic change. Suggested by @N-Dekker in https://github.com/InsightSoftwareConsortium/ITK/pull/6003#discussion_r3033225653.
-
-<details>
-<summary>Motivation</summary>
-
-`Allocate(true)` zero-initializes the image buffer, but the `true` argument is easy to misread. `AllocateInitialized()` was added to `itkImageBase.h` exactly for this purpose:
-
-> "AllocateInitialized() is equivalent to Allocate(true). It is just intended to make the code more readable."
-
-</details>
-
-<details>
-<summary>Scope</summary>
-
-Pure mechanical substitution. No semantic change. Only non-ThirdParty `Modules/` code is affected; the definition in `itkImageBase.h` is unchanged.
-
-</details>
-
-<!--
-provenance: itk-allocate-initialized skill
-suggested_by: N-Dekker (PR #6003 discussion r3033225653)
-mechanical_change: Allocate(true) -> AllocateInitialized()
-unchanged: itkImageBase.h definition, ThirdParty
--->
-EOF
-)"
-```
-
-**The PR body above follows `~/.claude/rules/pr-message-format.md`**: short visible summary up top, longer rationale collapsed into `<details>`, machine-readable provenance in HTML comments. Match this shape if you regenerate the body with different content.
+Only `Allocate(true)` to `AllocateInitialized()` changes; the remaining hits
+are the definition, ThirdParty, comments, and string literals.
 
 ---
 

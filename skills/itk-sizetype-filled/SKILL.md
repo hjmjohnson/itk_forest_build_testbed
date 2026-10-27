@@ -1,6 +1,6 @@
 ---
 name: itk-sizetype-filled
-version: 1.0.0
+version: 1.1.0
 purpose: Scans the ITK codebase for two-line patterns where a FixedArray-based type (SizeType, IndexType, SpacingType, PointType, OffsetType, VectorType, etc.) is declared on one line and then either (a) populated via `.Fill(N)` with a compile-time constant or (b) assigned via `v = expr;` on the next line.
 description: >-
   Scans the ITK codebase for two-line patterns where a FixedArray-based type
@@ -17,8 +17,10 @@ description: >-
   then Python pairs each with its first subsequent assignment, stepping
   over intervening declarations and comments. A pure-regex fallback is
   also documented. clang-tidy's `cppcoreguidelines-init-variables` was
-  evaluated and found useless here (POD/scalar only). Creates a branch
-  and PR on InsightSoftwareConsortium/ITK.
+  evaluated and found useless here (POD/scalar only). `sizetype_filled.py`
+  runs the fill pattern unattended (`--graph --repo --manifest [--apply]`),
+  writing an itk-helpers manifest for the itk-init-over-assign master; it
+  edits the working tree and never commits.
 
   Trigger when the user mentions: SizeType::Filled, IndexType::Filled, replace
   Fill() with Filled(), FixedArray::Filled, ITK constexpr size, declare-then-
@@ -29,7 +31,7 @@ triggers:
   - /itk-sizetype-filled
 user_invocable: true
 cmd: false
-argument_hint: "[fill|assign]"
+argument_hint: "[fill|assign] | --graph <build-dir> --repo <path> --manifest <path> [--apply]"
 contract:
   inputs:
     - cwd
@@ -37,13 +39,17 @@ contract:
   outputs:
     - stdout
   side_effects:
-    writes_to_repo: false
-    writes_to_repo_paths: []
-    writes_outside_repo: false
-    writes_outside_repo_paths: []
-    modifies_working_tree: false
+    writes_to_repo: true
+    writes_to_repo_paths:
+      - "**/*.cxx"
+      - "**/*.h"
+      - "**/*.hxx"
+    writes_outside_repo: true
+    writes_outside_repo_paths:
+      - "<manifest path given by --manifest>"
+    modifies_working_tree: true
     network_required: false
-    git_required: false
+    git_required: true
     user_confirmation_required: false
   determinism: hybrid
   cache:
@@ -55,10 +61,19 @@ contract:
     has_ai_derived_layer: false
     derivation_version: 0
 dependencies:
-  skills: []
-  external_tools: []
+  skills:
+    - itk-init-over-assign
+  external_tools:
+    - clang-query
+    - clang-apply-replacements
+    - clang-format
+    - git
   python_packages: []
-  scripts: []
+  scripts:
+    - sizetype_filled.py
+    - matchers/fill_candidate.cq
+    - matchers/own_filled.cq
+    - matchers/user_ctor.cq
 deployment:
   tier: always
   target_projects: []
@@ -85,6 +100,45 @@ Usage:
 Replace verbose two-line FixedArray declare-then-initialize patterns with
 modern single-line `constexpr auto` / `const auto` declarations.
 
+## Manifest mode (unattended)
+
+`sizetype_filled.py` runs the `fill` pattern as a script with the common
+init-over-assign CLI, so the `itk-init-over-assign` master can run it as one
+of its `itk-helpers` stages:
+
+```bash
+python3 sizetype_filled.py --graph <build-dir> --repo <path>      # dry run
+python3 sizetype_filled.py --graph <build-dir> --repo <path> \
+    --manifest m.json --apply
+```
+
+The dry run prints a count per class and file and writes nothing.
+Discovery is Method A below as code: the clang-query matchers in
+`matchers/` find default-constructed locals of a class with a `Fill`
+member, and the script pairs each with a `v.Fill(k);` statement on the
+next line. The argument must not name the variable. Spelling:
+
+- zero literal or `NumericTraits<>::ZeroValue()`: `T v{};`
+- zero, but `T`'s default constructor is user-provided: spelled as a
+  nonzero fill, since `{}` would not zero it
+- nonzero, `T` itself declares a static `Filled`: `auto v = T::Filled(k);`
+- nonzero, otherwise: `auto v = itk::MakeFilled<T>(k);`
+
+`Filled` is used only when `T`'s own class declares it (in ITK: `Size`,
+`Index`, `FixedArray`). `Point`, `Vector`, and `CovariantVector` inherit
+`FixedArray::Filled`, which returns a `FixedArray`, so `auto` would change
+the variable's type; `Offset` has no `Filled`. Those get `MakeFilled`.
+`constexpr auto` replaces `auto` when `k` is a literal, `T` is `Size`,
+`Index`, or `Offset`, and no later statement in the block writes the
+variable. Whether a plain `auto` can become `const` is left to the const
+stage.
+
+Classes are `fill_zero` and `fill_nonzero`; the manifest kind is
+`itk-helpers`. Edited lines are clang-formatted; a file whose edit strands
+a comment is restored and its sites recorded as `comment-stranded`. The
+script never commits, and `--apply` requires `--manifest`. The `assign`
+pattern stays manual; `itk-declare-then-init` covers it unattended.
+
 ## Argument
 
 The skill takes an optional pattern argument:
@@ -92,10 +146,9 @@ The skill takes an optional pattern argument:
 - `fill` (default) — `Type v; v.Fill(literal);` → `constexpr auto v = Type::Filled(literal);`
 - `assign` — `Type v; v = expr;` → `const auto v = expr;`
 
-Run only one pattern class per invocation to keep PRs focused and reviewable.
-The two patterns produce different PR titles, different commit messages, and
-require different validation (the `fill` case uses `constexpr`, the `assign`
-case uses `const` because the RHS is a runtime expression).
+Run only one pattern class per invocation to keep each change reviewable.
+The two patterns need different validation (the `fill` case uses `constexpr`,
+the `assign` case uses `const` because the RHS is a runtime expression).
 
 ## Background
 
@@ -151,33 +204,6 @@ const auto extentSize = reader->GetOutput()->GetLargestPossibleRegion().GetSize(
 
 **`assign`-only condition:** The RHS must be a simple expression (not a comma
 operator, not an Eigen-style `v = 0, 1, 2` initializer, not inside a comment).
-
----
-
-## Step 1: Locate ITK source tree
-
-```bash
-ITK_SRC=~/Dashboard/src/ITK
-git -C "$ITK_SRC" branch --show-current
-```
-
-Confirm the repo is present and note the current branch.
-
----
-
-## Step 2: Create a new branch from upstream/main
-
-Branch name varies by pattern class:
-- `fill` pattern → `style-sizetype-filled`
-- `assign` pattern → `style-sizetype-filled-assign`
-
-```bash
-cd "$ITK_SRC"
-git fetch upstream
-# choose ONE of the following per invocation:
-git checkout -b style-sizetype-filled        upstream/main   # for fill
-git checkout -b style-sizetype-filled-assign upstream/main   # for assign
-```
 
 ---
 
@@ -692,8 +718,8 @@ incorrect (most likely a subtle const-correctness or type-deduction bug).
 
 Some modules (e.g. `IODCMTK`, `BridgeOpenCV`, `VideoBridgeVXL`) may be
 disabled in the local CMake config. Files in those modules cannot be
-verified locally — note this in the PR description so reviewers know CI
-is the first verification for those specific files.
+verified locally; report them so the reviewer knows CI is the first
+verification for those specific files.
 
 ### 5e. Diff review
 
@@ -704,140 +730,6 @@ git -C ~/Dashboard/src/ITK diff
 
 Final sanity check: confirm only whitespace/style changes, no semantic
 changes.
-
----
-
-## Step 6: Commit and create PR
-
-Stage only the modified files by name (avoid `git add -A` — the build may
-have created untracked files):
-
-```bash
-cd ~/Dashboard/src/ITK
-git add <each modified file>
-git status   # verify nothing unexpected is staged
-```
-
-### Pattern `fill` commit + PR
-
-```bash
-git commit -m "STYLE: Replace Fill(N) with ::Filled(N) for FixedArray-based types
-
-Replace the two-line declare-then-Fill pattern with the modern single-line
-constexpr factory method ::Filled(N) available on all itk::FixedArray subclasses
-(SizeType, IndexType, SpacingType, OffsetType, etc.).
-
-Suggested by N-Dekker in ITK PR #6003."
-
-gh pr create --draft --repo InsightSoftwareConsortium/ITK \
-  --title "STYLE: Replace Fill(N) with ::Filled(N) for FixedArray-based types" \
-  --body "$(cat <<'EOF'
-Mechanical replacement of the two-line declare-then-Fill pattern with the single-line constexpr factory method `::Filled(N)`. Pure readability — no semantic change. Suggested by @N-Dekker; same shape as #6010.
-
-<details>
-<summary>Pattern</summary>
-
-Before:
-
-\`\`\`cpp
-SizeType size;
-size.Fill(0);
-\`\`\`
-
-After:
-
-\`\`\`cpp
-constexpr auto size = SizeType::Filled(0);
-\`\`\`
-
-Applies to all `itk::FixedArray` subclasses: `SizeType`, `IndexType`, `SpacingType`, `OffsetType`, `PointType`, `VectorType`, etc., when the fill value is a compile-time constant.
-
-</details>
-
-<details>
-<summary>Discovery method</summary>
-
-Hybrid clang-query AST matcher + Python pairing scanner: `varDecl(hasInitializer(cxxConstructExpr(argumentCountIs(0))))` finds default-constructed class-type local vars; the Python step pairs each with its first subsequent `.Fill()` call. See SKILL.md for details.
-
-</details>
-
-<!--
-provenance: itk-sizetype-filled skill, fill pattern
-suggested_by: N-Dekker
-reference_pr: #6010 (merged 2026-04-05)
-mechanical_change: Type v; v.Fill(N); -> constexpr auto v = Type::Filled(N);
-applies_to: FixedArray subclasses (SizeType, IndexType, SpacingType, OffsetType, PointType, VectorType, ...)
--->
-EOF
-)"
-```
-
-Reference PR for the `fill` case: **#6010** (merged 2026-04-05). The body above follows `~/.claude/rules/pr-message-format.md`.
-
-### Pattern `assign` commit + PR
-
-```bash
-git commit -m "STYLE: Replace declare-then-assign with const auto for FixedArray-based types
-
-Replace the two-line pattern:
-
-  Type var;
-  var = expr;
-
-with the idiomatic single-line:
-
-  const auto var = expr;
-
-for local variables of FixedArray-based types (SizeType, IndexType,
-PointType, VectorType) where the variable is not modified after
-initialization. Cases where the variable was reassigned or mutated
-later in scope were left unchanged."
-
-gh pr create --draft --repo InsightSoftwareConsortium/ITK \
-  --title "STYLE: Replace declare-then-assign with const auto for FixedArray-based types" \
-  --body "$(cat <<'EOF'
-Mechanical replacement of the two-line declare-then-assign pattern with the idiomatic single-line `const auto var = expr;` for local variables of FixedArray-based types where the variable is not later mutated. Suggested by @N-Dekker; same shape as #6014.
-
-<details>
-<summary>Pattern</summary>
-
-Before:
-
-\`\`\`cpp
-Type var;
-var = expr;
-\`\`\`
-
-After:
-
-\`\`\`cpp
-const auto var = expr;
-\`\`\`
-
-Applies only to local variables of `itk::FixedArray`-based types (`SizeType`, `IndexType`, `PointType`, `VectorType`, etc.) where the variable is *not* reassigned or mutated later in scope. Cases with subsequent mutation are left unchanged (or rewritten to explicit-type form `Type var = expr;` to preserve mutation but eliminate the declare-then-assign churn).
-
-</details>
-
-<details>
-<summary>Discovery method</summary>
-
-Hybrid clang-query AST matcher + Python pairing scanner. The matcher finds default-constructed class-type local vars; the Python step pairs each with its first subsequent assignment, stepping over intervening declarations and comments. The skill is careful to NOT collapse declarations that are later mutated.
-
-</details>
-
-<!--
-provenance: itk-sizetype-filled skill, assign pattern
-suggested_by: N-Dekker
-reference_pr: #6014 (2026-04-05)
-mechanical_change: Type v; v = expr; -> const auto v = expr;
-preserves: cases where v is later mutated (left unchanged or rewritten to explicit-type form)
-applies_to: FixedArray subclasses
--->
-EOF
-)"
-```
-
-Reference PR for the `assign` case: **#6014** (2026-04-05). The body above follows `~/.claude/rules/pr-message-format.md`.
 
 ---
 

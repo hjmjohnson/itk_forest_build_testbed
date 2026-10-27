@@ -1,0 +1,8 @@
+# The same local when its default constructor is user-provided, so T v{} does not zero it.
+set output dump
+set bind-root false
+match varDecl(
+  hasAutomaticStorageDuration(),
+  hasInitializer(cxxConstructExpr(argumentCountIs(0))),
+  hasType(hasUnqualifiedDesugaredType(recordType(hasDeclaration(cxxRecordDecl(
+    hasMethod(cxxConstructorDecl(isDefaultConstructor(), isUserProvided())))))))).bind("user_ctor")
