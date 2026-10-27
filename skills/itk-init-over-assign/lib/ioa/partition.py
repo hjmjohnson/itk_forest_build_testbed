@@ -12,13 +12,16 @@ from ioa.patch import (
     apply_to_worktree,
     blob_patch,
     build_patch,
+    diff,
     git,
     git_bytes,
     index_sha,
     parse_diff,
+    reverse_in_worktree,
     write_index,
 )
 from ioa.skip import Reason
+from ioa.stages import StageRecord, load, snapshot  # noqa: F401
 
 SUBJECTS = {
     "member-init": "STYLE: Initialize members in constructor initializer lists",
@@ -38,6 +41,7 @@ class CommitPlan:
     message: str
     hunks: list[Hunk]
     notes: list[str] = field(default_factory=list)
+    manifests: list[Manifest] = field(default_factory=list)
 
 
 @dataclass
@@ -47,36 +51,24 @@ class CommitResult:
     notes: list[str] = field(default_factory=list)
 
 
-def _sites(manifests: list[Manifest], h: Hunk) -> list[Site]:
-    lo, hi = h.lines().start, max(h.lines().start, h.lines().stop - 1)
-    return [
-        s
-        for m in manifests
-        for s in m.applied()
-        if s.file == h.file and s.start <= hi and s.end >= lo
-    ]
-
-
-def plan(repo: Path, manifests: list[Manifest]) -> list[CommitPlan]:
-    by_kind: dict[str, list[Manifest]] = {}
-    for m in manifests:
-        if m.kind not in SUBJECTS:
-            raise ValueError(f"unknown transform kind: {m.kind}")
-        by_kind.setdefault(m.kind, []).append(m)
-    order = [k for k in SUBJECTS if k in by_kind]
+def plan(repo: Path, stages: list[StageRecord]) -> list[CommitPlan]:
+    for rec in stages:
+        if rec.kind not in SUBJECTS:
+            raise ValueError(f"unknown transform kind: {rec.kind}")
+    order = [k for k in SUBJECTS if any(r.kind == k for r in stages)]
     if not order:
         return []
-    hunks, skipped = parse_diff(git(repo, "diff", "-U0", "HEAD"))
+    rank = {k: i for i, k in enumerate(order)}
+    loaded = sorted(
+        (load(repo, r) for r in stages), key=lambda s: rank[s.record.kind]
+    )
+    hunks, skipped = parse_diff(diff(repo, "-U0", "HEAD"))
     notes: dict[str, list[str]] = {k: [] for k in order}
-    notes[order[0]] += [f"{f}: added or deleted file left out" for f in skipped]
     for h in hunks:
-        owners = [
-            k for k in order
-            if any(m.covers(h.file, ln) for m in by_kind[k] for ln in h.lines())
-        ]
+        owners = [st for st in loaded if st.owns(h)]
         if owners:
-            h.kind = owners[-1]
-            h.sites = _sites(by_kind[h.kind], h)
+            h.kind = owners[-1].record.kind
+            h.sites = owners[-1].sites(h)
     for file in dict.fromkeys(h.file for h in hunks):
         in_file = [h for h in hunks if h.file == file]
         covered = [h for h in in_file if h.kind]
@@ -89,11 +81,17 @@ def plan(repo: Path, manifests: list[Manifest]) -> list[CommitPlan]:
             below = [c for c in covered if c.old_start >= h.old_start]
             near = above[-1] if above else (below[0] if below else None)
             h.kind = near.kind if near else order[0]
-    return [
-        CommitPlan(k, SUBJECTS[k], [h for h in hunks if h.kind == k], notes[k])
+    plans = [
+        CommitPlan(
+            k, SUBJECTS[k], [h for h in hunks if h.kind == k], notes[k],
+            [r.manifest for r in stages if r.kind == k],
+        )
         for k in order
         if any(h.kind == k for h in hunks)
     ]
+    if plans:
+        plans[0].notes += [f"{f}: added or deleted file left out" for f in skipped]
+    return plans
 
 
 def _match(plan_hunks: list[Hunk], fresh: list[Hunk]) -> list[Hunk]:
@@ -120,7 +118,7 @@ def _skip(h: Hunk, reason: Reason, note: str) -> list[Site]:
 
 
 def _revert_cached(repo: Path, file: Path, old_starts: set[int] | None) -> None:
-    staged, _ = parse_diff(git(repo, "diff", "--cached", "-U0", "--", file.as_posix()))
+    staged, _ = parse_diff(diff(repo, "--cached", "-U0", "--", file.as_posix()))
     picked = [h for h in staged if old_starts is None or h.old_start in old_starts]
     if picked:
         patch = build_patch(picked, renumber=False)
@@ -128,7 +126,7 @@ def _revert_cached(repo: Path, file: Path, old_starts: set[int] | None) -> None:
 
 
 def _format(repo: Path, file: Path) -> None:
-    staged, _ = parse_diff(git(repo, "diff", "--cached", "-U0", "--", file.as_posix()))
+    staged, _ = parse_diff(diff(repo, "--cached", "-U0", "--", file.as_posix()))
     ranges = [
         f"--lines={h.new_start}:{h.new_start + h.new_count - 1}"
         for h in staged
@@ -145,65 +143,90 @@ def _format(repo: Path, file: Path) -> None:
         write_index(repo, file, p.stdout)
 
 
-def _failing_files(repo: Path, graph: Path, files: list[Path]) -> tuple[set[Path], list[str]]:
+def _sync_from_index(repo: Path, files) -> None:
+    for f in files:
+        (repo / f).write_bytes(git_bytes(repo, "show", f":{f.as_posix()}"))
+
+
+def _gate_failures(repo: Path, graph: Path, files: list[Path]) -> tuple[set[Path], list[Path]]:
+    """Staged files the gate blames, and failures it could not place on one."""
     res = gate.run(graph, files, repo)
     if res.ok:
         return set(), []
     bad = {f for f in res.failed if f in files}
-    unexplained = [f for f in res.failed if f not in files]
-    if not unexplained:
-        return bad, []
-    for h in (f for f in files if gate.is_header(f) and f not in bad):
-        if not gate.run(graph, [h], repo).ok:
-            bad.add(h)
-    return bad, [f"gate failure in {f} not attributed to a staged file" for f in unexplained]
+    unplaced = [f for f in res.failed if f not in files]
+    if unplaced:
+        for h in (f for f in files if gate.is_header(f) and f not in bad):
+            if not gate.run(graph, [h], repo).ok:
+                bad.add(h)
+    return bad, unplaced
 
 
-def apply(repo: Path, plan: CommitPlan, graph: Path) -> CommitResult:
+def apply(repo: Path, commit_plan: CommitPlan, graph: Path) -> CommitResult:
+    if subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=repo).returncode:
+        raise RuntimeError(f"{repo}: index has staged changes; apply needs a clean index")
     notes: list[str] = []
     reverted: list[Site] = []
-    selected = _match(plan.hunks, parse_diff(git(repo, "diff", "-U0", "HEAD"))[0])
-    if len(selected) < len(plan.hunks):
-        notes.append(f"{len(plan.hunks) - len(selected)} planned hunks no longer in the diff")
+    selected = _match(commit_plan.hunks, parse_diff(diff(repo, "-U0", "HEAD"))[0])
+    if len(selected) < len(commit_plan.hunks):
+        notes.append(f"{len(commit_plan.hunks) - len(selected)} planned hunks no longer in the diff")
     if not selected:
         return CommitResult(None, reverted, notes)
     files = list(dict.fromkeys(h.file for h in selected))
-    dirty = [Path(p) for p in git(repo, "diff", "--name-only", "HEAD").splitlines()]
+    dirty = [Path(p) for p in diff(repo, "--name-only", "HEAD").splitlines()]
     saved = {f: (repo / f).read_bytes() for f in dirty}
+    notes.append(f"backup-tree: {snapshot(repo)}")
+    gone: list[Hunk] = []
+    whole: set[Path] = set()
+
+    def drop(hunks: list[Hunk], reason: Reason, note: str = "") -> None:
+        for h in hunks:
+            if not any(h is g for g in gone):
+                gone.append(h)
+                reverted.extend(_skip(h, reason, note))
+
     try:
         git(repo, "apply", "--cached", "--unidiff-zero", "-", input=build_patch(selected))
-        staged = {f: index_sha(repo, f) for f in files}
-        gone: set[int] = set()
-        for s in check_hunks(git(repo, "diff", "--cached", "-U0")):
-            for h in selected:
-                if h.file == s.file and s.line in h.old_lines() and id(h) not in gone:
-                    gone.add(id(h))
-                    reverted += _skip(h, Reason.COMMENT_STRANDED, s.text)
+        for s in check_hunks(diff(repo, "--cached", "-U0")):
+            hits = [h for h in selected if h.file == s.file and s.line in h.old_lines()]
+            if not hits:
+                notes.append(f"{s.file}:{s.line}: stranded comment outside the plan: {s.text}")
+            for h in hits:
+                if not any(h is g for g in gone):
                     _revert_cached(repo, h.file, {h.old_start})
+                drop([h], Reason.COMMENT_STRANDED, s.text)
+        unformatted = {f: index_sha(repo, f) for f in files}
         if shutil.which("clang-format"):
             for f in files:
                 _format(repo, f)
         else:
             notes.append("clang-format not on PATH; staged hunks left unformatted")
-        left = [Path(p) for p in git(repo, "diff", "--cached", "--name-only").splitlines()]
-        for f in dirty:
-            (repo / f).write_bytes(git_bytes(repo, "show", f":{f.as_posix()}"))
-        bad, why = _failing_files(repo, graph, left) if left else (set(), [])
-        notes += why
+        formatted = {f: index_sha(repo, f) for f in files}
+        left = [Path(p) for p in diff(repo, "--cached", "--name-only").splitlines()]
+        _sync_from_index(repo, dirty)
+        bad, unplaced = _gate_failures(repo, graph, left) if left else (set(), [])
+        if unplaced:
+            notes += [f"gate failure in {f} not attributed to a staged file" for f in unplaced]
+            for f in bad:
+                _revert_cached(repo, f, None)
+            _sync_from_index(repo, bad)
+            rest = [f for f in left if f not in bad]
+            if rest and not gate.run(graph, rest, repo).ok:
+                notes.append("unattributed gate failure persists; reverted every staged file")
+                bad |= set(rest)
         for f in sorted(bad):
             _revert_cached(repo, f, None)
-            for h in selected:
-                if h.file == f and id(h) not in gone:
-                    gone.add(id(h))
-                    reverted += _skip(h, Reason.GATE_FAILED, "")
+            whole.add(f)
+            drop([h for h in selected if h.file == f], Reason.GATE_FAILED)
         sha = None
         if subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=repo).returncode:
-            applied = []
-            for h in selected:
-                if id(h) not in gone:
-                    applied += [s for s in h.sites if not any(s is a for a in applied)]
+            originals = [s for h in gone for s in h.sites]
+            applied = [
+                s for m in commit_plan.manifests for s in m.applied()
+                if not any(s is o for o in originals)
+            ]
             body = f"Sites: {len(applied)}, skipped: {len(reverted)}"
-            git(repo, "commit", "-q", "-F", "-", input=f"{plan.message}\n\n{body}\n")
+            git(repo, "commit", "-q", "-F", "-", input=f"{commit_plan.message}\n\n{body}\n")
             sha = git(repo, "rev-parse", "HEAD").strip()
     except BaseException:
         git(repo, "reset", "-q", "--", *(f.as_posix() for f in files))
@@ -212,8 +235,10 @@ def apply(repo: Path, plan: CommitPlan, graph: Path) -> CommitResult:
         raise
     for f, content in saved.items():
         (repo / f).write_bytes(content)
-    for f, before in staged.items():
-        after = index_sha(repo, f)
-        if after != before and not apply_to_worktree(repo, blob_patch(repo, f, before, after)):
-            notes.append(f"{f}: could not mirror the commit into the working tree")
+    for f in files:
+        reverse_in_worktree(repo, [h for h in gone if h.file == f])
+        if f in whole or unformatted[f] == formatted[f]:
+            continue
+        if not apply_to_worktree(repo, blob_patch(repo, f, unformatted[f], formatted[f])):
+            raise RuntimeError(f"{f}: could not mirror clang-format into the working tree")
     return CommitResult(sha, reverted, notes)

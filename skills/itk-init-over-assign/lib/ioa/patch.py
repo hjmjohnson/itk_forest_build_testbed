@@ -6,6 +6,7 @@ from pathlib import Path
 from ioa.manifest import Site
 
 HEADER = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
+DIFF_FLAGS = ("--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/")
 
 
 @dataclass(eq=False)
@@ -39,10 +40,15 @@ class Hunk:
         return range(self.old_start, self.old_start + self.old_count)
 
 
-def git(repo: Path, *args: str, input: str | None = None) -> str:
+def git(repo: Path, *args: str, input: str | None = None, env: dict | None = None) -> str:
     return subprocess.run(
-        ["git", *args], cwd=repo, check=True, capture_output=True, text=True, input=input
+        ["git", *args], cwd=repo, check=True, capture_output=True, text=True,
+        input=input, env=env,
     ).stdout
+
+
+def diff(repo: Path, *args: str) -> str:
+    return git(repo, "diff", *DIFF_FLAGS, *args)
 
 
 def git_bytes(repo: Path, *args: str, input: bytes | None = None) -> bytes:
@@ -120,7 +126,7 @@ def write_index(repo: Path, file: Path, content: bytes) -> None:
 
 def blob_patch(repo: Path, file: Path, old_sha: str, new_sha: str) -> str:
     """A context patch for `file` that turns blob old_sha into blob new_sha."""
-    text = git(repo, "diff", "-U3", old_sha, new_sha)
+    text = diff(repo, "-U3", old_sha, new_sha)
     name = file.as_posix()
     body = text.splitlines()
     start = next(i for i, ln in enumerate(body) if ln.startswith("@@"))
@@ -129,10 +135,14 @@ def blob_patch(repo: Path, file: Path, old_sha: str, new_sha: str) -> str:
 
 
 def apply_to_worktree(repo: Path, patch: str) -> bool:
-    for extra in ([], ["-C1"]):
-        p = subprocess.run(
-            ["git", "apply", *extra, "-"], cwd=repo, capture_output=True, text=True, input=patch
-        )
-        if p.returncode == 0:
-            return True
-    return False
+    p = subprocess.run(
+        ["git", "apply", "-"], cwd=repo, capture_output=True, text=True, input=patch
+    )
+    return p.returncode == 0
+
+
+def reverse_in_worktree(repo: Path, hunks: list[Hunk]) -> None:
+    """Undo hunks whose new side is in working-tree lines, bottom-up so none shift."""
+    for h in sorted(hunks, key=lambda h: h.new_start, reverse=True):
+        patch = build_patch([h], renumber=False)
+        git(repo, "apply", "-R", "--unidiff-zero", "-", input=patch)
