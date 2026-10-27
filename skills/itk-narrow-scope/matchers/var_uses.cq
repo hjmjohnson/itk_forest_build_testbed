@@ -1,0 +1,12 @@
+# Local variables declared alone in a compound statement, with their storage and type facts.
+# "trivial": arithmetic, pointer, enum, arrays of those, or a record whose default constructor,
+# fields, and every base are trivial (covers FixedArray and the classes derived from it).
+set output dump
+set bind-root false
+let simple qualType(hasUnqualifiedDesugaredType(anyOf(builtinType(), pointerType(), enumType(), constantArrayType(hasElementType(hasUnqualifiedDesugaredType(anyOf(builtinType(), pointerType(), enumType())))))))
+let flat cxxRecordDecl(unless(has(fieldDecl(unless(hasType(simple))))), unless(has(fieldDecl(hasInClassInitializer(anything())))), unless(has(cxxConstructorDecl(isDefaultConstructor(), isUserProvided()))), unless(has(cxxMethodDecl(isVirtual()))))
+let trivialRecord cxxRecordDecl(flat, unless(isDerivedFrom(cxxRecordDecl(unless(flat)))))
+let local varDecl(unless(isExpansionInSystemHeader()), unless(decompositionDecl()), hasParent(declStmt(hasSingleDecl(anything()), hasParent(compoundStmt()))))
+match varDecl(local).bind("local")
+match varDecl(local, anyOf(isStaticLocal(), hasThreadStorageDuration())).bind("static")
+match varDecl(local, anyOf(hasType(simple), hasType(hasUnqualifiedDesugaredType(recordType(hasDeclaration(trivialRecord)))))).bind("trivial")
