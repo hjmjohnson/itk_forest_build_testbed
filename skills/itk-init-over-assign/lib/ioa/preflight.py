@@ -147,6 +147,8 @@ def itk_version(graph: Path) -> str:
 def _forest_local_commits(repo: Path, tip: str, head: str) -> list[str] | None:
     if head == tip:
         return []
+    if _git(repo, "rev-list", "--merges", f"{tip}..{head}"):
+        return None
     shas = _git(repo, "rev-list", "--first-parent", f"{tip}..{head}").split()
     if not shas or _git(repo, "rev-parse", f"{shas[-1]}^") != tip:
         return None

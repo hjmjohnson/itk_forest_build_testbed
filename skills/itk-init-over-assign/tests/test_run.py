@@ -553,3 +553,20 @@ def test_warning_keys_are_relative_to_the_repo(tmp_path):
            f"{repo}/b.h:7: warning: z\n/usr/include/c.h:1:1: warning: sys\nnot a warning\n")
     assert pipeline.warning_keys(log, repo, base) == [
         "Common/a.cxx:4: warning: x [-Wy]", "b.h:7: warning: z", "/usr/include/c.h:1: warning: sys"]
+
+
+def test_stage_scripts_get_the_master_python(world):
+    import sys
+    world.run.main(["BRAINSTools"])
+    envs = [e for c, e in zip(world.calls, world.envs) if any(a.endswith("transform.sh") for a in c)]
+    assert len(envs) == 2 and all(e["PYTHON"] == sys.executable for e in envs)
+
+
+def test_manifest_notes_reach_the_run_notes(tmp_path):
+    a, b = tmp_path / "a.json", tmp_path / "b.json"
+    Manifest("local-const", [], notes=["2 plain auto local(s) near a prior site left unanalyzed"]).write(a)
+    Manifest("local-const", [Site(Path("x.cxx"), 1, 1, "local-const", "const")]).write(b)
+    notes: list[str] = []
+    merged = pipeline._merge("local-const", [str(a), str(b)], tmp_path / "m.json", notes)
+    assert notes == ["local-const: 2 plain auto local(s) near a prior site left unanalyzed"]
+    assert Manifest.read(tmp_path / "m.json").notes == merged.notes and len(merged.sites) == 1

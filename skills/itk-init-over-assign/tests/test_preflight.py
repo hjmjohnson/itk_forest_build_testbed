@@ -195,3 +195,16 @@ def test_forest_local_then_other_commit_is_refused(world):
     with pytest.raises(PreflightError) as e:
         preflight.check(repo, forest, kit)
     assert e.value.code == "not-at-upstream-tip"
+
+
+def test_merge_commit_above_the_tip_is_refused(world):
+    repo, forest, kit = world
+    git(repo, "checkout", "-q", "-b", "side")
+    commit(repo, "s1", "COMP: forest-local side patch")
+    git(repo, "checkout", "-q", "BRAINSTools-itk-downstream-itk-main")
+    commit(repo, "p1", "COMP: forest-local tbb patch")
+    git(repo, "-c", "user.name=t", "-c", "user.email=t@t", "merge", "-q", "--no-ff",
+        "-m", "COMP: forest-local merge side", "side")
+    with pytest.raises(PreflightError) as e:
+        preflight.check(repo, forest, kit)
+    assert e.value.code == "not-at-upstream-tip"

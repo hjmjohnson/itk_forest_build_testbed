@@ -161,8 +161,12 @@ subject in `ioa.partition.SUBJECTS`.
    that is not the catalog's upstream tip, a missing ninja graph, or a
    clang-tidy series that differs from the forest compiler, with the
    codes `dirty-tree`, `on-main`, `not-at-upstream-tip`, `no-graph`, and
-   `tidy-series-mismatch`. An existing `style-init-over-assign-<YYYYMMDD>`
-   branch is refused as `branch-exists`. Refusals exit 2.
+   `tidy-series-mismatch`. A merge commit between the upstream tip and
+   HEAD is refused as `not-at-upstream-tip`. An existing
+   `style-init-over-assign-<YYYYMMDD>` branch is refused as
+   `branch-exists`. A `--stages` list naming an unknown kind, or a const
+   kind without its parent, is refused as `bad-stages` before preflight.
+   Refusals exit 2.
 2. The build tree is rebuilt at HEAD before the baseline, so the baseline
    never tests stale binaries: `pixi run build-<repo>` plus
    `--check-artifact` in a forest, `ninja -C <build>` standalone. A failed
@@ -177,7 +181,9 @@ subject in `ioa.partition.SUBJECTS`.
    created.
 4. The branch is created from HEAD. Each stage is bracketed by
    `ioa.stages.snapshot`; manifests go to `<run>/manifests/<kind>.json` and
-   the tree pairs to `<run>/snapshots.json`. A stage that exits non-zero
+   the tree pairs to `<run>/snapshots.json`. Stages run with `PYTHON` set
+   to the master's interpreter, which the bash stages use. Notes a stage
+   writes into its manifest are copied into the report. A stage that exits non-zero
    stops the run with exit 1; the report names it and quotes its stderr.
 5. `ioa.partition.plan` runs once over all stage records, then
    `ioa.partition.apply` commits each plan in kind order, reverting hunks

@@ -175,7 +175,7 @@ def mirror_format(
             raise RuntimeError(f"{file}: clang-format touched another kind's lines") from None
         ranges = [f"--lines={map_line(a, to_work)}:{map_line(b, to_work, end=True)}" for a, b in spans]
         subprocess.run(
-            [clang_format, "-i", "--style=file", *ranges, file.as_posix()],
+            [clang_format, "-i", "--style=file", "--fallback-style=none", *ranges, file.as_posix()],
             cwd=repo, check=True, capture_output=True,
         )
         return False

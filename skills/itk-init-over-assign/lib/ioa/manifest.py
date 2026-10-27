@@ -45,18 +45,22 @@ class Manifest:
     sites: list[Site] = field(default_factory=list)
     partners: list[tuple[Path, Path]] = field(default_factory=list)
     """File pairs whose sites the partitioner keeps together, e.g. a header and its .cxx."""
+    notes: list[str] = field(default_factory=list)
 
     def write(self, path: Path) -> None:
         data: dict = {"kind": self.kind, "sites": [s.to_dict() for s in self.sites]}
         if self.partners:
             data["partners"] = [[str(a), str(b)] for a, b in self.partners]
+        if self.notes:
+            data["notes"] = self.notes
         path.write_text(json.dumps(data, indent=2) + "\n")
 
     @classmethod
     def read(cls, path: Path) -> "Manifest":
         data = json.loads(path.read_text())
         pairs = [(Path(a), Path(b)) for a, b in data.get("partners", [])]
-        return cls(data["kind"], [Site.from_dict(s) for s in data["sites"]], pairs)
+        return cls(data["kind"], [Site.from_dict(s) for s in data["sites"]], pairs,
+                   list(data.get("notes", [])))
 
     def applied(self) -> list[Site]:
         return [s for s in self.sites if s.skipped is None]

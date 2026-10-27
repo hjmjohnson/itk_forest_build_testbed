@@ -496,3 +496,15 @@ def test_unattributed_failure_gates_the_headers_in_one_batch(tmp_path, monkeypat
         tmp_path, tmp_path, [Path("a.h"), Path("b.h"), Path("c.cxx")])
     assert calls == [["a.h", "b.h", "c.cxx"], ["a.h", "b.h"]]
     assert bad == {Path("a.h")} and unplaced == [Path("z.cxx")]
+
+
+def test_index_formatting_never_falls_back_to_a_default_style(tmp_path):
+    r, _, _ = staged_repo(tmp_path, "n.cxx", 5, [])
+    (r / "n.cxx").write_text("int  n1=1;\nint n2 = 2;\nint n3 = 3;\nint n4 = 4;\nint n5 = 5;\n")
+    git(r, "add", "n.cxx")
+    log = tmp_path / "args.txt"
+    fake = tmp_path / "clang-format"
+    fake.write_text(f"#!/bin/sh\necho \"$@\" > {log}\ncat\n")
+    fake.chmod(0o755)
+    partition._format(r, Path("n.cxx"), str(fake))
+    assert "--fallback-style=none" in log.read_text().split()

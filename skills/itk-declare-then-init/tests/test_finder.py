@@ -198,3 +198,18 @@ def test_applied_site_spans_its_comment_gap(tree):
     (only / "C.cxx").write_text("void\nH()\n{\n  int x;\n  // a\n  // b\n  x = F();\n}\n")
     m = run_manifest(tree, "--classes", "assign", "--apply", "-r", "only")
     assert [(s.start, s.end) for s in m.sites] == [(4, 6)]
+
+
+@pytest.mark.parametrize("note,reason", [
+    ("gap-statement", Reason.LOOP_CARRIED), ("indent-mismatch", Reason.LOOP_CARRIED),
+    ("else-branch", Reason.LOOP_CARRIED), ("later-write", Reason.LOOP_CARRIED),
+    ("by-ref-arg", Reason.LOOP_CARRIED), ("comment-stranded", Reason.COMMENT_STRANDED),
+    ("vector-bool", Reason.INIT_LIST_CTOR), ("auto-type", Reason.NARROWING),
+])
+def test_declined_note_is_the_check_and_reason_matches_the_table(note, reason):
+    sys.path.insert(0, str(FINDER.parent))
+    import find_declare_then_init as f
+
+    lines = ["  int x;\n", "  Prep();\n", "  x = 1;\n"]
+    found = f.declined_finding("a.cxx", 0, 2, "int", "x", "assign", note)
+    assert f.skip_reason(found, lines) == (reason, note)

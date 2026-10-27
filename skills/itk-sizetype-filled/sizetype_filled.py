@@ -21,12 +21,14 @@ except ImportError:
 from ioa.comments import check_hunks, unified_diff  # noqa: E402
 from ioa.compile_commands import find_graph  # noqa: E402
 from ioa.manifest import Manifest, Site  # noqa: E402
+from ioa.preflight import itk_version as _itk_version_text  # noqa: E402
 from ioa.query import run_query  # noqa: E402
 from ioa.skip import Reason  # noqa: E402
 from ioa.source import mask  # noqa: E402
 from ioa.tidy import Doc, apply_edits, format_changed, in_scope, map_line, opcodes  # noqa: E402
 
 KIND = "itk-helpers"
+MAKE_FILLED_SINCE = (5, 3)
 MATCHERS = [Path(__file__).resolve().parent / "matchers" / n
             for n in ("fill_candidate.cq", "own_filled.cq", "user_ctor.cq", "fixed_size.cq")]
 CONSTEXPR_TYPES = re.compile(r"^(?:const )?itk::(?:Size|Index|Offset)<")
@@ -222,6 +224,11 @@ def pair(doc: Doc, c: Candidate) -> Pair | None:
     )
 
 
+def itk_version(graph: Path) -> tuple[int, int] | None:
+    m = re.match(r"(\d+)\.(\d+)", _itk_version_text(graph))
+    return (int(m[1]), int(m[2])) if m else None
+
+
 def _site(root: Path, path: Path, a: int, b: int, cls: str, text: str, **kw) -> Site:
     n = max(1, text.count("\n"))
     start = min(max(1, a), n)
@@ -239,17 +246,26 @@ def run(graph: Path, root: Path, manifest: Path | None, apply: bool) -> int:
         if p is not None:
             plans.append((c.file, p))
 
+    version = itk_version(graph)
+    if version is None:
+        print(f"sizetype-filled: ITK version unreadable from {graph}; assuming >= 5.3")
+    too_old = version is not None and version < MAKE_FILLED_SINCE
+
+    def blocked(p: Pair) -> bool:
+        return too_old and p.skipped is None and "MakeFilled" in render(p)
+
     if not apply:
         counts: dict[tuple[str, Path], int] = defaultdict(int)
         for path, p in plans:
-            counts[(p.cls if p.skipped is None else f"skipped:{p.skipped}", path.relative_to(root))] += 1
+            reason = Reason.ITK_VERSION if blocked(p) else p.skipped
+            counts[(p.cls if reason is None else f"skipped:{reason}", path.relative_to(root))] += 1
         for (cls, rel), n in sorted(counts.items()):
             print(f"{cls} {rel} {n}")
         return 0
 
     edits: dict[Path, list[tuple[int, int, str]]] = defaultdict(list)
     for path, p in plans:
-        if p.skipped is None:
+        if p.skipped is None and not blocked(p):
             edits[path].append((p.begin, p.end, render(p)))
     if edits:
         apply_edits(edits, docs, name="sizetype-filled")
@@ -262,6 +278,10 @@ def run(graph: Path, root: Path, manifest: Path | None, apply: bool) -> int:
         new = after.get(path, docs[path].text)
         ops = opcodes(docs[path].text, new)
         a, b = map_line(ops, p.first - 1, False) + 1, map_line(ops, p.last, True)
+        if blocked(p):
+            sites.append(_site(root, path, a, b, p.cls, new, skipped=Reason.ITK_VERSION,
+                               note=f"itk:{version[0]}.{version[1]}"))
+            continue
         note = "" if p.skipped is None else "not-fixed-size"
         sites.append(_site(root, path, a, b, p.cls, new, skipped=p.skipped, note=note))
 

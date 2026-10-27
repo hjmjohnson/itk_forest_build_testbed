@@ -136,19 +136,16 @@ def translation_units(files: list[Path], graph: Path, root: Path) -> list[Path]:
     return tus
 
 
-def auto_plans(doc: Doc, code: str, ranges: list[tuple[int, int]]) -> list[tuple]:
+def auto_count(doc: Doc, code: str, ranges: list[tuple[int, int]]) -> int:
     """Plain `auto` locals near a prior site; misc-const-correctness never reports them."""
-    out = []
+    n = 0
     for m in AUTO.finditer(code):
         prev = code[: m.start()].rstrip()
         if prev and prev[-1] not in ";{}":
             continue
         end = statement_end(code, m.start())
-        first, last = doc.line(m.start()) + 1, doc.line(end) + 1
-        if near(ranges, first, last):
-            plan = Plan(doc.path, m.start(), end, CONST, Reason.GATE_FAILED, "auto-unanalyzed")
-            out.append((plan, first, last))
-    return out
+        n += near(ranges, doc.line(m.start()) + 1, doc.line(end) + 1)
+    return n
 
 
 def locate(diags: list[Diag], docs: dict[Path, Doc]) -> list[Hit]:
@@ -196,9 +193,6 @@ def plan_hits(hits: list[Hit], docs: dict[Path, Doc], ranges: dict[Path, list[tu
         elif promotable(decl, name, ctype):
             plan.cls = CONSTEXPR
         out.append((plan, first, last))
-    for path in sorted(ranges):
-        code = masked.setdefault(path, mask(docs[path].text, literals=True))
-        out += auto_plans(docs[path], code, ranges[path])
     return sorted(out, key=lambda t: (t[0].file, t[0].begin))
 
 
@@ -234,6 +228,10 @@ def run(graph: Path, root: Path, manifest: Path | None, only_from: Path, kind: s
             counts[(label, plan.file.relative_to(root))] += 1
         for (label, rel), n in sorted(counts.items()):
             print(f"{label} {rel} {n}")
+        for path in files:
+            n = auto_count(docs[path], mask(docs[path].text, literals=True), ranges[path])
+            if n:
+                print(f"auto-unanalyzed {path.relative_to(root)} {n}")
         return 0
 
     edits: dict[Path, list[tuple[int, int, str]]] = defaultdict(list)
@@ -253,8 +251,10 @@ def run(graph: Path, root: Path, manifest: Path | None, only_from: Path, kind: s
         a, b = follow(moved, first - 1, False) + 1, follow(moved, last, True)
         sites.append(site(root, plan.file, a, b, kind, plan.cls, new, skipped=plan.skipped, note=plan.note))
 
+    autos = sum(auto_count(docs[p], mask(docs[p].text, literals=True), ranges[p]) for p in files)
+    notes = [f"{autos} plain auto local(s) near a prior site left unanalyzed"] if autos else []
     if manifest is not None:
-        Manifest(kind, sites).write(manifest)
+        Manifest(kind, sites, notes=notes).write(manifest)
     applied = sum(1 for s in sites if s.skipped is None)
     print(f"const-promote: {applied} applied, {len(sites) - applied} skipped, {len(dropped)} TU(s) dropped")
     return 0

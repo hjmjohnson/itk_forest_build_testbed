@@ -87,7 +87,7 @@ Usage:
                lines and write nothing
 
 Classes:   const, constexpr
-Skips:     static-local, preprocessor, gate-failed (auto-unanalyzed, declaration-not-found,
+Skips:     static-local, preprocessor, gate-failed (declaration-not-found,
            multiple-declarators, unsupported-specifier)
 ```
 
@@ -109,8 +109,9 @@ falling back to `PATH`. Run through `pixi run` so `CONDA_PREFIX` is set.
 3. clang-tidy 19 never reports `auto` variables, and this stage does not
    analyze them: declare-then-init emits explicit types, and the ITK-helper
    stage emits `const auto` / `constexpr auto` itself. A plain `auto` local
-   near a prior site is recorded `gate-failed` with note `auto-unanalyzed`
-   and left unedited.
+   near a prior site is left unedited and counted in the manifest's `notes`
+   (`N plain auto local(s) near a prior site left unanalyzed`), which the
+   master copies into the report's notes.
 4. A diagnostic is kept only when its declaration lies within, or one line
    next to, an applied site range of the prior manifest for that file, so the
    const commit stays tied to the stage that enabled it. Others are ignored

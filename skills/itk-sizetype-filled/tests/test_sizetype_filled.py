@@ -198,3 +198,13 @@ def test_comment_dropped_by_an_earlier_helper_is_not_blamed_on_this_edit(fixture
 def test_apply_requires_manifest(tmp_path):
     with pytest.raises(SystemExit):
         sizetype_filled.main(["--graph", str(tmp_path), "--repo", str(tmp_path), "--apply"])
+
+
+@needs_tools
+def test_MakeFilled_is_skipped_on_itk_older_than_5_3(fixture_graph, monkeypatch):
+    monkeypatch.setattr(sizetype_filled, "itk_version", lambda graph: (5, 2))
+    out = run_sizetype(fixture_graph("sizetype"))
+    assert "MakeFilled" not in out.read("a.cxx") + out.read("b.cxx")
+    assert "  auto grown = SizeType::Filled(2);\n" in out.read("a.cxx")
+    old = [s for s in out.manifest.sites if s.skipped == Reason.ITK_VERSION]
+    assert old and {s.note for s in old} == {"itk:5.2"}

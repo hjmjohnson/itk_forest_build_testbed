@@ -140,9 +140,20 @@ init line belongs to the same site. A trailing `//` comment on a removed line
 moves to the end of the new declaration; two or more such comments decline the
 site as `comment-stranded`.
 
-Manifest skip reasons: a hazard between declaration and init gives
-`try-read-after` (gap contains `try`), `preprocessor` (gap line starts with
-`#`), else `loop-carried`; an indent mismatch gives `loop-carried` with a note.
+Manifest skip reasons: every declined site carries its check as the note, so
+the report's skip list reads `loop-carried (later-write)`.
+
+| Note | Reason | When |
+|------|--------|------|
+| `gap-statement` | `loop-carried` (`preprocessor` if a gap line is a directive) | a statement sits between declaration and init |
+| `forward-ref: a,b` | `try-read-after`, `preprocessor`, else `loop-carried` | the init reads a name declared in the gap |
+| `indent-mismatch` | `loop-carried` | the init line is indented differently |
+| `else-branch` | `loop-carried` | `bool_branch`: the `if` has an `else` |
+| `later-write` | `loop-carried` | `bool_branch`: the variable is written after the `if` |
+| `by-ref-arg` | `loop-carried` | `bool_branch`: the variable is a bare call argument after the `if` |
+| `comment-stranded` | `comment-stranded` | a comment would be lost, or two trailing comments would merge |
+| `vector-bool` | `init-list-ctor` | `sized_ctor` on `std::vector<bool>` |
+| `auto-type` | `narrowing` | `placeholder` on an `auto` declaration |
 
 ## Reproducing N-Dekker's Commits
 

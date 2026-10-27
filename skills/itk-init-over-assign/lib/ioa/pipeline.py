@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import shlex
 import subprocess
@@ -111,7 +112,11 @@ def _merge(kind: str, parts: list[str], dest: Path, notes: list[str]) -> Manifes
     merged = Manifest(kind)
     for p in map(Path, parts):
         if p.exists():
-            merged.sites += Manifest.read(p).sites
+            part = Manifest.read(p)
+            merged.sites += part.sites
+            merged.partners += part.partners
+            merged.notes += part.notes
+            notes += [f"{kind}: {n}" for n in part.notes]
         else:
             notes.append(f"{kind}: no manifest written at {p}; counted as zero sites")
     merged.write(dest)
@@ -126,8 +131,9 @@ def run_stage(
     Path(ctx["dir"]).mkdir(parents=True, exist_ok=True)
     before = stages.snapshot(repo)
     pairs = commands(stage, ctx)
+    env = {**os.environ, "PYTHON": sys.executable}
     for argv, _ in pairs:
-        done = subprocess.run(argv, cwd=repo, capture_output=True, text=True, check=False)
+        done = subprocess.run(argv, cwd=repo, capture_output=True, text=True, check=False, env=env)
         if done.returncode != 0:
             tail = "\n".join((done.stderr or "").splitlines()[-20:])
             raise StageFailed(Failure(kind, argv, done.returncode, tail))

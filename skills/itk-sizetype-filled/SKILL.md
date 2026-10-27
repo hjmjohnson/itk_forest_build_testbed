@@ -123,7 +123,10 @@ next line. The argument must not name the variable. Spelling:
 - zero, but `T`'s default constructor is user-provided: spelled as a
   nonzero fill, since `{}` would not zero it
 - nonzero, `T` itself declares a static `Filled`: `auto v = T::Filled(k);`
-- nonzero, otherwise: `auto v = itk::MakeFilled<T>(k);`
+- nonzero, otherwise: `auto v = itk::MakeFilled<T>(k);`. `MakeFilled`
+  arrived in ITK 5.3, so when the graph's ITK (from `ITK_DIR` in its
+  `CMakeCache.txt`) is older, such a site is skipped as `itk-version`, note
+  `itk:<major>.<minor>`; an unreadable version is assumed to be 5.3 or later
 - any fill on a type without a compile-time size: not rewritten. The site
   is recorded as skipped (`gate-failed`, note `not-fixed-size`) and the
   file is left as it was. `itk::MakeFilled` static-asserts a constant

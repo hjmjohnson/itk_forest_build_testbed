@@ -231,7 +231,8 @@ def _format(repo: Path, file: Path, clang_format: str) -> list[tuple[int, int]]:
     if not spans:
         return []
     p = subprocess.run(
-        [clang_format, f"--assume-filename={repo / file}", *(f"--lines={a}:{b}" for a, b in spans)],
+        [clang_format, "--fallback-style=none", f"--assume-filename={repo / file}",
+         *(f"--lines={a}:{b}" for a, b in spans)],
         cwd=repo, check=True, capture_output=True, input=before,
     )
     if p.stdout != before:

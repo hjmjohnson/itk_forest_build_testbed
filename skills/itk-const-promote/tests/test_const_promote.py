@@ -134,8 +134,8 @@ def test_filled_literal_becomes_constexpr(fixture_graph):
     assert_formatted(g, "a.cxx")
     assert sorted((s.start, s.cls, s.skipped, s.note) for s in out.manifest.sites) == [
         (26, "constexpr", None, ""), (27, "constexpr", None, ""), (28, "const", None, ""),
-        (29, "constexpr", None, ""), (30, "constexpr", None, ""),
-        (32, "const", Reason.GATE_FAILED, "auto-unanalyzed")]
+        (29, "constexpr", None, ""), (30, "constexpr", None, "")]
+    assert out.manifest.notes == ["1 plain auto local(s) near a prior site left unanalyzed"]
     assert {s.kind for s in out.manifest.sites} == {"itk-helpers-constexpr"}
 
 
@@ -212,7 +212,7 @@ def test_dry_run_prints_counts_and_writes_nothing(fixture_graph, capsys):
     assert _git(g.repo, "status", "--porcelain") == ""
     assert "constexpr a.cxx 4" in out.stdout
     assert "const a.cxx 1" in out.stdout
-    assert "skipped:gate-failed a.cxx 1" in out.stdout
+    assert "auto-unanalyzed a.cxx 1" in out.stdout and "skipped:" not in out.stdout
 
 
 def test_second_declarator_ignores_template_and_call_commas():
