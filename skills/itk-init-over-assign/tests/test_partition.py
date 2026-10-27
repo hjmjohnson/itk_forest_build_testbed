@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from ioa import gate, partition
+from ioa import gate, partition, tidy
 from ioa.gate import GateResult
 from ioa.manifest import Manifest
 from ioa.partition import StageRecord, apply, plan, snapshot
@@ -217,12 +217,12 @@ def test_nothing_left_gives_no_sha(repo, monkeypatch):
 
 
 def test_missing_clang_format_is_noted(repo, fake_gate_ok, monkeypatch):
-    monkeypatch.setattr(partition.shutil, "which", lambda name: None)
+    monkeypatch.setattr(partition, "_clang_format", lambda: None)
     res = apply(repo.path, plan(repo.path, [repo.s_local])[0], repo.graph)
     assert any("clang-format" in n for n in res.notes)
 
 
-@pytest.mark.skipif(not partition.shutil.which("clang-format"), reason="no clang-format")
+@pytest.mark.skipif(partition._clang_format() is None, reason="no clang-format")
 def test_clang_format_applies_to_commit_and_worktree(tmp_path, fake_gate_ok):
     r = make_repo.build(tmp_path, clang_format="BasedOnStyle: LLVM\n")
     a = r.path / "a.cxx"
@@ -279,7 +279,27 @@ def test_brace_only_lines_cannot_steal_a_hunk(tmp_path):
             and h.added in (["{"], ["}"]) and h.old_start > 20} == {"narrow-scope"}
 
 
-@pytest.mark.skipif(not partition.shutil.which("clang-format"), reason="no clang-format")
+ITK_CLANG_FORMAT = (
+    Path(__file__).resolve().parents[2] / "itk-member-init" / "tests" / "fixtures" / ".clang-format"
+)
+
+
+def _clang_format() -> str | None:
+    try:
+        return tidy.tool("clang-format")
+    except SystemExit:
+        return None
+
+
+def assert_clang_format_clean(repo: Path, name: str) -> None:
+    res = subprocess.run(
+        [_clang_format(), "--dry-run", "-Werror", "--style=file", name],
+        cwd=repo, capture_output=True, text=True,
+    )
+    assert res.returncode == 0, res.stderr
+
+
+@pytest.mark.skipif(_clang_format() is None, reason="no clang-format")
 def test_formatting_mirror_survives_next_kind_hunk_nearby(tmp_path, fake_gate_ok):
     def local(f):
         f["g.cxx"][9] = "const int  g10=10;"
@@ -290,10 +310,62 @@ def test_formatting_mirror_survives_next_kind_hunk_nearby(tmp_path, fake_gate_ok
     r, _, stages = staged_repo(tmp_path, "g.cxx", 20, [
         ("local-init", local, [("g.cxx", 10, 10)]),
         ("local-const", const, [("g.cxx", 12, 12)]),
-    ], clang_format="BasedOnStyle: LLVM\n")
+    ], clang_format=ITK_CLANG_FORMAT.read_text())
     first, second = plan(r, stages)
     assert apply(r, first, tmp_path).sha is not None
     text = (r / "g.cxx").read_text()
-    assert "const int g10 = 10;\nint g11 = 11;\nconst int g12 = 12;" in text
+    assert "const int g10 = 10;\nint       g11 = 11;\nconst int g12 = 12;" in text
     assert apply(r, second, tmp_path).sha is not None
     assert git(r, "diff", "HEAD") == ""
+    assert_clang_format_clean(r, "g.cxx")
+
+
+@pytest.mark.skipif(_clang_format() is None, reason="no clang-format")
+def test_realignment_onto_a_later_kinds_line_lands_in_both_commits(tmp_path, fake_gate_ok):
+    def local(f):
+        f["h.cxx"][6] = "const int h7 = 7;"
+
+    def const(f):
+        f["h.cxx"][8] = "const int h9 = 9;"
+
+    r, _, stages = staged_repo(tmp_path, "h.cxx", 12, [
+        ("local-init", local, [("h.cxx", 7, 7)]),
+        ("local-const", const, [("h.cxx", 9, 9)]),
+    ], clang_format=ITK_CLANG_FORMAT.read_text())
+    first, second = plan(r, stages)
+    a = apply(r, first, tmp_path)
+    assert a.sha is not None
+    assert any("another kind's lines" in n for n in a.notes)
+    assert git(r, "show", "HEAD:h.cxx") != (r / "h.cxx").read_text()
+    b = apply(r, second, tmp_path)
+    assert b.sha is not None and b.sha != a.sha
+    assert git(r, "rev-list", "--count", "HEAD") == "3\n"
+    assert git(r, "diff", "HEAD") == ""
+    assert "const int h9 = 9;" in (r / "h.cxx").read_text()
+    assert_clang_format_clean(r, "h.cxx")
+
+
+def test_widen_to_block_stops_at_statements_and_comments():
+    lines = [
+        "{", "  int a = 1;", "  int b = 2;", "  return a;", "  int c = 3;",
+        "  // note", "  int d = 4;", "#if X", "  int e = 5;", "  if (a)", "  b = 1;",
+    ]
+    assert tidy.widen_to_block(lines, 2, 2) == (2, 3)
+    assert tidy.widen_to_block(lines, 5, 5) == (5, 5)
+    assert tidy.widen_to_block(lines, 7, 7) == (7, 7)
+    assert tidy.widen_to_block(lines, 11, 11) == (11, 11)
+
+
+def test_run_tidy_raises_when_no_requested_file_is_in_the_database(tmp_path):
+    try:
+        tidy.tool("run-clang-tidy")
+    except SystemExit:
+        pytest.skip("run-clang-tidy not available")
+    graph = tmp_path / "build"
+    graph.mkdir()
+    (tmp_path / "a.cxx").write_text("int x;\n")
+    (graph / "compile_commands.json").write_text(
+        '[{"directory": "%s", "file": "%s", "command": "c++ -c a.cxx"}]' % (tmp_path, tmp_path / "a.cxx")
+    )
+    with pytest.raises(RuntimeError, match="matched none"):
+        tidy.run_tidy(graph, tmp_path, "misc-const-correctness", files=[tmp_path / "missing.cxx"])

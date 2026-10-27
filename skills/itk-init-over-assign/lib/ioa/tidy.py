@@ -269,17 +269,18 @@ def changed_ranges(old: str, new: str) -> list[tuple[int, int]]:
     return [(j1, j2) for tag, _, _, j1, j2 in ops.get_opcodes() if tag != "equal"]
 
 
-BRACE_ONLY = re.compile(r"^\s*[{}]+;?\s*$")
+BLOCK_END = re.compile(r"^\s*(?:(?:return|if|for|while|switch|case)\b|[{}#]|//|/\*|\*)")
 
 
 def widen_to_block(lines: list[str], lo: int, hi: int) -> tuple[int, int]:
-    """Extend 1-based inclusive [lo, hi] over the adjacent non-blank, non-brace-only lines.
+    """Extend 1-based inclusive [lo, hi] over adjacent declaration or assignment lines.
 
     clang-format aligns consecutive declarations, so formatting one line of a run alone
-    leaves its neighbors misaligned.
+    leaves its neighbors misaligned. Blank lines, braces, control statements,
+    preprocessor lines, and comments end the run.
     """
     def inside(i: int) -> bool:
-        return 1 <= i <= len(lines) and lines[i - 1].strip() != "" and not BRACE_ONLY.match(lines[i - 1])
+        return 1 <= i <= len(lines) and lines[i - 1].strip() != "" and not BLOCK_END.match(lines[i - 1])
 
     while inside(lo - 1):
         lo -= 1

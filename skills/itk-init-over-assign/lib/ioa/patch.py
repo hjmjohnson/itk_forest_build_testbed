@@ -149,19 +149,34 @@ def reverse_in_worktree(repo: Path, hunks: list[Hunk]) -> None:
         git(repo, "apply", "-R", "--unidiff-zero", "-", input=patch)
 
 
-def mirror_format(repo: Path, file: Path, before: str, after: str) -> None:
-    """Replay the index formatting in working-tree lines, where other kinds' edits sit."""
+def mirror_format(
+    repo: Path, file: Path, before: str, after: str,
+    spans: list[tuple[int, int]] | None = None, clang_format: str = "clang-format",
+) -> bool:
+    """Replay the index formatting in working-tree lines, where other kinds' edits sit.
+
+    When the formatting reaches a line another kind changed, format the working tree
+    over the same spans instead, so it ends aligned; returns False in that case.
+    """
     work = git(repo, "hash-object", "-w", "--", file.as_posix()).strip()
     to_work, _ = parse_diff(diff(repo, "-U0", before, work))
     fmt, _ = parse_diff(diff(repo, "-U0", before, after))
     moved = []
-    for h in fmt:
-        try:
+    try:
+        for h in fmt:
             for ln in h.old_lines() or [h.old_start]:
                 if ln:
                     map_line(ln, to_work, strict=True)
-        except ValueError as exc:
-            raise RuntimeError(f"{file}: clang-format touched another kind's lines") from exc
-        start = map_line(h.old_start, to_work) if h.old_start else 0
-        moved.append(Hunk(file, start, h.old_count, 0, h.new_count, h.body))
+            start = map_line(h.old_start, to_work) if h.old_start else 0
+            moved.append(Hunk(file, start, h.old_count, 0, h.new_count, h.body))
+    except ValueError:
+        if not spans:
+            raise RuntimeError(f"{file}: clang-format touched another kind's lines") from None
+        ranges = [f"--lines={map_line(a, to_work)}:{map_line(b, to_work, end=True)}" for a, b in spans]
+        subprocess.run(
+            [clang_format, "-i", "--style=file", *ranges, file.as_posix()],
+            cwd=repo, check=True, capture_output=True,
+        )
+        return False
     git(repo, "apply", "--unidiff-zero", "-", input=build_patch(moved))
+    return True

@@ -1,5 +1,4 @@
 import dataclasses
-import shutil
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -21,7 +20,7 @@ from ioa.patch import (
 )
 from ioa.skip import Reason
 from ioa.stages import StageRecord, load, snapshot  # noqa: F401
-from ioa.tidy import widen_to_block
+from ioa.tidy import tool, widen_to_block
 
 SUBJECTS = {
     "member-init": "STYLE: Initialize members in constructor initializer lists",
@@ -94,18 +93,53 @@ def plan(repo: Path, stages: list[StageRecord]) -> list[CommitPlan]:
     return plans
 
 
+def _norm(lines: list[str]) -> tuple[str, ...]:
+    return tuple(" ".join(ln.split()) for ln in lines)
+
+
+def _core(h: Hunk) -> tuple:
+    """A hunk's key without whitespace and without lines that only realigned."""
+    removed, added = h.removed, h.added
+    if len(removed) == len(added):
+        kept = [(r, a) for r, a in zip(_norm(removed), _norm(added)) if r != a]
+        return (h.file, tuple(r for r, _ in kept), tuple(a for _, a in kept))
+    return (h.file, _norm(removed), _norm(added))
+
+
 def _match(plan_hunks: list[Hunk], fresh: list[Hunk]) -> list[Hunk]:
-    """Relocate plan hunks in a fresh diff, since earlier commits shift lines."""
+    """Relocate plan hunks in a fresh diff, since earlier commits shift lines.
+
+    An earlier commit's formatting may have realigned a plan hunk's lines; such a hunk
+    is found by its whitespace-free core, and pure realignment hunks next to a found
+    hunk come along as spill.
+    """
     free = list(fresh)
-    found = []
-    for h in plan_hunks:
-        cands = [f for f in free if f.key() == h.key()]
-        if not cands:
-            continue
-        f = min(cands, key=lambda f: abs(f.old_start - h.old_start))
-        free.remove(f)
-        f.kind, f.sites = h.kind, h.sites
-        found.append(f)
+    found: list[Hunk] = []
+    matched: list[Hunk] = []
+    for key in (Hunk.key, _core):
+        for h in plan_hunks:
+            if any(h is m for m in matched):
+                continue
+            cands = [f for f in free if key(f) == key(h)]
+            if not cands:
+                continue
+            f = min(cands, key=lambda f: abs(f.old_start - h.old_start))
+            free.remove(f)
+            f.kind, f.sites = h.kind, h.sites
+            found.append(f)
+            matched.append(h)
+    grew = bool(found)
+    while grew:
+        grew = False
+        for f in list(free):
+            if _core(f)[1:] != ((), ()):
+                continue
+            if any(g.file == f.file and g.old_start - 1 <= f.old_start + f.old_count
+                   and f.old_start - 1 <= g.old_start + g.old_count for g in found):
+                free.remove(f)
+                f.kind = found[0].kind
+                found.append(f)
+                grew = True
     return found
 
 
@@ -127,23 +161,32 @@ def _revert_cached(repo: Path, file: Path, old_starts: set[int] | None) -> None:
         git(repo, "apply", "-R", "--cached", "--unidiff-zero", "-", input=patch)
 
 
-def _format(repo: Path, file: Path) -> None:
+def _format(repo: Path, file: Path, clang_format: str) -> list[tuple[int, int]]:
+    """Format the staged hunks of file in the index; return the widened line ranges."""
     staged, _ = parse_diff(diff(repo, "--cached", "-U0", "--", file.as_posix()))
     before = git_bytes(repo, "show", f":{file.as_posix()}")
     lines = before.decode("utf-8", "surrogateescape").splitlines()
-    ranges = [
-        "--lines={}:{}".format(*widen_to_block(lines, h.new_start, h.new_start + h.new_count - 1))
+    spans = [
+        widen_to_block(lines, h.new_start, h.new_start + h.new_count - 1)
         for h in staged
         if h.new_count
     ]
-    if not ranges:
-        return
+    if not spans:
+        return []
     p = subprocess.run(
-        ["clang-format", f"--assume-filename={repo / file}", *ranges],
+        [clang_format, f"--assume-filename={repo / file}", *(f"--lines={a}:{b}" for a, b in spans)],
         cwd=repo, check=True, capture_output=True, input=before,
     )
     if p.stdout != before:
         write_index(repo, file, p.stdout)
+    return spans
+
+
+def _clang_format() -> str | None:
+    try:
+        return tool("clang-format")
+    except SystemExit:
+        return None
 
 
 def _sync_from_index(repo: Path, files) -> None:
@@ -202,11 +245,13 @@ def apply(repo: Path, commit_plan: CommitPlan, graph: Path) -> CommitResult:
                     _revert_cached(repo, h.file, {h.old_start})
                 drop([h], Reason.COMMENT_STRANDED, s.text)
         unformatted = {f: index_sha(repo, f) for f in files}
-        if shutil.which("clang-format"):
+        spans: dict[Path, list[tuple[int, int]]] = {}
+        clang_format = _clang_format()
+        if clang_format:
             for f in files:
-                _format(repo, f)
+                spans[f] = _format(repo, f, clang_format)
         else:
-            notes.append("clang-format not on PATH; staged hunks left unformatted")
+            notes.append("clang-format not found; staged hunks left unformatted")
         formatted = {f: index_sha(repo, f) for f in files}
         left = [Path(p) for p in diff(repo, "--cached", "--name-only").splitlines()]
         _sync_from_index(repo, dirty)
@@ -224,6 +269,13 @@ def apply(repo: Path, commit_plan: CommitPlan, graph: Path) -> CommitResult:
             _revert_cached(repo, f, None)
             whole.add(f)
             drop([h for h in selected if h.file == f], Reason.GATE_FAILED)
+        for f, content in saved.items():
+            (repo / f).write_bytes(content)
+        for f in files:
+            reverse_in_worktree(repo, [h for h in gone if h.file == f])
+            if f not in whole and unformatted[f] != formatted[f]:
+                if not mirror_format(repo, f, unformatted[f], formatted[f], spans[f], clang_format):
+                    notes.append(f"{f}: formatting reached another kind's lines; formatted them in place")
         sha = None
         if subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=repo).returncode:
             applied = [
@@ -233,12 +285,6 @@ def apply(repo: Path, commit_plan: CommitPlan, graph: Path) -> CommitResult:
             body = f"Sites: {len(applied)}, skipped: {len(reverted)}"
             git(repo, "commit", "-q", "-F", "-", input=f"{commit_plan.message}\n\n{body}\n")
             sha = git(repo, "rev-parse", "HEAD").strip()
-        for f, content in saved.items():
-            (repo / f).write_bytes(content)
-        for f in files:
-            reverse_in_worktree(repo, [h for h in gone if h.file == f])
-            if f not in whole and unformatted[f] != formatted[f]:
-                mirror_format(repo, f, unformatted[f], formatted[f])
     except BaseException:
         git(repo, "reset", "-q", "--", *(f.as_posix() for f in files))
         for f, content in saved.items():
