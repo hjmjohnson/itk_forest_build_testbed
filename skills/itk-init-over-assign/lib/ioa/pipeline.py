@@ -1,0 +1,199 @@
+import json
+import re
+import shlex
+import subprocess
+import sys
+from collections import Counter
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Callable
+
+from ioa import baseline, stages
+from ioa.manifest import Manifest
+from ioa.report import Build, Commit, Ctest, Failure
+
+SKILLS = Path(__file__).resolve().parents[3]
+PATTERNS = SKILLS / "itk-mechanical-cleanup" / "patterns"
+LOCAL_CLASSES = "assign,elem_diff,elem_zero,sized_ctor,stream_open,bool_branch,placeholder"
+WARNING = re.compile(r"\bwarning:")
+
+Cmd = list[str]
+Ctx = dict[str, str]
+
+
+def _py(script: str, *extra: str) -> Cmd:
+    return ["{py}", str(SKILLS / script), "--graph", "{graph}", "--repo", "{repo}",
+            "--manifest", "{manifest}", "--apply", *extra]
+
+
+def _sh(pattern: str) -> Cmd:
+    return ["bash", str(PATTERNS / pattern / "transform.sh"), "{repo}", "--apply",
+            "--manifest", "{manifest}", "--graph", "{graph}"]
+
+
+def _helpers(ctx: Ctx) -> list[tuple[Cmd, str]]:
+    parts = [
+        ("sizetype-filled", _py("itk-sizetype-filled/sizetype_filled.py")),
+        ("allocate-initialized", _py("itk-allocate-initialized/allocate_initialized.py")),
+        ("in-class-member-init", _sh("in-class-member-init")),
+        ("fillbuffer-over-iterate", _sh("fillbuffer-over-iterate")),
+    ]
+    return [(cmd, str(Path(ctx["manifest"]).with_name(f"itk-helpers.{name}.json")))
+            for name, cmd in parts]
+
+
+@dataclass(frozen=True)
+class Stage:
+    kind: str
+    cmd: Cmd | Callable[[Ctx], list[tuple[Cmd, str]]]
+    const_after: str | None
+
+
+STAGES: list[Stage] = [
+    Stage("member-init", _py("itk-member-init/member_init.py"), None),
+    Stage("local-init", [
+        "{py}", str(SKILLS / "itk-declare-then-init" / "find_declare_then_init.py"),
+        "--classes", LOCAL_CLASSES, "--graph", "{graph}", "--repo-root", "{repo}",
+        "--apply", "--manifest", "{manifest}",
+    ], "local-const"),
+    Stage("container-list-init", _py("itk-container-list-init/list_init.py"), "container-const"),
+    Stage("itk-helpers", _helpers, "itk-helpers-constexpr"),
+    Stage("narrow-scope", _py("itk-narrow-scope/narrow_scope.py"), None),
+]
+
+
+def _const(kind: str, parent: str) -> Stage:
+    cmd = _py("itk-const-promote/const_promote.py", "--only-from", "{dir}/" + f"{parent}.json",
+              "--kind", kind)
+    return Stage(kind, cmd, None)
+
+
+def select(names: list[str] | None) -> list[tuple[str, Stage]]:
+    """The stages to run, in order, with each const stage after its parent."""
+    known = {s.kind for s in STAGES} | {s.const_after for s in STAGES if s.const_after}
+    unknown = sorted(set(names or []) - known)
+    if unknown:
+        raise ValueError(f"unknown stage kind(s): {', '.join(unknown)}")
+    out: list[tuple[str, Stage]] = []
+    for s in STAGES:
+        if names is None or s.kind in names:
+            out.append((s.kind, s))
+        if s.const_after and (names is None or s.const_after in names):
+            if names is not None and s.kind not in names:
+                raise ValueError(f"{s.const_after} needs {s.kind} in the same run")
+            out.append((s.const_after, _const(s.const_after, s.kind)))
+    return out
+
+
+def commands(stage: Stage, ctx: Ctx) -> list[tuple[Cmd, str]]:
+    """Concrete (argv, manifest) pairs for one stage."""
+    pairs = stage.cmd(ctx) if callable(stage.cmd) else [(stage.cmd, ctx["manifest"])]
+    return [([a.format(**{**ctx, "manifest": m}) for a in cmd], m) for cmd, m in pairs]
+
+
+def context(kind: str, repo: Path, graph: Path, run_dir: Path) -> Ctx:
+    mdir = run_dir / "manifests"
+    return {
+        "py": sys.executable, "repo": str(repo), "graph": str(graph), "dir": str(mdir),
+        "manifest": str(mdir / f"{kind}.json"),
+    }
+
+
+class StageFailed(Exception):
+    def __init__(self, failure: Failure):
+        super().__init__(f"stage {failure.kind} exited {failure.returncode}")
+        self.failure = failure
+
+
+def _merge(kind: str, parts: list[str], dest: Path) -> Manifest:
+    merged = Manifest(kind)
+    for p in map(Path, parts):
+        if p.exists():
+            merged.sites += Manifest.read(p).sites
+    merged.write(dest)
+    return merged
+
+
+def run_stage(kind: str, stage: Stage, repo: Path, graph: Path, run_dir: Path) -> stages.StageRecord:
+    ctx = context(kind, repo, graph, run_dir)
+    Path(ctx["dir"]).mkdir(parents=True, exist_ok=True)
+    before = stages.snapshot(repo)
+    pairs = commands(stage, ctx)
+    for argv, _ in pairs:
+        done = subprocess.run(argv, cwd=repo, capture_output=True, text=True, check=False)
+        if done.returncode != 0:
+            tail = "\n".join((done.stderr or "").splitlines()[-20:])
+            raise StageFailed(Failure(kind, argv, done.returncode, tail))
+    after = stages.snapshot(repo)
+    manifest = _merge(kind, [m for _, m in pairs], Path(ctx["manifest"]))
+    rec = stages.StageRecord(kind, manifest, before, after)
+    log = run_dir / "snapshots.json"
+    seen = json.loads(log.read_text()) if log.exists() else []
+    seen.append({"kind": kind, "tree_before": before, "tree_after": after})
+    log.write_text(json.dumps(seen, indent=2) + "\n")
+    return rec
+
+
+def dry_run_lines(selected: list[tuple[str, Stage]], repo: Path, graph: Path, run_dir: Path) -> list[str]:
+    return [
+        f"{kind}: {shlex.join(argv)}"
+        for kind, st in selected
+        for argv, _ in commands(st, context(kind, repo, graph, run_dir))
+    ]
+
+
+def _git(repo: Path, *args: str) -> str:
+    done = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, check=False)
+    return done.stdout
+
+
+def gate_text(result) -> str:
+    counts = Counter(str(s.skipped) for s in result.reverted)
+    return ", ".join(f"{n} {r}" for r, n in sorted(counts.items())) or "pass"
+
+
+def commit_row(repo: Path, plan, result) -> Commit:
+    files = _git(repo, "show", "--name-only", "--format=", result.sha).split() if result.sha else []
+    applied = sum(len(m.applied()) for m in plan.manifests)
+    return Commit(result.sha, plan.kind, files, max(0, applied - len(result.reverted)), gate_text(result))
+
+
+def pre_commit(repo: Path) -> str:
+    if not (repo / ".pre-commit-config.yaml").exists():
+        return "no .pre-commit-config.yaml"
+    done = subprocess.run(["pre-commit", "run", "--all-files"], cwd=repo,
+                          capture_output=True, text=True, check=False)
+    if done.returncode == 0:
+        return "passed"
+    failed = [ln for ln in done.stdout.splitlines() if ln.rstrip().endswith("Failed")]
+    return "FAILED: " + ("; ".join(failed) or f"exit {done.returncode}")
+
+
+def full_build(kit: Path, repo_name: str, precommit: str) -> Build:
+    done = subprocess.run(["pixi", "run", f"build-{repo_name}"], cwd=kit,
+                          capture_output=True, text=True, check=False)
+    log = (done.stdout or "") + (done.stderr or "")
+    warnings = list(dict.fromkeys(ln.strip() for ln in log.splitlines() if WARNING.search(ln)))
+    if done.returncode != 0:
+        tail = "\n".join(log.splitlines()[-20:])
+        return Build(precommit, False, f"pixi run build-{repo_name} exited {done.returncode}\n{tail}", warnings)
+    art = baseline._matrix(kit, "--check-artifact", repo_name)
+    if art.returncode != 0:
+        return Build(precommit, False, f"artifact check failed for {repo_name}", warnings)
+    return Build(precommit, True, "", warnings)
+
+
+def run_ctest(kit: Path, repo_name: str, base: Path, run_dir: Path) -> Ctest:
+    where = baseline._matrix(kit, "--ctest-dir", repo_name).stdout.strip().splitlines()
+    if not where:
+        return Ctest(False, "no ctest directory", [], base)
+    ctest_dir = Path(where[-1])
+    (ctest_dir / "Testing" / "Temporary" / "LastTestsFailed.log").unlink(missing_ok=True)
+    out = baseline._matrix(kit, "--run-ctest", repo_name).stdout
+    tokens = [t for t in out.split() if t.startswith("T:")]
+    token = tokens[-1] if tokens else "no token"
+    after = run_dir / "ctest-after.json"
+    after.write_text(json.dumps({"failed": baseline.failed_tests(ctest_dir)}, indent=2) + "\n")
+    new = baseline.new_failures(base, after)
+    ran = re.fullmatch(r"T:\d+/([1-9]\d*)", token) is not None
+    return Ctest(ran and not new, token, new, base)

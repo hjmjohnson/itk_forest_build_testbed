@@ -69,6 +69,9 @@ refactor skills and `itk-cleanup-pr-lifecycle` delegate to instead of
 re-narrating it. It loops transform+commit only — it does NOT open PRs and does
 NOT create a worktree; run it inside an existing sandbox (see itk-start-worktree).
 
+For the whole initialize-over-assign family run unattended on a forest
+consumer, use `itk-init-over-assign` instead.
+
 ## Argument
 
 `/itk-incremental-refactor-loop <payload> [scope]`
