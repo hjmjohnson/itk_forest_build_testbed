@@ -2,7 +2,7 @@
 name: itk-narrow-scope
 version: 1.0.0
 purpose: Move a local declaration into the narrowest nested block, if/for/switch init-statement, or loop body that holds every use of it.
-description: Unattended stage 5 of the init-over-assign refactor. Finds local declarations with clang-query, scans the enclosing block's text for every use, and moves the declaration (with its comments) into the single nested scope that holds all of them. Loop bodies take only trivially constructible values that are written before they are read; static locals, address-taken values, and moves across labels, case labels, preprocessor directives, or a try whose catch or later code reads the value are skipped. Writes a manifest of kind narrow-scope. Never commits.
+description: Unattended stage 5 of the init-over-assign refactor. Finds local declarations with clang-query, scans the enclosing block's text for every use, and moves the declaration (with its comments) into the single nested scope that holds all of them. Loop bodies take only trivially constructible values that are written before they are read; static locals, address-taken or escaping values, moves into a try block, and moves across labels, case labels, preprocessor directives, or a try whose catch or later code reads the value are skipped. Writes a manifest of kind narrow-scope. Never commits.
 triggers:
   - itk-narrow-scope
   - /itk-narrow-scope
@@ -82,7 +82,7 @@ Usage:
                lines and write nothing
 
 Class:     narrow-scope (notes: block, init-statement, loop-body)
-Skips:     static-local, loop-carried (also note address-taken), costly-construct
+Skips:     static-local, loop-carried (notes address-taken, escapes), costly-construct
            (notes call, non-trivial, side-effect), goto-or-case, try-read-after,
            preprocessor, comment-stranded, gate-failed
 ```
@@ -98,13 +98,14 @@ falling back to `PATH`. Run through `pixi run` so `CONDA_PREFIX` is set.
    the static and `thread_local` ones (`static`), and those whose type is
    trivially default-constructible (`trivial`): arithmetic, pointer, enum,
    arrays of those, or a record whose default constructor is not
-   user-provided, with no virtual method, no in-class field initializer, only
-   such fields, and only such bases. That covers `itk::FixedArray` and the
+   user-provided, with no virtual method, no user-provided destructor, no
+   in-class field initializer, only such fields, and only such bases. That covers `itk::FixedArray` and the
    classes derived from it (Point, Vector, CovariantVector, RGBPixel), Size,
    and Index. A template local counts as trivial only when every
    instantiation's type is. clang-query has no triviality matcher, so this is
    built from `isUserProvided`, `hasInClassInitializer`, `isVirtual`, and
-   `isDerivedFrom`.
+   `isDerivedFrom`. A fourth binding (`ctor`) marks initializers that pass
+   arguments to a user-provided constructor.
 2. Uses are found by a text scan of the enclosing block after the
    declaration, with comments and literal contents masked (`ioa.source.mask`):
    every whole-word occurrence of the name that is not a member access, a
@@ -115,29 +116,40 @@ falling back to `PATH`. Run through `pixi run` so `CONDA_PREFIX` is set.
 3. `scopes.py` parses the enclosing block into statements (`if`/`else`,
    `for`, range `for`, `while`, `do`, `switch`, `try`/`catch`, labels,
    directives, plain statements) and descends while one statement holds every
-   use: into a braced block, a braced branch of an `if`, a braced
-   `try` or `catch` block, a braced loop body, or a braced case block of a
-   `switch` (the switch body itself is never a target). When the first use is
+   use: into a braced block, a braced branch of an `if`, a braced `catch`
+   block, a braced loop body, or a `try` block (whose targets are then all
+   refused, below). The descent passes through a `switch` body but never
+   targets it; a braced case block inside it is a candidate that always
+   crosses its case label, so it is recorded `goto-or-case`. When the first use is
    in the condition of an `if`, `switch`, or `for` that holds every use, the
    target is that statement's init-statement, if it has none yet (for a `for`,
    the init slot is empty). Uses in two sibling statements end the descent;
    with no target found, nothing is recorded.
 4. Each target, deepest first, is checked; the first that passes wins, and if
    none passes the deepest one's reason is recorded:
+   - `try-read-after`: the target is a `try` block or any block nested in
+     one. A declaration never moves into a `try` block.
    - `preprocessor`: a directive between the declaration and the target.
    - `goto-or-case`: a label or case label between them.
    - `loop-carried`, note `address-taken`: a use takes the address (`&x`),
      binds a reference (`T & r = x`), or sits in a lambda that captures by
      reference.
+   - `loop-carried`, note `escapes`: for a type that is not trivially
+     constructible, a statement in the target both mentions the variable and
+     assigns a name declared outside the target (`p = s.c_str();`,
+     `out.it = v.begin();`), since the value would be destroyed earlier.
    - In a loop body, or any block inside a loop: a declaration with a call
-     (`f()`, `T::New()`, `new`, `T{...}`) is `costly-construct` note `call`;
+     (`f()`, `T::New()`, `new`, `T{...}`, arguments to a user-provided
+     constructor, or `(`/`{` arguments on a non-trivial type) is
+     `costly-construct` note `call`; an initializer with `++`, `--`, or an
+     assignment is `costly-construct` note `side-effect`;
      a type that is not trivially constructible is `costly-construct` note
      `non-trivial`; and the first statement of the target block that
      mentions the variable must be a plain `x = ...;` whose right side does
      not read it, else `loop-carried`. An init-statement inside a loop is
      `loop-carried` (its condition reads the value).
-   - Outside loops: a declaration whose initializer calls a function, or
-     reads a variable while the target does not assign it first, may only
+   - Outside loops: a declaration whose initializer calls a function,
+     mutates (`++`, `--`, assignment), or reads a variable while the target does not assign it first, may only
      move into the immediately following bare block or `if`/`switch`/`for`
      init-statement, since crossing code would reorder or skip the call:
      `costly-construct`, note `side-effect`.
@@ -174,11 +186,16 @@ the original declaration lines.
 ## Limits
 
 - Moving a default-constructed class into a nested block runs its destructor
-  earlier, and into a `try` block puts its constructor under the handlers.
-  Calls are never moved past code; default construction is.
+  earlier. Escape is detected only through an assignment in the target that
+  mentions the variable; a pointer passed out through a function argument
+  (`Store(s.c_str())`) is not seen. Calls are never moved past code; default
+  construction is.
 - Uses are matched by name within the block, so an unrelated local of the
   same name in a nested lambda or class blocks the move rather than enabling a
   wrong one.
+- Uses are found in the block's own text; a macro whose body (not its
+  arguments) names the local is not seen, and the move then fails to compile
+  at the master's gate.
 - A `case`, label, or directive anywhere between the old and new position
   blocks the move, even inside an unrelated statement.
 

@@ -31,7 +31,7 @@ sizes(int m)
   for (int i = 0; i < m; ++i)
   {
     values = std::vector<int>(3, i);
-    m += static_cast<int>(values.size());
+    values.push_back(m);
   }
   return m;
 }

@@ -148,3 +148,19 @@ def test_removal_leaves_no_doubled_blank_line():
            plan(src, Decl(code.index("int u"), "u", True, False))]
     assert apply_text(src, mvs) == ("void f(int c)\n{\n  int a = 1;\n\n  g(a);\n  if (c)\n  {\n"
                                     "    int t = 0;\n    int u = 0;\n    g(t, u);\n  }\n}\n")
+
+
+def test_handler_block_is_still_a_target():
+    code = "void f()\n{\n  @int t = 0;\n  try\n  {\n    g();\n  }\n  catch (...)\n  {\n    t = 1;\n    h(t);\n  }\n}\n"
+    assert "  catch (...)\n  {\n    int t = 0;\n    t = 1;\n" in moved(code, "t")
+
+
+def test_escape_through_member_assignment():
+    code = "void f(int c, S & out)\n{\n  @std::string s;\n  if (c)\n  {\n    s = g();\n    out.p = s.data();\n  }\n}\n"
+    _, mv = move(code, "s", trivial=False)
+    assert (mv.skipped, mv.note) == (Reason.LOOP_CARRIED, "escapes")
+
+
+def test_assignment_to_a_local_of_the_target_does_not_escape():
+    code = "void f(int c)\n{\n  @std::string s;\n  if (c)\n  {\n    s = g();\n    auto n = s.size();\n    h(n);\n  }\n}\n"
+    assert "  {\n    std::string s;\n    s = g();\n" in moved(code, "s", trivial=False)

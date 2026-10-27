@@ -38,6 +38,7 @@ class Candidate:
     types: set[str] = field(default_factory=set)
     trivial: set[str] = field(default_factory=set)
     static: bool = False
+    ctor: bool = False
 
 
 def candidates(graph: Path, root: Path) -> tuple[list[Candidate], list[str]]:
@@ -56,6 +57,8 @@ def candidates(graph: Path, root: Path) -> tuple[list[Candidate], list[str]]:
             c.trivial.add(n.canonical)
         elif m.binding == "static":
             c.static = True
+        elif m.binding == "ctor":
+            c.ctor = True
     return sorted((c for c in found.values() if c.types), key=lambda c: (c.file, c.line, c.col)), dropped
 
 
@@ -70,7 +73,7 @@ def plan_all(cands: list[Candidate], docs: dict[Path, Doc],
     for c in cands:
         doc = docs.setdefault(c.file, Doc(c.file))
         src = sources.setdefault(c.file, Source(doc.text))
-        mv = plan(src, Decl(_offset(doc, c.line, c.col), c.name, c.types <= c.trivial, c.static))
+        mv = plan(src, Decl(_offset(doc, c.line, c.col), c.name, c.types <= c.trivial, c.static, c.ctor))
         if mv is not None:
             out.append((c.file, mv))
     return out

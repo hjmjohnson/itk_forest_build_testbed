@@ -260,3 +260,36 @@ def test_dry_run_counts_planned_moves(fixture_graph, capsys):
 def test_apply_requires_manifest(tmp_path):
     with pytest.raises(SystemExit):
         narrow_scope.main(["--graph", str(tmp_path), "--repo", str(tmp_path), "--apply"])
+
+
+@needs_tools
+def test_declaration_never_moves_into_a_try_block(fixture_graph):
+    g = fixture_graph("try_inside")
+    out = run_narrow(g)
+    assert out.sites() == [(11, 11, Reason.TRY_READ_AFTER, ""), (24, 24, Reason.TRY_READ_AFTER, "")]
+    assert_unchanged(g)
+
+
+@needs_tools
+def test_pointer_into_nontrivial_value_escaping_the_target_is_skipped(fixture_graph):
+    g = fixture_graph("escapes")
+    out = run_narrow(g)
+    assert out.sites() == [(11, 11, Reason.LOOP_CARRIED, "escapes")]
+    assert_unchanged(g)
+
+
+@needs_tools
+def test_constructor_arguments_are_a_call(fixture_graph):
+    g = fixture_graph("ctor_call")
+    out = run_narrow(g)
+    assert out.sites() == [(15, 15, Reason.COSTLY_CONSTRUCT, "side-effect")]
+    assert_unchanged(g)
+
+
+@needs_tools
+def test_mutating_initializer_is_a_side_effect(fixture_graph):
+    g = fixture_graph("mutating")
+    out = run_narrow(g)
+    assert out.sites() == [(7, 7, Reason.COSTLY_CONSTRUCT, "side-effect"),
+                           (19, 19, Reason.COSTLY_CONSTRUCT, "side-effect")]
+    assert_unchanged(g)

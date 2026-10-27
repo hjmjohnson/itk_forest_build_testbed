@@ -18,6 +18,8 @@ LABEL = re.compile(
     r"(?m)(?:^|[;{}])\s*(?:case\b|default\s*:(?!:)|(?!(?:public|private|protected)\b)[A-Za-z_]\w*\s*:(?!:))"
 )
 CALL = re.compile(r"[\w>\])]\s*\(|\bnew\b|[A-Za-z_]\w*\s*\{")
+MUTATES = re.compile(r"\+\+|--|[^=!<>]=(?!=)")
+ASSIGNED = re.compile(r"(?<![\w$])([A-Za-z_]\w*)\s*(?:\[[^\]]*\]\s*)?(?:[-+*/%&|^]|<<|>>)?=(?!=)")
 IDENT = re.compile(r"(?<![\w.])[A-Za-z_]\w*")
 LITERAL_WORDS = {"nullptr", "true", "false"}
 NOT_TYPES = {"return", "case", "throw", "delete", "else", "do", "co_return", "co_yield", "sizeof", "goto"}
@@ -47,6 +49,7 @@ class Decl:
     name: str
     trivial: bool
     static: bool
+    ctor: bool = False
 
 
 @dataclass
@@ -56,6 +59,7 @@ class Target:
     in_loop: bool
     body: list[Stmt] = field(default_factory=list)
     stmt: Stmt | None = None
+    in_try: bool = False
 
 
 @dataclass
@@ -331,11 +335,20 @@ def _initializer(m: str, a: int, b: int, name: str) -> str:
     return m[a:b]
 
 
+def _try_entry(s: Stmt, ms: list[int]) -> tuple[Stmt | None, bool, bool]:
+    """For a try statement: the one block holding every mention, whether that block is the
+    try block, and whether mentions span the try block and a handler."""
+    holding = [b for b in s.subs if any(b.has(p) for p in ms)]
+    if len(holding) != 1:
+        return None, False, any(s.subs[0].has(p) for p in ms)
+    return holding[0], holding[0] is s.subs[0], False
+
+
 def _candidates(src: Source, level: list[Stmt], ms: list[int]) -> tuple[list[Target], bool]:
     """Nested scopes holding every mention, outermost first, and whether a try blocked one."""
     m = src.masked
     out: list[Target] = []
-    in_loop = False
+    in_loop = in_try = False
     while True:
         hit = [s for s in level if any(s.has(p) for p in ms)]
         if len(hit) != 1:
@@ -347,18 +360,19 @@ def _candidates(src: Source, level: list[Stmt], ms: list[int]) -> tuple[list[Tar
         head = s.head and s.head[0] <= min(ms) < s.head[1]
         if s.kind == "block":
             level = _fill(src, s).body
-            out.append(Target("block", s.open + 1, in_loop, level))
+            out.append(Target("block", s.open + 1, in_loop, level, in_try=in_try))
             continue
         if s.kind in ("if", "switch", "for") and head:
             init_free = (m[s.head[0]:s.head[1]].lstrip().startswith(";") if s.kind == "for"
                          else not _top(m, s.head[0], s.head[1], ";"))
             if init_free:
-                out.append(Target("init-statement", s.head[0], in_loop, stmt=s))
+                out.append(Target("init-statement", s.head[0], in_loop, stmt=s, in_try=in_try))
             return out, False
         if s.kind == "try":
-            holding = [b for b in s.subs if any(b.has(p) for p in ms)]
-            if len(holding) > 1:
-                return out, any(s.subs[0].has(p) for p in ms)
+            block, entered, blocked = _try_entry(s, ms)
+            if block is None:
+                return out, blocked
+            in_try = in_try or entered
         if head or not inside or inside[0].kind != "block":
             return out, False
         b = _fill(src, inside[0])
@@ -367,7 +381,30 @@ def _candidates(src: Source, level: list[Stmt], ms: list[int]) -> tuple[list[Tar
             in_loop = True
         if s.kind != "switch":
             out.append(Target("loop-body" if in_loop and s.kind != "if" and s.kind != "try" else "block",
-                              b.open + 1, in_loop, level))
+                              b.open + 1, in_loop, level, in_try=in_try))
+
+
+def escapes(m: str, name: str, a: int, b: int) -> bool:
+    """True when a statement in m[a:b] mentions name and assigns a name declared outside
+    m[a:b], which can carry a pointer or iterator into the variable past its new scope."""
+    for piece in re.finditer(r"[^;{}]+", m[a:b]):
+        text = piece[0]
+        if not mentions(text, name, 0, len(text)):
+            continue
+        for x in ASSIGNED.finditer(text):
+            lhs = x[1]
+            if lhs == name:
+                continue
+            j = _back(text, x.start(1))
+            if j >= 0 and (text[j] == "." or text[j - 1:j + 1] == "->"):
+                return True
+            if not any(_declares(m, p, lhs) for p in mentions(m, lhs, a, b)):
+                return True
+    return False
+
+
+def _end(src: Source, t: Target) -> int:
+    return t.stmt.end if t.form == "init-statement" else min(closing(src.masked, t.at - 1), len(src.masked))
 
 
 def _check(src: Source, mv: Move, t: Target, ms: list[int], init: str) -> tuple[Reason, str] | None:
@@ -379,18 +416,25 @@ def _check(src: Source, mv: Move, t: Target, ms: list[int], init: str) -> tuple[
         return Reason.GOTO_OR_CASE, ""
     if address_taken(m, ms, mv.stmt[1]):
         return Reason.LOOP_CARRIED, "address-taken"
-    call = bool(CALL.search(init))
+    if not mv.decl.trivial and escapes(m, mv.decl.name, t.at, _end(src, t)):
+        return Reason.LOOP_CARRIED, "escapes"
+    expr = re.sub(r"^\s*=", "", init)
+    call = (bool(CALL.search(init)) or mv.decl.ctor
+            or not mv.decl.trivial and init.lstrip().startswith(("(", "{")))
+    mutates = bool(MUTATES.search(expr))
     dead = t.form != "init-statement" and assigned_first(m, t.body, mv.decl.name)
     if t.in_loop:
         if call:
             return Reason.COSTLY_CONSTRUCT, "call"
+        if mutates:
+            return Reason.COSTLY_CONSTRUCT, "side-effect"
         if not mv.decl.trivial:
             return Reason.COSTLY_CONSTRUCT, "non-trivial"
         if not dead:
             return Reason.LOOP_CARRIED, ""
         return None
     reads = any(w not in LITERAL_WORDS for w in IDENT.findall(init))
-    if (call or reads and not dead) and "".join(crossed.split()) not in ENTRIES.get(t.form, set()):
+    if (call or mutates or reads and not dead) and "".join(crossed.split()) not in ENTRIES.get(t.form, set()):
         return Reason.COSTLY_CONSTRUCT, "side-effect"
     return None
 
@@ -427,7 +471,9 @@ def plan(src: Source, decl: Decl) -> Move | None:
     init = _initializer(m, s.start, s.end, decl.name)
     failure = None
     for target in reversed(targets):
-        if target.form == "init-statement" and target.in_loop:
+        if target.in_try:
+            bad = (Reason.TRY_READ_AFTER, "")
+        elif target.form == "init-statement" and target.in_loop:
             bad = (Reason.LOOP_CARRIED, "")
         elif target.form == "init-statement" and mask(t[s.start:s.end]) != t[s.start:s.end]:
             bad = (Reason.COMMENT_STRANDED, "comment-in-declaration")
