@@ -8,7 +8,6 @@ Edits the working tree and writes a manifest of kind itk-helpers; never commits.
 import argparse
 import functools
 import re
-import subprocess
 import sys
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -19,7 +18,7 @@ try:
 except ImportError:
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "itk-init-over-assign" / "lib"))
 
-from ioa.comments import check_hunks  # noqa: E402
+from ioa.comments import check_hunks, unified_diff  # noqa: E402
 from ioa.compile_commands import find_graph  # noqa: E402
 from ioa.manifest import Manifest, Site  # noqa: E402
 from ioa.query import run_query  # noqa: E402
@@ -29,7 +28,7 @@ from ioa.tidy import Doc, apply_edits, format_changed, in_scope, map_line, opcod
 
 KIND = "itk-helpers"
 MATCHERS = [Path(__file__).resolve().parent / "matchers" / n
-            for n in ("fill_candidate.cq", "own_filled.cq", "user_ctor.cq")]
+            for n in ("fill_candidate.cq", "own_filled.cq", "user_ctor.cq", "fixed_size.cq")]
 CONSTEXPR_TYPES = re.compile(r"^(?:const )?itk::(?:Size|Index|Offset)<")
 LITERAL = re.compile(r"[-+]?(?:0[xX][0-9a-fA-F']+|(?:\d[\d']*\.?[\d']*|\.\d+)(?:[eE][-+]?\d+)?)[uUlLfF]*")
 ZERO_TRAIT = re.compile(r"(?:itk::)?NumericTraits<.+>::ZeroValue\(\)")
@@ -46,6 +45,7 @@ class Candidate:
     canonicals: set[str] = field(default_factory=set)
     own_filled: set[str] = field(default_factory=set)
     user_ctor: set[str] = field(default_factory=set)
+    fixed_size: set[str] = field(default_factory=set)
 
 
 @dataclass
@@ -61,10 +61,15 @@ class Pair:
     own_filled: bool
     user_ctor: bool
     constexpr_ok: bool
+    fixed_size: bool
 
     @property
     def cls(self) -> str:
         return "fill_zero" if is_zero(self.arg) else "fill_nonzero"
+
+    @property
+    def skipped(self) -> Reason | None:
+        return None if self.fixed_size else Reason.GATE_FAILED
 
 
 def is_literal(arg: str) -> bool:
@@ -105,7 +110,8 @@ def candidates(graph: Path, root: Path) -> tuple[list[Candidate], list[str]]:
         if n.kind != "VarDecl" or not n.name or not path.is_file() or not in_scope(path, root):
             continue
         c = found.setdefault((path, n.line, n.col), Candidate(path, n.line, n.col, n.name))
-        {"fill": c.canonicals, "own_filled": c.own_filled, "user_ctor": c.user_ctor}[m.binding].add(n.canonical)
+        {"fill": c.canonicals, "own_filled": c.own_filled, "user_ctor": c.user_ctor,
+         "fixed_size": c.fixed_size}[m.binding].add(n.canonical)
     return sorted((c for c in found.values() if c.canonicals), key=lambda c: (c.file, c.line, c.col)), dropped
 
 
@@ -212,6 +218,7 @@ def pair(doc: Doc, c: Candidate) -> Pair | None:
         user_ctor=bool(c.user_ctor),
         constexpr_ok=all(CONSTEXPR_TYPES.match(t) for t in c.canonicals)
         and not mutated_later(masked, fill_tail.end(), name),
+        fixed_size=c.fixed_size >= c.canonicals,
     )
 
 
@@ -219,13 +226,6 @@ def _site(root: Path, path: Path, a: int, b: int, cls: str, text: str, **kw) -> 
     n = max(1, text.count("\n"))
     start = min(max(1, a), n)
     return Site(path.relative_to(root), start, min(max(start, b), n), KIND, cls, **kw)
-
-
-def _git_diff(root: Path, paths: list[Path]) -> str:
-    return subprocess.run(
-        ["git", "-C", str(root), "diff", "-U0", "--", *map(str, paths)],
-        capture_output=True, text=True, check=True,
-    ).stdout
 
 
 def run(graph: Path, root: Path, manifest: Path | None, apply: bool) -> int:
@@ -242,14 +242,15 @@ def run(graph: Path, root: Path, manifest: Path | None, apply: bool) -> int:
     if not apply:
         counts: dict[tuple[str, Path], int] = defaultdict(int)
         for path, p in plans:
-            counts[(p.cls, path.relative_to(root))] += 1
+            counts[(p.cls if p.skipped is None else f"skipped:{p.skipped}", path.relative_to(root))] += 1
         for (cls, rel), n in sorted(counts.items()):
             print(f"{cls} {rel} {n}")
         return 0
 
     edits: dict[Path, list[tuple[int, int, str]]] = defaultdict(list)
     for path, p in plans:
-        edits[path].append((p.begin, p.end, render(p)))
+        if p.skipped is None:
+            edits[path].append((p.begin, p.end, render(p)))
     if edits:
         apply_edits(edits, docs, name="sizetype-filled")
         for path in edits:
@@ -258,18 +259,23 @@ def run(graph: Path, root: Path, manifest: Path | None, apply: bool) -> int:
     after = {p: p.read_text(errors="surrogateescape") for p in edits}
     sites: list[Site] = []
     for path, p in plans:
-        ops = opcodes(docs[path].text, after[path])
+        new = after.get(path, docs[path].text)
+        ops = opcodes(docs[path].text, new)
         a, b = map_line(ops, p.first - 1, False) + 1, map_line(ops, p.last, True)
-        sites.append(_site(root, path, a, b, p.cls, after[path]))
+        note = "" if p.skipped is None else "not-fixed-size"
+        sites.append(_site(root, path, a, b, p.cls, new, skipped=p.skipped, note=note))
 
-    stranded = check_hunks(_git_diff(root, sorted(edits))) if edits else []
-    notes = {(root / s.file).resolve(): s.text for s in reversed(stranded)}
-    for path in notes:
-        path.write_bytes(docs[path].data)
+    notes: dict[Path, str] = {}
+    for path in edits:
+        stranded = check_hunks(unified_diff(str(path.relative_to(root)), docs[path].text, after[path]))
+        if stranded:
+            notes[path] = stranded[0].text
+            path.write_bytes(docs[path].data)
     for i, (path, p) in enumerate(plans):
         if path in notes:
-            sites[i] = _site(root, path, p.first, p.last, p.cls, docs[path].text,
-                             skipped=Reason.COMMENT_STRANDED, note=notes[path])
+            s = sites[i]
+            reason, note = (Reason.COMMENT_STRANDED, notes[path]) if s.skipped is None else (s.skipped, s.note)
+            sites[i] = _site(root, path, p.first, p.last, p.cls, docs[path].text, skipped=reason, note=note)
 
     if manifest is not None:
         Manifest(KIND, sites).write(manifest)

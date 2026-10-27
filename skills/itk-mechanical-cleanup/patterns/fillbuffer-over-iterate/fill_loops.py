@@ -67,7 +67,9 @@ def invariant(expr: str, it: str) -> bool:
     if re.search(r"\+\+|--|(?<![=!<>])=(?!=)", expr):
         return False
     for call in re.finditer(r"(\w+)\s*(?:<[^()]*>)?\s*\(", expr):
-        if call[1] not in PURE_CALLS and not call[1].endswith("Type"):
+        member = re.search(r"(?:\.|->)\s*$", expr[:call.start()])
+        conversion = call[1][0].isupper() and call[1].endswith("Type") and not member
+        if call[1] not in PURE_CALLS and not conversion:
             return False
     return True
 

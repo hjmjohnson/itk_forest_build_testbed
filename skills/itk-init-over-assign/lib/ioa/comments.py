@@ -1,3 +1,4 @@
+import difflib
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -153,3 +154,8 @@ def check_hunks(diff_text: str) -> list[Stranded]:
                 continue
             stranded.append(Stranded(hunk.file, hunk.first_old + c.start, c.text))
     return stranded
+
+
+def unified_diff(rel: str, old: str, new: str) -> str:
+    """A -U0 diff of one file's text, for check_hunks without consulting the git index."""
+    return "".join(difflib.unified_diff(old.splitlines(True), new.splitlines(True), f"a/{rel}", f"b/{rel}", n=0))

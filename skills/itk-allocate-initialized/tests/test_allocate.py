@@ -99,7 +99,7 @@ def test_false_default_comment_string_definition_and_vendored_are_untouched(fixt
 def test_manifest_lists_each_call_at_its_line(fixture_graph):
     m = run_allocate(fixture_graph("allocate")).manifest
     assert m.kind == "itk-helpers"
-    assert [(str(s.file), s.start, s.end, s.cls, s.skipped) for s in m.sites] == [
+    assert [(str(s.file), s.start, s.end, s.cls, s.skipped) for s in m.sites if str(s.file) == "a.cxx"] == [
         ("a.cxx", 6, 6, "allocate_true", None), ("a.cxx", 7, 7, "allocate_true", None),
         ("a.cxx", 12, 12, "allocate_true", None)]
 
@@ -117,7 +117,7 @@ def test_itk_older_than_5_3_is_skipped(fixture_graph):
 @needs_tools
 def test_unreadable_itk_version_is_assumed_new_and_noted(fixture_graph, capsys):
     out = run_allocate(fixture_graph("allocate", version=None), capsys=capsys)
-    assert len(out.manifest.applied()) == 3
+    assert len(out.manifest.applied()) == 5
     assert {s.note for s in out.manifest.sites} == {"itk-version:unknown"}
     assert "ITK version unreadable" in out.stdout
 
@@ -142,8 +142,28 @@ def test_stranded_comment_reverts_the_file(fixture_graph, monkeypatch):
     monkeypatch.setattr(allocate_initialized, "format_changed", lose_comment)
     out = run_allocate(g)
     assert out.read("a.cxx") == before
-    assert {s.skipped for s in out.manifest.sites} == {Reason.COMMENT_STRANDED}
-    assert out.manifest.sites[0].note == "// zeroed"
+    a = [s for s in out.manifest.sites if str(s.file) == "a.cxx"]
+    assert {s.skipped for s in a} == {Reason.COMMENT_STRANDED} and a[0].note == "// zeroed"
+    assert all(s.skipped is None for s in out.manifest.sites if str(s.file) == "wrap.cxx")
+
+
+@needs_tools
+def test_wrapped_line_shifts_later_sites_to_their_post_edit_lines(fixture_graph):
+    out = run_allocate(fixture_graph("allocate"))
+    lines = out.read("wrap.cxx").splitlines()
+    sites = [(s.start, s.end) for s in out.manifest.sites if str(s.file) == "wrap.cxx"]
+    assert sites == [(4, 6), (7, 7)]
+    assert lines[5] == "    ->AllocateInitialized();" and lines[6] == "  image->AllocateInitialized();"
+
+
+@needs_tools
+def test_comment_dropped_by_an_earlier_helper_is_not_blamed_on_this_edit(fixture_graph):
+    g = fixture_graph("allocate")
+    path = g.repo / "a.cxx"
+    path.write_text(path.read_text().replace("  // image->Allocate(true) stays in a comment\n", ""))
+    out = run_allocate(g)
+    assert "  ref.AllocateInitialized(); // zeroed\n" in out.read("a.cxx")
+    assert not out.manifest.skipped()
 
 
 def test_apply_requires_manifest(tmp_path):

@@ -122,6 +122,9 @@ bash patterns/<name>/transform.sh <repo> --apply --manifest m.json [--graph <bui
 - `--graph <dir>`: accepted for the common CLI and otherwise unused; both
   transforms are textual.
 
+The master always passes `--apply --manifest`; `--apply` alone keeps the
+manual behavior (write, no manifest, no formatting).
+
 `fillbuffer-over-iterate` rewrites only a `for`/`while` loop over an
 `ImageRegionIterator` on `img->GetBufferedRegion()` or
 `img->GetLargestPossibleRegion()` whose body is exactly

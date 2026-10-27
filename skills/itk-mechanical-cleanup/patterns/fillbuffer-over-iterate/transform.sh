@@ -36,24 +36,32 @@ SKIPS="$WORK/skips.tsv"
 
 FILES="$(git grep -lE 'IsAtEnd' -- "${ITK_DETECT_SOURCES[@]}" "${ITK_DETECT_EXCLUDES[@]}" 2>/dev/null || true)"
 
+# Rewrite every file into $WORK first, so a failure part way leaves the tree untouched.
 changed=0
-PAIRS=()
+EDITED=()
 while IFS= read -r f; do
     [ -n "$f" ] || continue
-    out="$WORK/out"
+    out="$WORK/new.$((changed + 1))"
     "$PY" "$HERE/fill_loops.py" "$f" "$out" --rel "$f" --skips "$SKIPS" || exit 1
     if ! cmp -s "$f" "$out"; then
         changed=$((changed + 1))
-        if [ "$APPLY" -eq 1 ]; then
-            cp "$f" "$WORK/orig.$changed"
-            PAIRS+=("$WORK/orig.$changed=$f")
-            cp "$out" "$f"
-            echo "APPLIED: $f"
-        else
-            echo "WOULD EDIT: $f"
-        fi
+        EDITED+=("$f")
     fi
 done <<< "$FILES"
+
+PAIRS=()
+i=0
+for f in ${EDITED[@]+"${EDITED[@]}"}; do
+    i=$((i + 1))
+    if [ "$APPLY" -eq 1 ]; then
+        cp "$f" "$WORK/orig.$i"
+        PAIRS+=("$WORK/orig.$i=$f")
+        cp "$WORK/new.$i" "$f"
+        echo "APPLIED: $f"
+    else
+        echo "WOULD EDIT: $f"
+    fi
+done
 
 while IFS="$(printf '\t')" read -r rel a _ _ note; do
     [ -n "$rel" ] && echo "SKIPPED: $rel:$a $note"

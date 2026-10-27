@@ -17,11 +17,11 @@ try:
 except ImportError:
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "itk-init-over-assign" / "lib"))
 
-from ioa.comments import check_hunks  # noqa: E402
+from ioa.comments import check_hunks, unified_diff  # noqa: E402
 from ioa.manifest import Manifest, Site  # noqa: E402
 from ioa.skip import Reason  # noqa: E402
 from ioa.source import mask  # noqa: E402
-from ioa.tidy import format_changed, in_scope  # noqa: E402
+from ioa.tidy import format_changed, in_scope, map_line, opcodes  # noqa: E402
 
 KIND = "itk-helpers"
 CLS = "allocate_true"
@@ -88,11 +88,6 @@ def rewrite(text: str, found: list[Call]) -> str:
     return "".join(out) + text[last:]
 
 
-def _git_diff(root: Path, paths: list[Path]) -> str:
-    return subprocess.run(["git", "-C", str(root), "diff", "-U0", "--", *map(str, paths)],
-                          capture_output=True, text=True, check=True).stdout
-
-
 def run(graph: Path, root: Path, manifest: Path | None, apply: bool) -> int:
     version = itk_version(graph)
     if version is None:
@@ -113,16 +108,22 @@ def run(graph: Path, root: Path, manifest: Path | None, apply: bool) -> int:
                            f"itk:{version[0]}.{version[1]}") for c in found]
     else:
         for p, (data, found) in sorted(plans.items()):
+            rel = p.relative_to(root)
             old = data.decode("utf-8", "surrogateescape")
-            p.write_bytes(rewrite(old, found).encode("utf-8", "surrogateescape"))
+            renamed = rewrite(old, found)
+            p.write_bytes(renamed.encode("utf-8", "surrogateescape"))
             format_changed(p, old)
-            sites += [Site(p.relative_to(root), c.line, c.line, KIND, CLS, note=note) for c in found]
-        stranded = check_hunks(_git_diff(root, sorted(plans))) if plans else []
-        notes = {(root / s.file).resolve(): s.text for s in reversed(stranded)}
-        for p in notes:
-            p.write_bytes(plans[p][0])
-        sites = [Site(s.file, s.start, s.end, KIND, CLS, Reason.COMMENT_STRANDED, notes[root / s.file])
-                 if (root / s.file) in notes else s for s in sites]
+            new = p.read_text(errors="surrogateescape")
+            stranded = check_hunks(unified_diff(str(rel), old, new))
+            if stranded:
+                p.write_bytes(data)
+                sites += [Site(rel, c.line, c.line, KIND, CLS, Reason.COMMENT_STRANDED, stranded[0].text)
+                          for c in found]
+                continue
+            # The rename keeps every line in place, so only the formatter moves lines.
+            ops = opcodes(renamed, new)
+            sites += [Site(rel, map_line(ops, c.line - 1, False) + 1, map_line(ops, c.line, True), KIND, CLS,
+                           note=note) for c in found]
 
     if manifest is not None:
         Manifest(KIND, sites).write(manifest)

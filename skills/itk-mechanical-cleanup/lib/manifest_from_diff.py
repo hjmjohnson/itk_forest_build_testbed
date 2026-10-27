@@ -7,7 +7,6 @@ whose edit strands a comment is restored from ORIG with its sites marked comment
 """
 
 import argparse
-import difflib
 import sys
 from pathlib import Path
 
@@ -16,7 +15,7 @@ try:
 except ImportError:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "itk-init-over-assign" / "lib"))
 
-from ioa.comments import check_hunks  # noqa: E402
+from ioa.comments import check_hunks, unified_diff  # noqa: E402
 from ioa.manifest import Manifest, Site  # noqa: E402
 from ioa.skip import Reason  # noqa: E402
 from ioa.tidy import format_changed, map_line, opcodes  # noqa: E402
@@ -28,11 +27,6 @@ def _clamp(text: str, a: int, b: int) -> tuple[int, int]:
     n = max(1, text.count("\n"))
     start = min(max(1, a), n)
     return start, min(max(start, b), n)
-
-
-def _unified(rel: str, old: str, new: str) -> str:
-    return "".join(difflib.unified_diff(
-        old.splitlines(True), new.splitlines(True), f"a/{rel}", f"b/{rel}", n=0))
 
 
 def _skips(path: Path | None) -> dict[str, list[tuple[int, int, Reason, str]]]:
@@ -56,7 +50,7 @@ def build(root: Path, cls: str, pairs: list[tuple[Path, str]], skips_file: Path 
         format_changed(path, old)
         new = path.read_text(errors="surrogateescape")
         ops = opcodes(old, new)
-        stranded = check_hunks(_unified(rel, old, new))
+        stranded = check_hunks(unified_diff(rel, old, new))
         if stranded:
             path.write_bytes(orig.read_bytes())
             note = stranded[0].text
@@ -64,8 +58,8 @@ def build(root: Path, cls: str, pairs: list[tuple[Path, str]], skips_file: Path 
                 if tag != "equal":
                     sites.append(Site(Path(rel), *_clamp(old, i1 + 1, i2), KIND, cls,
                                       Reason.COMMENT_STRANDED, note))
-            for a, b, _, _ in skips.pop(rel, []):
-                sites.append(Site(Path(rel), *_clamp(old, a, b), KIND, cls, Reason.COMMENT_STRANDED, note))
+            for a, b, reason, kept in skips.pop(rel, []):
+                sites.append(Site(Path(rel), *_clamp(old, a, b), KIND, cls, reason, kept))
             continue
         for tag, _, _, j1, j2 in ops:
             if tag != "equal":

@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import sizetype_filled  # noqa: E402
 from ioa.manifest import Manifest  # noqa: E402
+from ioa.skip import Reason  # noqa: E402
 
 FIXTURES = Path(__file__).parent / "fixtures"
 CLANG_FORMAT = Path(__file__).resolve().parents[2] / "itk-member-init" / "tests" / "fixtures" / ".clang-format"
@@ -105,8 +106,12 @@ def test_literal_size_never_mutated_is_constexpr(fixture_graph):
 
 
 @needs_tools
-def test_type_without_Filled_uses_MakeFilled(fixture_graph):
-    assert "  auto weights = itk::MakeFilled<ArrayType>(7);\n" in run_sizetype(fixture_graph("sizetype")).read("b.cxx")
+def test_type_without_a_fixed_size_is_skipped_and_untouched(fixture_graph):
+    out = run_sizetype(fixture_graph("sizetype"))
+    assert "  ArrayType weights;\n  weights.Fill(7);\n" in out.read("b.cxx")
+    skipped = out.manifest.skipped()
+    assert [(str(s.file), s.cls, s.skipped, s.note) for s in skipped] == [
+        ("b.cxx", "fill_nonzero", Reason.GATE_FAILED, "not-fixed-size")]
 
 
 @needs_tools
@@ -124,7 +129,9 @@ def test_offset_literal_is_constexpr_and_keeps_its_trailing_comment(fixture_grap
 
 @needs_tools
 def test_zero_fill_of_user_constructed_type_is_not_brace(fixture_graph):
-    assert "  auto m = itk::MakeFilled<MatrixType>(0);\n" in run_sizetype(fixture_graph("sizetype")).read("b.cxx")
+    text = run_sizetype(fixture_graph("sizetype")).read("b.cxx")
+    assert "  auto color = itk::MakeFilled<RGBPixelType>(0);\n" in text
+    assert "  MatrixType m{};\n" in text
 
 
 @needs_tools
@@ -142,10 +149,10 @@ def test_manifest_sites_classes_and_post_edit_lines(fixture_graph):
         ("a.cxx", 11, 11, "fill_zero", None), ("a.cxx", 13, 13, "fill_nonzero", None),
         ("a.cxx", 15, 15, "fill_nonzero", None), ("a.cxx", 18, 18, "fill_nonzero", None),
         ("a.cxx", 20, 20, "fill_nonzero", None),
-        ("b.cxx", 10, 10, "fill_nonzero", None), ("b.cxx", 22, 22, "fill_nonzero", None),
-        ("b.cxx", 24, 24, "fill_zero", None),
+        ("b.cxx", 11, 11, "fill_nonzero", None), ("b.cxx", 23, 24, "fill_nonzero", Reason.GATE_FAILED),
+        ("b.cxx", 26, 26, "fill_zero", None), ("b.cxx", 28, 28, "fill_zero", None),
     ]
-    for s in out.manifest.sites:
+    for s in out.manifest.applied():
         line = out.read(str(s.file)).splitlines()[s.start - 1]
         assert "auto " in line or line.endswith("{};")
     assert_builds(g)
@@ -159,7 +166,8 @@ def test_dry_run_prints_counts_and_writes_nothing(fixture_graph, capsys):
     assert out.manifest is None
     assert {n: (g.repo / n).read_text() for n in before} == before
     assert "fill_zero a.cxx 1" in out.stdout and "fill_nonzero a.cxx 4" in out.stdout
-    assert "fill_zero b.cxx 1" in out.stdout and "fill_nonzero b.cxx 2" in out.stdout
+    assert "fill_zero b.cxx 2" in out.stdout and "fill_nonzero b.cxx 1" in out.stdout
+    assert "skipped:gate-failed b.cxx 1" in out.stdout
 
 
 @needs_tools
@@ -175,6 +183,16 @@ def test_stranded_comment_reverts_the_file(fixture_graph, monkeypatch):
     out = run_sizetype(g)
     assert out.read("a.cxx") == original
     assert {str(s.skipped) for s in out.manifest.sites if str(s.file) == "a.cxx"} == {"comment-stranded"}
+
+
+@needs_tools
+def test_comment_dropped_by_an_earlier_helper_is_not_blamed_on_this_edit(fixture_graph):
+    g = fixture_graph("sizetype")
+    path = g.repo / "a.cxx"
+    path.write_text(path.read_text().replace("  origin.Fill(spacing); // half a voxel\n", "  origin.Fill(spacing);\n"))
+    out = run_sizetype(g)
+    assert "  IndexType start{};\n" in out.read("a.cxx")
+    assert not [s for s in out.manifest.sites if s.skipped == Reason.COMMENT_STRANDED]
 
 
 def test_apply_requires_manifest(tmp_path):

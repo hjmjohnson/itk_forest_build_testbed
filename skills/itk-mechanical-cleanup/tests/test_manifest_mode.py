@@ -1,6 +1,5 @@
 import os
 import shutil
-import sys
 import subprocess
 from pathlib import Path
 
@@ -118,14 +117,14 @@ def test_fillbuffer_loop_holding_a_comment_is_skipped(tmp_repo, tmp_path):
 
 
 @needs_tools
-def test_helper_restores_a_file_whose_edit_strands_a_comment(tmp_repo, tmp_path):
+def test_helper_restores_a_file_whose_edit_strands_a_comment(tmp_repo, tmp_path, monkeypatch):
     repo = tmp_repo("member_init")
     path = repo / "itkThing.h"
     orig = tmp_path / "orig.h"
     shutil.copy(path, orig)
     before = path.read_text()
     path.write_text(before.replace("  double     m_Scale; // pixels\n", "  double     m_Scale{};\n"))
-    sys.path.insert(0, str(SKILL / "lib"))
+    monkeypatch.syspath_prepend(str(SKILL / "lib"))
     import manifest_from_diff
 
     m = manifest_from_diff.build(repo, "in-class-member-init", [(orig, "itkThing.h")], None)
@@ -140,3 +139,31 @@ def test_fillbuffer_dry_run_writes_nothing(tmp_repo, tmp_path):
     res = transform(FILLBUFFER, repo, "--manifest", str(tmp_path / "m.json"))
     assert "WOULD EDIT: a.cxx" in res.stdout and "files_changed: 1  skipped_loops: 3" in res.stdout
     assert (repo / "a.cxx").read_text() == before and not (tmp_path / "m.json").exists()
+
+
+def test_invariant_allows_only_type_conversions_and_pure_calls(monkeypatch):
+    monkeypatch.syspath_prepend(str(FILLBUFFER.parent))
+    import fill_loops
+
+    assert fill_loops.invariant("PixelType(0)", "it")
+    assert fill_loops.invariant("static_cast<PixelType>(0)", "it")
+    assert not fill_loops.invariant("helper.MakeType(0)", "it")
+    assert not fill_loops.invariant("factory->NewType()", "it")
+    assert not fill_loops.invariant("nextType(1)", "it")
+
+
+@needs_tools
+def test_helper_keeps_the_skip_reason_of_a_restored_file(tmp_repo, tmp_path, monkeypatch):
+    repo = tmp_repo("member_init")
+    path = repo / "itkThing.h"
+    orig = tmp_path / "orig.h"
+    shutil.copy(path, orig)
+    path.write_text(path.read_text().replace("  double     m_Scale; // pixels\n", "  double     m_Scale{};\n"))
+    skips = tmp_path / "skips.tsv"
+    skips.write_text("itkThing.h\t13\t13\tloop-carried\tnot-fill-shape\n")
+    monkeypatch.syspath_prepend(str(SKILL / "lib"))
+    import manifest_from_diff
+
+    m = manifest_from_diff.build(repo, "x", [(orig, "itkThing.h")], skips)
+    assert [(s.start, s.skipped, s.note) for s in m.sites] == [
+        (12, Reason.COMMENT_STRANDED, "// pixels"), (13, Reason.LOOP_CARRIED, "not-fill-shape")]

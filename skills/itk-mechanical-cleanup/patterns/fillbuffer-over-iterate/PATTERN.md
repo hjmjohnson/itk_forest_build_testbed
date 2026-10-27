@@ -67,9 +67,10 @@ every hit must be read to confirm it is a full-buffer constant fill.
 one) on `img, img->GetBufferedRegion()` or
 `img, img->GetLargestPossibleRegion()`, whose increment is `++it`, and whose
 body is the single statement `it.Set(<expr>);`. A `while (!it.IsAtEnd())`
-loop qualifies when the iterator declaration (and an optional
-`it.GoToBegin();`) directly precedes it, its body is `it.Set(<expr>); ++it;`,
-and `it` is not used after the loop. `<expr>` must not mention the iterator,
+loop is accepted only with two guards: the iterator declaration (and an
+optional `it.GoToBegin();`) directly precedes it, so the declaration can be
+removed with the loop, and `it` is not used anywhere after the loop in the
+enclosing block. Its body must be `it.Set(<expr>); ++it;`. `<expr>` must not mention the iterator,
 increment, assign, or call anything except casts, `NumericTraits` constants,
 and `...Type(...)` conversions. The loop becomes `img->FillBuffer(<expr>);`.
 

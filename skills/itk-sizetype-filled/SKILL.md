@@ -74,6 +74,7 @@ dependencies:
     - matchers/fill_candidate.cq
     - matchers/own_filled.cq
     - matchers/user_ctor.cq
+    - matchers/fixed_size.cq
 deployment:
   tier: always
   target_projects: []
@@ -123,6 +124,14 @@ next line. The argument must not name the variable. Spelling:
   nonzero fill, since `{}` would not zero it
 - nonzero, `T` itself declares a static `Filled`: `auto v = T::Filled(k);`
 - nonzero, otherwise: `auto v = itk::MakeFilled<T>(k);`
+- any fill on a type without a compile-time size: not rewritten. The site
+  is recorded as skipped (`gate-failed`, note `not-fixed-size`) and the
+  file is left as it was. `itk::MakeFilled` static-asserts a constant
+  nonzero `size()`, so `itk::Array`, `VariableLengthVector`, `Array2D`,
+  `VariableSizeMatrix`, `OptimizerParameters`, and `vnl_vector` cannot use
+  it. A type counts as fixed-size when `matchers/fixed_size.cq` finds a
+  `constexpr size()`, an `itk::FixedArray` base, or the name `itk::Size`,
+  `itk::Index`, `itk::Offset`, or `std::array`.
 
 `Filled` is used only when `T`'s own class declares it (in ITK: `Size`,
 `Index`, `FixedArray`). `Point`, `Vector`, and `CovariantVector` inherit

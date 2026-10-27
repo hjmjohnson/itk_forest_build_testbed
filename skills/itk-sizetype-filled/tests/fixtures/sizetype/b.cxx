@@ -2,6 +2,7 @@
 
 using ArrayType = itk::Array<double>;
 using MatrixType = itk::Matrix<double>;
+using RGBPixelType = itk::RGBPixel<unsigned char>;
 
 template <typename TImage>
 unsigned long
@@ -26,5 +27,8 @@ use_b()
   MatrixType m;
   m.Fill(0);
 
-  return weights.size() + static_cast<unsigned int>(m.m_Value + first_size<FakeImage>());
+  RGBPixelType color;
+  color.Fill(0);
+
+  return weights.size() + static_cast<unsigned int>(m.m_Value + first_size<FakeImage>() + color[0]);
 }
