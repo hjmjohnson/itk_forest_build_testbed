@@ -183,7 +183,7 @@ the script's flags for the compiler family, sets `CCACHE_DISABLE=1`.
 
 Run: `pixi run pytest skills/itk-init-over-assign/tests/test_gate.py -v`
 Expected: PASS
-Run: `bash skills/itk-compile-gate.sh build_forest-itk-main/elastix/build build_forest-itk-main/elastix/Common/itkAdvancedImageToImageMetric.h`
+Run: `bash skills/itk-compile-gate.sh build_forest-itk-main/BRAINSTools/build/BRAINSTools-Release-EPRelease-build build_forest-itk-main/BRAINSTools/BRAINSCommonLib/BRAINSFitHelper.h`
 Expected: exit 0, at most 8 compile lines.
 
 - [ ] **Step 5: Commit**
@@ -834,10 +834,10 @@ def test_stages_run_in_spec_order(fake_stages):
     assert STAGES[1].const_after == "local-const" and STAGES[0].const_after is None
 
 def test_run_refuses_on_preflight_error_with_exit_2(fake_preflight_dirty):
-    assert run_main(["elastix"]) == 2
+    assert run_main(["BRAINSTools"]) == 2
 
 def test_run_partitions_once_after_all_stages(fake_everything):
-    run_main(["elastix"])
+    run_main(["BRAINSTools"])
     assert fake_everything.partition_calls == 1 and fake_everything.stage_calls == 8
 
 def test_disjoint_commits_listed_in_report(fake_everything):
@@ -872,41 +872,43 @@ git commit -m "ENH: Add the itk-init-over-assign master skill"
 
 ---
 
-### Task 14: End-to-end on elastix
+### Task 14: End-to-end on BRAINSTools
 
 **Files:**
 - Modify: `docs/superpowers/specs/2026-10-27-itk-init-over-assign-design.md`
   only if the run exposes a spec error (record it under "Open questions
   settled as my calls").
-- Create: `docs/analysis/init-over-assign-elastix-<YYYYMMDD>.md` (copy of
-  the run report, since `.devlocal/` is not tracked)
+- Create: `docs/analysis/init-over-assign-BRAINSTools-<YYYYMMDD>.md` (copy
+  of the run report, since `.devlocal/` is not tracked)
 
-- [ ] **Step 1: Refresh the elastix worktree to its upstream tip**
+- [ ] **Step 1: Refresh the BRAINSTools worktree to its upstream tip**
 
-Run: `cd ~/src/itk_forest_build_testbed && FOREST_REFERENCE_SUFFIX=itk-main pixi run checkout && pixi run build-elastix`
-Expected: elastix build artifact present (`run-matrix.sh --check-artifact elastix`).
+Run: `cd ~/src/itk_forest_build_testbed && FOREST_REFERENCE_SUFFIX=itk-main pixi run checkout && pixi run build-BRAINSTools`
+Expected: BRAINSTools build artifact present (`run-matrix.sh --check-artifact BRAINSTools`);
+the graph resolves to `build/BRAINSTools-Release-EPRelease-build/`.
 
 - [ ] **Step 2: Run the master**
 
-Run: `pixi run python skills/itk-init-over-assign/run.py elastix --forest itk-main`
+Run: `pixi run python skills/itk-init-over-assign/run.py BRAINSTools --forest itk-main`
 Expected: exit 0; report path printed; branch
-`style-init-over-assign-<date>` in `build_forest-itk-main/elastix`.
+`style-init-over-assign-<date>` in `build_forest-itk-main/BRAINSTools`.
 
 - [ ] **Step 3: Verify the branch by hand**
 
-Run: `git -C build_forest-itk-main/elastix log --oneline main..HEAD`
+Run: `git -C build_forest-itk-main/BRAINSTools log --oneline main..HEAD`
 Expected: at most 8 commits, subjects from the spec list, in stage order.
-Run: `git -C build_forest-itk-main/elastix diff main..HEAD | grep -cE '^-\s*//'` and the same for `^\+\s*//`
+Run: `git -C build_forest-itk-main/BRAINSTools diff main..HEAD | grep -cE '^-\s*//'` and the same for `^\+\s*//`
 Expected: equal counts (no comment lost).
 
 - [ ] **Step 4: Copy the report into `docs/analysis/` and commit the kit**
 
 ```bash
-git add docs/analysis/init-over-assign-elastix-*.md
-git commit -m "DOC: Record the first itk-init-over-assign run on elastix"
+git add docs/analysis/init-over-assign-BRAINSTools-*.md
+git commit -m "DOC: Record the first itk-init-over-assign run on BRAINSTools"
 ```
 
-- [ ] **Step 5: Hand the elastix branch to Hans**
+- [ ] **Step 5: Hand the BRAINSTools branch to Hans**
 
-Print the coordinate line, the report path, and the disjoint-commit list.
-Do not push; do not open a PR.
+Print the coordinate line, the report path, the disjoint-commit list, and
+a diff summary against PR #645 (kinds present there but absent here, with
+counts). Do not push; do not open a PR; closing #645 is Hans's call.

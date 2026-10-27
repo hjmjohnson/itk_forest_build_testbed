@@ -277,10 +277,10 @@ naming rule; `agent-skills doctor` must pass before the kit commit.
   commit assignment.
 - The comment check has fixtures for a moved Doxygen block, a trailing
   comment, and a stranded `TODO`.
-- End-to-end: a run on elastix (small, has its own ninja graph in the
-  forest; the remote modules do not) must produce a green branch before
-  the master is declared done; ITK, ANTs, and BRAINSTools follow as
-  separate runs the human triggers.
+- End-to-end: a run on BRAINSTools (`main`, ninja graph at
+  `build/BRAINSTools-Release-EPRelease-build/`) must produce a green
+  branch before the master is declared done; its result replaces PR #645.
+  ITK, ANTs, and the others follow as separate runs the human triggers.
 
 ## Open questions settled as my calls
 
@@ -293,7 +293,7 @@ naming rule; `agent-skills doctor` must pass before the kit commit.
 - ctest passes when there is no new failure against a cached baseline on
   the base SHA.
 - The header gate is capped at eight including TUs per header.
-- elastix is the end-to-end target; v1 checks one forest.
+- BRAINSTools is the end-to-end target; v1 checks one forest.
 - Decided by Hans (2026-10-27): the kinds #645 covered beyond the stage
   table become separate rules (the four stage 2 classes above); spelling
   follows ITK's AI docs, with `Filled` preferred over `MakeFilled`.
