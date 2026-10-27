@@ -230,3 +230,13 @@ def test_widen_to_block_stops_at_blank_and_brace_lines():
     lines = ["{", "  int a;", "  int b;", "  int c;", "", "  int d;", "}"]
     assert widen_to_block(lines, 3, 3) == (2, 4)
     assert widen_to_block(lines, 6, 6) == (6, 6)
+
+
+@needs_tools
+def test_conditional_directive_in_scope_is_skipped(fixture_graph):
+    g = fixture_graph("preprocessor")
+    out = run_promote(g)
+    assert [(s.start, s.skipped) for s in out.manifest.sites] == [
+        (7, Reason.PREPROCESSOR), (17, None)]
+    text = out.read("a.cxx")
+    assert "  int n = f();\n#if" in text and "  const int k = f();" in text

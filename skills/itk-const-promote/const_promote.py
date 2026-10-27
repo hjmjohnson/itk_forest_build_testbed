@@ -39,6 +39,7 @@ KINDS = ("local-const", "container-const", "itk-helpers-constexpr")
 CONST, CONSTEXPR = "const", "constexpr"
 MESSAGE = re.compile(r"^variable '([^']+)' of type '([^']*)'(?: \(aka '([^']*)'\))? can be declared 'const'")
 SOURCE_SUFFIXES = {".cxx", ".cpp", ".cc", ".c++", ".C"}
+CONDITIONAL = re.compile(r"(?m)^[ \t]*#[ \t]*(?:if|ifdef|ifndef|elif|else|endif)\b")
 AUTO = re.compile(r"(?<![\w:])auto\b(?=\s*[&*]*\s*[A-Za-z_]\w*\s*[={(])")
 
 
@@ -74,6 +75,19 @@ def statement_end(code: str, begin: int) -> int:
         elif ch == ";" and depth == 0:
             return i
     return len(code)
+
+
+def guarded(code: str, begin: int) -> bool:
+    """A conditional directive between the declaration and the end of its scope."""
+    depth = 0
+    for i in range(begin, len(code)):
+        if code[i] == "{":
+            depth += 1
+        elif code[i] == "}":
+            if depth == 0:
+                return bool(CONDITIONAL.search(code, begin, i))
+            depth -= 1
+    return bool(CONDITIONAL.search(code, begin))
 
 
 def has_second_declarator(code: str, name_end: int, end: int) -> bool:
@@ -171,6 +185,8 @@ def plan_hits(hits: list[Hit], docs: dict[Path, Doc], ranges: dict[Path, list[tu
             head and re.search(r"\b(?:static|thread_local)\b", code[begin:begin + head.start()])
         ):
             plan.skipped = Reason.STATIC_LOCAL
+        elif guarded(code, begin):
+            plan.skipped = Reason.PREPROCESSOR
         elif head is None:
             plan.skipped, plan.note = Reason.GATE_FAILED, "declaration-not-found"
         elif len(names) > 1 or has_second_declarator(code, begin + head.end(), end):

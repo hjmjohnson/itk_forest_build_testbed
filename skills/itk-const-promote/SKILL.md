@@ -87,7 +87,7 @@ Usage:
                lines and write nothing
 
 Classes:   const, constexpr
-Skips:     static-local, gate-failed (auto-unanalyzed, declaration-not-found,
+Skips:     static-local, preprocessor, gate-failed (auto-unanalyzed, declaration-not-found,
            multiple-declarators, unsupported-specifier)
 ```
 
@@ -135,6 +135,9 @@ falling back to `PATH`. Run through `pixi run` so `CONDA_PREFIX` is set.
    A type naming `Pointer`, and any reference, stays `const`.
 7. `static` and `thread_local` locals are recorded `static-local` and left
    unedited.
+8. A conditional directive (`#if`, `#ifdef`, `#ifndef`, `#elif`, `#else`,
+   `#endif`) between the declaration and the end of its scope records
+   `preprocessor`: a branch clang-tidy did not compile may write the local.
 
 clang-tidy does not report locals whose initializer depends on a template
 parameter, so most locals in `.hxx` template code are not promoted.
