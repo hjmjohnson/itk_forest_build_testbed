@@ -26,6 +26,8 @@ class Build:
     warnings: list[str] = field(default_factory=list)
     precommit_ok: bool = True
     precommit_changed: list[str] = field(default_factory=list)
+    warning_keys: list[str] = field(default_factory=list)
+    new_warnings: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -118,6 +120,11 @@ def _build_lines(build: Build | None, coords) -> list[str]:
         out += ["", _wrap("These were restored to the branch tip before the build.")]
     if build.detail:
         out += ["", "```text", build.detail.rstrip(), "```"]
+    if build.new_warnings:
+        out += ["", "### New warnings", "", _wrap(
+            "Warnings in the rebuild that the baseline build did not report; the run "
+            "is not green."), ""]
+        out += [f"- `{w}`" for w in build.new_warnings]
     if build.warnings:
         out += ["", "Warnings in the rebuild log:", ""]
         out += [f"> {w}" for w in build.warnings]

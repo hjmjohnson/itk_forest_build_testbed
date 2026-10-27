@@ -17,6 +17,7 @@ SKILLS = Path(__file__).resolve().parents[3]
 PATTERNS = SKILLS / "itk-mechanical-cleanup" / "patterns"
 LOCAL_CLASSES = "assign,elem_diff,elem_zero,sized_ctor,stream_open,bool_branch,placeholder"
 WARNING = re.compile(r"\bwarning:")
+DIAG = re.compile(r"^(?P<file>[^\s:][^:]*):(?P<line>\d+):(?:\d+:)?\s*warning:\s*(?P<text>.*?)\s*$")
 
 Cmd = list[str]
 Ctx = dict[str, str]
@@ -224,10 +225,35 @@ def post_commands_standalone(repo: Path, build: Path, jobs: int | None = None) -
     ]
 
 
-def _built(done: subprocess.CompletedProcess, label: str, pc: PreCommit) -> Build:
+def warning_keys(log: str, repo: Path | None, base: Path | None) -> list[str]:
+    """`file:line: warning: text` per compiler warning, with paths relative to repo."""
+    out: dict[str, None] = {}
+    for ln in log.splitlines():
+        m = DIAG.match(ln.strip())
+        if not m:
+            continue
+        path = Path(m["file"])
+        if base is not None and not path.is_absolute():
+            path = base / path
+        if repo is not None and path.is_absolute():
+            full, root = path.resolve(), repo.resolve()
+            if full.is_relative_to(root):
+                path = full.relative_to(root)
+        out[f"{path.as_posix()}:{m['line']}: warning: {m['text']}"] = None
+    return list(out)
+
+
+def new_warnings(before: list[str], after: list[str]) -> list[str]:
+    seen = set(before)
+    return [w for w in after if w not in seen]
+
+
+def _built(done: subprocess.CompletedProcess, label: str, pc: PreCommit,
+           repo: Path | None = None, base: Path | None = None) -> Build:
     log = (done.stdout or "") + (done.stderr or "")
     warnings = list(dict.fromkeys(ln.strip() for ln in log.splitlines() if WARNING.search(ln)))
-    build = Build(pc.status, True, "", warnings, pc.ok, pc.changed)
+    build = Build(pc.status, True, "", warnings, pc.ok, pc.changed,
+                  warning_keys(log, repo, base))
     if done.returncode != 0:
         build.ok, build.detail = False, f"{label} exited {done.returncode}\n{failure_excerpt(log)}"
     return build
@@ -248,21 +274,22 @@ def failure_excerpt(log: str, context: int = 20) -> str:
     return "\n".join(out)
 
 
-def full_build(kit: Path, repo_name: str, suffix: str, pc: PreCommit) -> Build:
+def full_build(kit: Path, repo_name: str, suffix: str, pc: PreCommit,
+               repo: Path | None = None, graph: Path | None = None) -> Build:
     done = subprocess.run(["pixi", "run", f"build-{repo_name}"], cwd=kit,
                           capture_output=True, text=True, check=False,
                           env=baseline.forest_env(suffix))
-    build = _built(done, f"pixi run build-{repo_name}", pc)
+    build = _built(done, f"pixi run build-{repo_name}", pc, repo, graph)
     if build.ok and baseline.matrix(kit, "--check-artifact", repo_name, suffix=suffix).returncode != 0:
         build.ok, build.detail = False, f"artifact check failed for {repo_name}"
     return build
 
 
-def full_build_standalone(build: Path, pc: PreCommit) -> Build:
+def full_build_standalone(build: Path, pc: PreCommit, repo: Path | None = None) -> Build:
     argv = ["ninja", "-C", str(build)]
     done = subprocess.run(argv, cwd=build, capture_output=True, text=True, check=False,
                           env=baseline.forest_env(None))
-    return _built(done, shlex.join(argv), pc)
+    return _built(done, shlex.join(argv), pc, repo, build)
 
 
 def run_ctest(kit: Path, repo_name: str, base: Path, run_dir: Path, suffix: str) -> Ctest:

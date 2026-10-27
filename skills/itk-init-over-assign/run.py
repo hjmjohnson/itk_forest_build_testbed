@@ -54,7 +54,8 @@ class ForestHarness:
         return baseline.ensure(coords, KIT)
 
     def build(self, coords, pc) -> report.Build:
-        return pipeline.full_build(KIT, coords.repo_slug, baseline.suffix_of(coords.forest_name), pc)
+        return pipeline.full_build(KIT, coords.repo_slug, baseline.suffix_of(coords.forest_name), pc,
+                                   self.repo, coords.graph)
 
     def ctest(self, coords, base: Path, run_dir: Path) -> report.Ctest:
         return pipeline.run_ctest(KIT, coords.repo_slug, base, run_dir,
@@ -77,7 +78,7 @@ class StandaloneHarness:
         return baseline.ensure_standalone(coords, KIT)
 
     def build(self, coords, pc) -> report.Build:
-        return pipeline.full_build_standalone(coords.graph, pc)
+        return pipeline.full_build_standalone(coords.graph, pc, self.repo)
 
     def ctest(self, coords, base: Path, run_dir: Path) -> report.Ctest:
         return pipeline.run_ctest_standalone(coords.graph, base, run_dir)
@@ -163,7 +164,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"cannot create {branch}: {created.stderr.strip()}", file=sys.stderr)
         return 1
     print(f"Branch: {branch}")
-    return _run(repo, coords, selected, branch, run_dir, base, harness, notes)
+    return _run(repo, coords, selected, branch, run_dir, base, harness, notes, built.warning_keys)
 
 
 def _baseline_build(harness, coords) -> report.Build:
@@ -173,7 +174,7 @@ def _baseline_build(harness, coords) -> report.Build:
         return report.Build("not run", False, f"{type(exc).__name__}: {exc}")
 
 
-def _run(repo, coords, selected, branch, run_dir, base, harness, notes) -> int:
+def _run(repo, coords, selected, branch, run_dir, base, harness, notes, before_warnings=()) -> int:
     records = []
     for kind, stage in selected:
         print(f"stage {kind}", flush=True)
@@ -199,6 +200,7 @@ def _run(repo, coords, selected, branch, run_dir, base, harness, notes) -> int:
         pc = pipeline.pre_commit(repo)
         step = "build"
         build = harness.build(coords, pc)
+        build.new_warnings = pipeline.new_warnings(list(before_warnings), build.warning_keys)
         step = "ctest"
         ctest = harness.ctest(coords, base, run_dir) if build.ok else None
     except Exception as exc:
@@ -209,7 +211,8 @@ def _run(repo, coords, selected, branch, run_dir, base, harness, notes) -> int:
     path = _write(repo, coords, commits, _skips(records, results), build, ctest, branch,
                   run_dir, None, notes, left)
     print(f"report: {path}")
-    green = build.ok and build.precommit_ok and ctest and ctest.ok and not left
+    green = (build.ok and build.precommit_ok and ctest and ctest.ok and not left
+             and not build.new_warnings)
     return 0 if green else 1
 
 

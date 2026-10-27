@@ -56,6 +56,7 @@ class World:
         self.prebuild_tries = 1
         self.build_dirties: list[str] = []
         self.leftover_diff = ""
+        self.build_outs: dict[int, str] = {}
         self.builds = 0
         self.apply_raises = False
         self.precommit_rewrites: list[str] = []
@@ -133,8 +134,9 @@ class World:
         elif "--ctest-dir" in argv:
             out = f"{self.ctest_dir}\n"
         elif argv[:2] == ["pixi", "run"]:
-            out = "[1/2] x\nfoo.cxx:3:1: warning: unused variable 'q'\n"
             self.builds += 1
+            out = self.build_outs.get(
+                self.builds, "[1/2] x\nfoo.cxx:3:1: warning: unused variable 'q'\n")
             rc = self.prebuild_rc if self.builds <= self.prebuild_tries else self.build_rc
             assert not self.dirty, "build saw files rewritten by pre-commit"
             if self.builds == 1:
@@ -525,3 +527,29 @@ def test_member_default_init_is_its_own_kind_after_member_init():
     helpers = pipeline.commands(dict(pipeline.select(None))["itk-helpers"],
                                 pipeline.context("itk-helpers", Path("r"), Path("g"), Path("d")))
     assert not any("in-class-member-init" in a for argv, _ in helpers for a in argv)
+
+
+def test_new_warning_in_the_rebuild_is_reported_and_not_green(world):
+    old = "foo.cxx:3:1: warning: unused variable 'q' [-Wunused-variable]\n"
+    world.build_outs = {
+        1: old,
+        2: old + f"{world.repo}/Common/bar.cxx:9:5: warning: unused variable 'r'\n",
+    }
+    assert world.run.main(["BRAINSTools"]) == 1
+    text = _report(world)
+    assert "### New warnings" in text
+    assert "- `Common/bar.cxx:9: warning: unused variable 'r'`" in text
+    assert "foo.cxx:3: warning" not in text.split("### New warnings")[1].split("Warnings in")[0]
+
+
+def test_unchanged_warnings_keep_the_run_green(world):
+    assert world.run.main(["BRAINSTools"]) == 0
+    assert "### New warnings" not in _report(world)
+
+
+def test_warning_keys_are_relative_to_the_repo(tmp_path):
+    repo, base = tmp_path / "src", tmp_path / "src" / "build"
+    log = ("../Common/a.cxx:4:2: warning: x [-Wy]\n"
+           f"{repo}/b.h:7: warning: z\n/usr/include/c.h:1:1: warning: sys\nnot a warning\n")
+    assert pipeline.warning_keys(log, repo, base) == [
+        "Common/a.cxx:4: warning: x [-Wy]", "b.h:7: warning: z", "/usr/include/c.h:1: warning: sys"]
