@@ -111,7 +111,7 @@ description = "Run the Python test suites that ship with skills/"
 [tasks.test.env]
 # Each skill vendors its support modules under <skill>/lib; put them on the
 # path so `import agent_skills.<mod>` resolves to the vendored copy under test.
-PYTHONPATH = "skills/gh-comment-cache/lib"
+PYTHONPATH = "skills/gh-comment-cache/lib:skills/itk-init-over-assign/lib"
 
 [tasks.status]
 cmd = "bash ./bin/setup-itk-downstream-testbed.sh status"
