@@ -109,6 +109,31 @@ def _rel(path: Path, root: Path) -> str:
     return str(path.relative_to(root)) if path.is_relative_to(root) else str(path)
 
 
+def database_spellings(graph: Path) -> dict[Path, str]:
+    """Resolved path -> the absolute spelling run-clang-tidy matches file arguments against."""
+    try:
+        entries = json.loads((graph / "compile_commands.json").read_text())
+    except (OSError, ValueError):
+        return {}
+    out = {}
+    for e in entries:
+        spelling = os.path.abspath(os.path.join(e["directory"], e["file"]))
+        out[Path(spelling).resolve()] = spelling
+    return out
+
+
+def root_spellings(spelled: dict[Path, str], root: Path) -> list[str]:
+    """The resolved root plus every spelling of it the compile database uses."""
+    found = [str(root)]
+    for real, spelling in spelled.items():
+        if real.is_relative_to(root):
+            rel = str(real.relative_to(root))
+            prefix = spelling[: -len(rel) - 1] if spelling.endswith("/" + rel) else None
+            if prefix and prefix not in found:
+                found.append(prefix)
+    return found
+
+
 def crashed_tus(output: str) -> list[str]:
     """TUs that run-clang-tidy reports as failed or killed."""
     found = re.findall(r"^Error while processing (.+?)\.?$", output, re.M)
@@ -130,10 +155,13 @@ def run_tidy(
     if files is not None and not files:
         return [], []
     excluded = "|".join(EXCLUDED)
+    spelled = database_spellings(graph)
+    roots = root_spellings(spelled, root)
+    under = "|".join(_ere(r) for r in roots)
     if files is None:
-        targets = [f"^{re.escape(str(root))}/(?!(?:.*/)?(?:{excluded})/)"]
+        targets = [f"^(?:{'|'.join(re.escape(r) for r in roots)})/(?!(?:.*/)?(?:{excluded})/)"]
     else:
-        targets = [f"^{re.escape(str(Path(f).resolve()))}$" for f in files]
+        targets = [f"^{re.escape(spelled.get(Path(f).resolve(), str(Path(f).resolve())))}$" for f in files]
     config = []
     if options:
         opts = ", ".join(f"{check}.{k}: {json.dumps(v)}" for k, v in options.items())
@@ -145,7 +173,7 @@ def run_tidy(
                 "-clang-tidy-binary", tool("clang-tidy"),
                 "-clang-apply-replacements-binary", tool("clang-apply-replacements"),
                 "-p", str(graph), f"-checks=-*,{check}", *config,
-                f"-header-filter=^{_ere(str(root))}/",
+                f"-header-filter=^({under})/",
                 f"-exclude-header-filter=/({excluded})/",
                 "-export-fixes", fixes, "-quiet", "-j", str(os.cpu_count() or 1),
                 *targets,
@@ -163,6 +191,9 @@ def run_tidy(
                 dropped.append(_rel(tu, root))
             else:
                 diags += parsed
+    counted = re.search(r"^Running clang-tidy for (\d+) files", res.stdout, re.M)
+    if files is not None and counted and counted[1] == "0":
+        raise RuntimeError(f"run-clang-tidy matched none of {len(files)} requested file(s) in {graph}")
     for tu in crashed_tus(res.stdout + res.stderr):
         rel = _rel(Path(tu).resolve(), root)
         if rel not in dropped:
@@ -238,11 +269,34 @@ def changed_ranges(old: str, new: str) -> list[tuple[int, int]]:
     return [(j1, j2) for tag, _, _, j1, j2 in ops.get_opcodes() if tag != "equal"]
 
 
+BRACE_ONLY = re.compile(r"^\s*[{}]+;?\s*$")
+
+
+def widen_to_block(lines: list[str], lo: int, hi: int) -> tuple[int, int]:
+    """Extend 1-based inclusive [lo, hi] over the adjacent non-blank, non-brace-only lines.
+
+    clang-format aligns consecutive declarations, so formatting one line of a run alone
+    leaves its neighbors misaligned.
+    """
+    def inside(i: int) -> bool:
+        return 1 <= i <= len(lines) and lines[i - 1].strip() != "" and not BRACE_ONLY.match(lines[i - 1])
+
+    while inside(lo - 1):
+        lo -= 1
+    while inside(hi + 1):
+        hi += 1
+    return lo, hi
+
+
 def format_changed(path: Path, old: str) -> None:
-    """clang-format only the lines of path that differ from old."""
+    """clang-format the lines of path that differ from old, widened to their blocks."""
     new = path.read_text(errors="surrogateescape")
     n = max(1, new.count("\n"))
-    spans = [f"--lines={max(1, j1)}:{min(n, max(j2, j1 + 1))}" for j1, j2 in changed_ranges(old, new)]
+    lines = new.splitlines()
+    spans = []
+    for j1, j2 in changed_ranges(old, new):
+        lo, hi = widen_to_block(lines, j1 + 1, max(j2, j1 + 1))
+        spans.append(f"--lines={max(1, min(lo, j1))}:{min(n, hi)}")
     if spans:
         subprocess.run(
             [tool("clang-format"), "-i", "--style=file", "--fallback-style=none", *spans, str(path)],

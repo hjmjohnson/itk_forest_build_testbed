@@ -5,7 +5,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from constexpr_rule import initializer, promotable  # noqa: E402
+from constexpr_rule import initializer, mask, promotable  # noqa: E402
 
 
 @pytest.mark.parametrize("decl, name, ctype", [
@@ -56,3 +56,11 @@ def test_initializer_ignores_comments_and_trailing_semicolon():
     assert initializer("int n{ 3 };", "n") == "{ 3 }"
     assert initializer("int arr[2] = { 1, 2 };", "arr") == "{ 1, 2 }"
     assert initializer("int n;", "n") is None
+
+
+def test_mask_keeps_digit_separators_out_of_char_literals():
+    text = "int x = 0xFF'FF; // c\nchar c = u8'a';"
+    masked = mask(text, literals=True)
+    assert masked.startswith("int x = 0xFF'FF;")
+    assert "// c" not in masked
+    assert "u8' '" in masked

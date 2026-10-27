@@ -99,7 +99,9 @@ falling back to `PATH`. Run through `pixi run` so `CONDA_PREFIX` is set.
 1. Reads the `--only-from` manifest. Only files with applied sites there are
    analyzed: their own translation units, or for a header one including TU
    from the ninja deps (`ioa.compile_commands.including_tus`). The TUs are
-   passed to `run-clang-tidy` as file arguments.
+   passed to `run-clang-tidy` as file arguments, spelled as the compile
+   database spells them (symlinked build paths match), and a run that
+   matches none of them raises.
 2. Runs `misc-const-correctness` through `ioa.tidy.run_tidy` with
    `AnalyzeValues`, `AnalyzeReferences`, `TransformValues`, and
    `TransformReferences` on, and `WarnPointersAsValues` and
@@ -115,9 +117,11 @@ falling back to `PATH`. Run through `pixi run` so `CONDA_PREFIX` is set.
    and not recorded.
 5. `const ` (or `constexpr `) is inserted at the start of the declaration,
    west-const (`const int n`), which is ITK style, instead of clang-tidy's
-   `int const n`. Nothing else on
-   the line moves, so trailing comments stay. `clang-format --style=file`
-   then runs on the changed lines.
+   `int const n`. Nothing else on the line moves, so trailing comments stay.
+   `clang-format --style=file` then runs on each changed line widened to its
+   run of adjacent non-blank, non-brace lines (`ioa.tidy.widen_to_block`),
+   because ITK aligns consecutive declarations; the partitioner formats its
+   staged hunks the same way.
 6. `constexpr` replaces `const` when the initializer is (`constexpr_rule.py`):
    - a literal: number, `true`/`false`, `nullptr`, or a character, for a
      builtin arithmetic type (pointer for `nullptr`); a string literal only

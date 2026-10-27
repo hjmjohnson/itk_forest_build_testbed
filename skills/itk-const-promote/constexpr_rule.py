@@ -26,6 +26,13 @@ BUILTINS = {
 }
 
 
+def _digit_separator(text: str, i: int) -> bool:
+    j = i - 1
+    while j >= 0 and (text[j].isalnum() or text[j] in "'_."):
+        j -= 1
+    return text[j + 1:i][:1].isdigit()
+
+
 def mask(text: str, literals: bool = False) -> str:
     """Blank comments (and literal contents when asked), keeping offsets and newlines."""
     out = list(text)
@@ -47,7 +54,7 @@ def mask(text: str, literals: bool = False) -> str:
             j = n if j < 0 else j + 2
             blank(i, j)
             i = j
-        elif text[i] == '"' or (text[i] == "'" and not (i and text[i - 1].isdigit())):
+        elif text[i] == '"' or (text[i] == "'" and not _digit_separator(text, i)):
             q, j = text[i], i + 1
             while j < n and text[j] != q and text[j] != "\n":
                 j += 2 if text[j] == "\\" else 1

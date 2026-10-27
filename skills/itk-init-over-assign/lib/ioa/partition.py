@@ -21,6 +21,7 @@ from ioa.patch import (
 )
 from ioa.skip import Reason
 from ioa.stages import StageRecord, load, snapshot  # noqa: F401
+from ioa.tidy import widen_to_block
 
 SUBJECTS = {
     "member-init": "STYLE: Initialize members in constructor initializer lists",
@@ -128,14 +129,15 @@ def _revert_cached(repo: Path, file: Path, old_starts: set[int] | None) -> None:
 
 def _format(repo: Path, file: Path) -> None:
     staged, _ = parse_diff(diff(repo, "--cached", "-U0", "--", file.as_posix()))
+    before = git_bytes(repo, "show", f":{file.as_posix()}")
+    lines = before.decode("utf-8", "surrogateescape").splitlines()
     ranges = [
-        f"--lines={h.new_start}:{h.new_start + h.new_count - 1}"
+        "--lines={}:{}".format(*widen_to_block(lines, h.new_start, h.new_start + h.new_count - 1))
         for h in staged
         if h.new_count
     ]
     if not ranges:
         return
-    before = git_bytes(repo, "show", f":{file.as_posix()}")
     p = subprocess.run(
         ["clang-format", f"--assume-filename={repo / file}", *ranges],
         cwd=repo, check=True, capture_output=True, input=before,

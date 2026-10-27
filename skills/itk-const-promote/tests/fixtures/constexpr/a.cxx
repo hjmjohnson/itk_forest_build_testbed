@@ -24,14 +24,10 @@ double
 use()
 {
   SizeType size = SizeType::Filled(2);
-
-  int lit = 3;
-
-  int n = f();
-
-  double big = std::numeric_limits<double>::max();
-
-  int arr[] = { 1, 2 };
+  int      lit = 3;
+  int      n = f();
+  double   big = std::numeric_limits<double>::max();
+  int      arr[] = { 1, 2 };
 
   auto w = f();
   return size.m_Size[0] + lit + n + big + arr[1] + w;

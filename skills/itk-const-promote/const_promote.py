@@ -186,6 +186,14 @@ def plan_hits(hits: list[Hit], docs: dict[Path, Doc], ranges: dict[Path, list[tu
     return sorted(out, key=lambda t: (t[0].file, t[0].begin))
 
 
+def follow(ops: list[tuple], x: int, end: bool) -> int:
+    """map_line, but line by line through a same-size replace (realigned declarations)."""
+    for tag, i1, i2, j1, j2 in ops:
+        if tag == "replace" and i2 - i1 == j2 - j1 and ((i1 < x <= i2) if end else (i1 <= x < i2)):
+            return j1 + (x - i1)
+    return map_line(ops, x, end)
+
+
 def site(root: Path, path: Path, first: int, last: int, kind: str, cls: str, text: str, **kw) -> Site:
     n = max(1, text.count("\n"))
     start = min(max(1, first), n)
@@ -226,7 +234,7 @@ def run(graph: Path, root: Path, manifest: Path | None, only_from: Path, kind: s
     for plan, first, last in plans:
         new = after.get(plan.file, docs[plan.file].text)
         moved = ops.get(plan.file, [])
-        a, b = map_line(moved, first - 1, False) + 1, map_line(moved, last, True)
+        a, b = follow(moved, first - 1, False) + 1, follow(moved, last, True)
         sites.append(site(root, plan.file, a, b, kind, plan.cls, new, skipped=plan.skipped, note=plan.note))
 
     if manifest is not None:
