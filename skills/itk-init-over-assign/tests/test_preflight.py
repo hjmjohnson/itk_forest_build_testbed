@@ -1,0 +1,107 @@
+import subprocess
+from pathlib import Path
+
+import pytest
+
+from ioa import preflight
+from ioa.preflight import PreflightError
+
+
+def git(cwd, *args):
+    subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True)
+
+
+def commit(repo, name):
+    (repo / name).write_text(name)
+    git(repo, "add", name)
+    git(repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", name)
+
+
+@pytest.fixture
+def world(tmp_path, monkeypatch):
+    upstream = tmp_path / "upstream.git"
+    git(tmp_path, "init", "-q", "--bare", "-b", "main", str(upstream))
+    forest = tmp_path / "build_forest-itk-main"
+    repo = forest / "BRAINSTools"
+    repo.mkdir(parents=True)
+    git(repo, "init", "-q", "-b", "main")
+    commit(repo, "a")
+    git(repo, "remote", "add", "upstream", str(upstream))
+    git(repo, "push", "-q", "upstream", "main")
+    git(repo, "checkout", "-q", "-b", "BRAINSTools-itk-downstream-itk-main")
+    kit = tmp_path / "kit"
+    kit.mkdir()
+    (kit / "CATALOG.md").write_text(
+        "## Consumers\n\n| Tree | Repository | Floating branch |\n|---|---|---|\n"
+        f"| BRAINSTools | {upstream} | `main` |\n"
+    )
+    graph = repo / "build" / "BRAINSTools-build"
+    graph.mkdir(parents=True)
+    (graph / "compile_commands.json").write_text("[]")
+    (graph / "CMakeCache.txt").write_text(
+        "CMAKE_CXX_COMPILER_VERSION:STRING=19.1.7\nITK_DIR:PATH=" + str(tmp_path / "itk") + "\n"
+    )
+    (tmp_path / "itk").mkdir()
+    (tmp_path / "itk" / "ITKConfigVersion.cmake").write_text('set(PACKAGE_VERSION "6.0.0")\n')
+    monkeypatch.setattr(preflight, "tidy_version", lambda: "19.1")
+    return repo, forest, kit
+
+
+def test_clean_state_returns_coordinates(world):
+    repo, forest, kit = world
+    c = preflight.check(repo, forest, kit)
+    assert c.repo_slug == "BRAINSTools" and c.forest_name == "build_forest-itk-main"
+    assert c.itk_version == "6.0.0"
+    assert c.graph.name == "BRAINSTools-build"
+    assert len(c.sha) == 40
+
+
+def test_dirty_tree_is_refused(world):
+    repo, forest, kit = world
+    (repo / "a").write_text("changed")
+    with pytest.raises(PreflightError) as e:
+        preflight.check(repo, forest, kit)
+    assert e.value.code == "dirty-tree"
+
+
+def test_protected_branch_is_refused(world):
+    repo, forest, kit = world
+    git(repo, "checkout", "-q", "main")
+    with pytest.raises(PreflightError) as e:
+        preflight.check(repo, forest, kit)
+    assert e.value.code == "on-main"
+
+
+def test_worktree_ahead_of_upstream_tip_is_refused(world):
+    repo, forest, kit = world
+    commit(repo, "b")
+    with pytest.raises(PreflightError) as e:
+        preflight.check(repo, forest, kit)
+    assert e.value.code == "not-at-upstream-tip"
+    assert "FOREST_REFERENCE_SUFFIX=itk-main pixi run checkout" in str(e.value)
+    assert "pixi run build-BRAINSTools" in str(e.value)
+
+
+def test_missing_graph_is_refused(world):
+    repo, forest, kit = world
+    for p in sorted((repo / "build").rglob("*"), reverse=True):
+        p.unlink() if p.is_file() else p.rmdir()
+    with pytest.raises(PreflightError) as e:
+        preflight.check(repo, forest, kit)
+    assert e.value.code == "no-graph"
+
+
+def test_tidy_series_must_match_compiler(world, monkeypatch):
+    repo, forest, kit = world
+    monkeypatch.setattr(preflight, "tidy_version", lambda: "20.1")
+    with pytest.raises(PreflightError) as e:
+        preflight.check(repo, forest, kit)
+    assert e.value.code == "tidy-series-mismatch"
+
+
+def test_url_spellings_are_equivalent():
+    assert preflight._norm_url("git@github.com:a/b.git") == preflight._norm_url("https://github.com/a/b")
+
+
+def test_itk_version_unknown_when_unreadable(tmp_path):
+    assert preflight.itk_version(tmp_path) == "unknown"
