@@ -1,6 +1,7 @@
 import re
 import subprocess
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 
 from ioa import compile_commands, tidy
@@ -24,6 +25,12 @@ class Coordinates:
     graph: Path
     itk_version: str
     forest_local: list[str] = field(default_factory=list)
+    repo: Path | None = None
+    note: str = ""
+
+
+def run_branch(now: datetime) -> str:
+    return f"style-init-over-assign-{now:%Y%m%d}"
 
 
 def _git(repo: Path, *args: str, code: str = "not-at-upstream-tip") -> str:
@@ -70,15 +77,23 @@ def _upstream_tip(repo: Path, url: str, branch: str, refresh: str) -> str:
     )
 
 
-def tidy_version() -> str:
+def _tidy_output() -> str:
     try:
-        out = subprocess.run(
+        return subprocess.run(
             [tidy.tool("clang-tidy"), "--version"],
             capture_output=True, text=True, check=True,
         ).stdout
     except (SystemExit, OSError, subprocess.CalledProcessError) as exc:
         raise PreflightError("tidy-series-mismatch", f"clang-tidy is unusable: {exc}") from exc
-    m = re.search(r"version\s+(\d+\.\d+)", out)
+
+
+def tidy_version() -> str:
+    m = re.search(r"version\s+(\d+\.\d+)", _tidy_output())
+    return m.group(1) if m else "unknown"
+
+
+def tidy_full_version() -> str:
+    m = re.search(r"version\s+(\d+\.\d+(?:\.\d+)?)", _tidy_output())
     return m.group(1) if m else "unknown"
 
 
@@ -90,12 +105,17 @@ def _cache_value(graph: Path, pattern: str) -> str | None:
     return m.group(1).strip() if m else None
 
 
-def compiler_version(graph: Path) -> str:
+def _compiler_setting(graph: Path, name: str) -> str | None:
     for f in sorted(graph.glob("CMakeFiles/*/CMakeCXXCompiler.cmake")):
-        m = re.search(r'set\(CMAKE_CXX_COMPILER_VERSION "(\d+\.\d+)', f.read_text())
+        m = re.search(rf'set\({name} "([^"]*)"\)', f.read_text())
         if m:
             return m.group(1)
-    return "unknown"
+    return None
+
+
+def compiler_version(graph: Path) -> str:
+    m = re.match(r"\d+\.\d+", _compiler_setting(graph, "CMAKE_CXX_COMPILER_VERSION") or "")
+    return m.group(0) if m else "unknown"
 
 
 def itk_version(graph: Path) -> str:
@@ -170,3 +190,52 @@ def check(repo: Path, forest: Path, kit: Path) -> Coordinates:
             "tidy-series-mismatch", f"clang-tidy {have} but the forest compiler is {want}"
         )
     return Coordinates(repo.name, sha, forest.name, graph, itk_version(graph), forest_local)
+
+
+def _series(version: str) -> str:
+    return ".".join(version.split(".")[:2])
+
+
+def _standalone_tidy_note(graph: Path) -> str:
+    have = tidy_full_version()
+    if _compiler_setting(graph, "CMAKE_CXX_COMPILER_ID") == "AppleClang":
+        full = _compiler_setting(graph, "CMAKE_CXX_COMPILER_VERSION") or "unknown"
+        shown = ".".join(full.split(".")[:3])
+        return f"tidy-series: skipped (AppleClang {shown} vs clang-tidy {have})"
+    want = compiler_version(graph)
+    if _series(have) != want:
+        raise PreflightError(
+            "tidy-series-mismatch", f"clang-tidy {have} but the build compiler is {want}"
+        )
+    return ""
+
+
+def check_standalone(repo: Path, build: Path, upstream: str, kit: Path) -> Coordinates:
+    remote, _, branch = upstream.partition("/")
+    if not remote or not branch:
+        raise PreflightError("not-at-upstream-tip", f"--upstream {upstream} is not <remote>/<branch>")
+    refresh = (
+        f"refresh with `git -C {repo} fetch {remote} && "
+        f"git -C {repo} merge --ff-only {remote}/{branch}`"
+    )
+    if _git(repo, "status", "--porcelain", "--untracked-files=no", code="dirty-tree"):
+        raise PreflightError("dirty-tree", f"{repo} has uncommitted changes")
+    _git(repo, "fetch", "--quiet", remote, branch)
+    tip = _git(repo, "rev-parse", f"refs/remotes/{remote}/{branch}")
+    sha = _git(repo, "rev-parse", "HEAD")
+    forest_local = _forest_local_commits(repo, tip, sha)
+    if forest_local is None:
+        raise PreflightError(
+            "not-at-upstream-tip",
+            f"HEAD {sha[:12]} differs from {upstream} {tip[:12]} by more than "
+            f"`{FOREST_LOCAL}` commits; {refresh}",
+        )
+    if not (build / "compile_commands.json").is_file():
+        raise PreflightError("no-graph", f"no compile_commands.json in {build}")
+    run = run_branch(datetime.now())
+    if _git(repo, "branch", "--list", run):
+        raise PreflightError("branch-exists", f"branch {run} already exists in {repo}; delete or rename it")
+    note = _standalone_tidy_note(build)
+    slug = _norm_url(_git(repo, "remote", "get-url", remote)).rsplit("/", 1)[-1]
+    return Coordinates(slug, sha, "standalone", build, itk_version(build), forest_local,
+                       repo=repo, note=note)

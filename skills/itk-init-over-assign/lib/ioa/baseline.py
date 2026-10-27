@@ -4,6 +4,7 @@ import re
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Callable
 
 
 def forest_env(suffix: str | None) -> dict[str, str]:
@@ -37,11 +38,44 @@ def failed_tests(ctest_dir: Path) -> list[str]:
     return sorted(names)
 
 
+SUMMARY = re.compile(r"\d+% tests passed, (\d+) tests? failed out of (\d+)")
+
+
+def last_token(stdout: str) -> str:
+    tokens = [t for t in stdout.split() if t.startswith("T:")]
+    return tokens[-1] if tokens else "no token"
+
+
+def ctest_token(stdout: str) -> str:
+    """The run-matrix `T:<passed>/<total>` token, built from ctest's own summary line."""
+    found = SUMMARY.findall(stdout)
+    if not found:
+        return "no token"
+    failed, total = map(int, found[-1])
+    return f"T:{total - failed}/{total}"
+
+
+def ctest_argv(build: Path, jobs: int | None = None) -> list[str]:
+    jobs = jobs or max(2, (os.cpu_count() or 2) // 2)
+    return ["ctest", "--test-dir", str(build), f"-j{jobs}", "--timeout", "300",
+            "--output-on-failure"]
+
+
+def run_ctest(build: Path, jobs: int | None = None) -> str:
+    done = subprocess.run(ctest_argv(build, jobs), cwd=build, capture_output=True,
+                          text=True, check=False)
+    return ctest_token(done.stdout or "")
+
+
+def _path(coords, kit: Path) -> Path:
+    name = f"{coords.repo_slug}-{coords.sha}.json"
+    if coords.forest_name == "standalone":
+        name = f"{coords.repo_slug}-standalone-{coords.sha}.json"
+    return kit / ".devlocal" / "init-over-assign" / "baselines" / name
+
+
 def ensure(coords, kit: Path) -> Path:
-    path = (
-        kit / ".devlocal" / "init-over-assign" / "baselines"
-        / f"{coords.repo_slug}-{coords.sha}.json"
-    )
+    path = _path(coords, kit)
     if path.exists():
         return path
     suffix = suffix_of(coords.forest_name)
@@ -49,11 +83,21 @@ def ensure(coords, kit: Path) -> Path:
     if got.returncode != 0 or not got.stdout.strip():
         raise RuntimeError(f"run-matrix.sh --ctest-dir failed: {got.stderr.strip()}")
     ctest_dir = Path(got.stdout.strip().splitlines()[-1])
+    return _record(path, coords, ctest_dir, lambda: last_token(
+        matrix(kit, "--run-ctest", coords.repo_slug, suffix=suffix).stdout))
+
+
+def ensure_standalone(coords, kit: Path, jobs: int | None = None) -> Path:
+    path = _path(coords, kit)
+    if path.exists():
+        return path
+    return _record(path, coords, coords.graph, lambda: run_ctest(coords.graph, jobs))
+
+
+def _record(path: Path, coords, ctest_dir: Path, run: Callable[[], str]) -> Path:
     log = ctest_dir / "Testing" / "Temporary" / "LastTestsFailed.log"
     log.unlink(missing_ok=True)
-    run = matrix(kit, "--run-ctest", coords.repo_slug, suffix=suffix)
-    tokens = [t for t in run.stdout.split() if t.startswith("T:")]
-    token = tokens[-1] if tokens else "no token"
+    token = run()
     m = re.fullmatch(r"T:(\d+)/(\d+)", token)
     if not m or int(m.group(2)) == 0:
         raise RuntimeError(f"ctest did not run for {coords.repo_slug}: {token}")

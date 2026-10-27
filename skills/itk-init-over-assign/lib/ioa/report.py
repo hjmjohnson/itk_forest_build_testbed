@@ -47,6 +47,11 @@ class Failure:
 
 
 def coordinate_line(coords) -> str:
+    if coords.forest_name == "standalone":
+        return (
+            f"Repo: {coords.repo_slug} ({coords.sha[:12]}) | "
+            f"Standalone: {coords.repo}, build {coords.graph}"
+        )
     return (
         f"Repo: {coords.repo_slug} ({coords.sha[:12]}) | "
         f"Forest: {coords.forest_name} | ITK: {coords.itk_version}"

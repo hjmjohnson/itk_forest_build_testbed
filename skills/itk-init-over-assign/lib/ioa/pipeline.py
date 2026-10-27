@@ -202,31 +202,56 @@ def post_commands(repo: Path, repo_name: str) -> list[str]:
     ]
 
 
-def full_build(kit: Path, repo_name: str, suffix: str, pc: PreCommit) -> Build:
-    done = subprocess.run(["pixi", "run", f"build-{repo_name}"], cwd=kit,
-                          capture_output=True, text=True, check=False,
-                          env=baseline.forest_env(suffix))
+def post_commands_standalone(repo: Path, build: Path, jobs: int | None = None) -> list[str]:
+    return [
+        f"pre-commit: (cd {shlex.quote(str(repo))} && pre-commit run --all-files)",
+        f"build: {shlex.join(['ninja', '-C', str(build)])}",
+        f"ctest: {shlex.join(baseline.ctest_argv(build, jobs))}",
+    ]
+
+
+def _built(done: subprocess.CompletedProcess, label: str, pc: PreCommit) -> Build:
     log = (done.stdout or "") + (done.stderr or "")
     warnings = list(dict.fromkeys(ln.strip() for ln in log.splitlines() if WARNING.search(ln)))
     build = Build(pc.status, True, "", warnings, pc.ok, pc.changed)
     if done.returncode != 0:
         tail = "\n".join(log.splitlines()[-20:])
-        build.ok, build.detail = False, f"pixi run build-{repo_name} exited {done.returncode}\n{tail}"
-    elif baseline.matrix(kit, "--check-artifact", repo_name, suffix=suffix).returncode != 0:
+        build.ok, build.detail = False, f"{label} exited {done.returncode}\n{tail}"
+    return build
+
+
+def full_build(kit: Path, repo_name: str, suffix: str, pc: PreCommit) -> Build:
+    done = subprocess.run(["pixi", "run", f"build-{repo_name}"], cwd=kit,
+                          capture_output=True, text=True, check=False,
+                          env=baseline.forest_env(suffix))
+    build = _built(done, f"pixi run build-{repo_name}", pc)
+    if build.ok and baseline.matrix(kit, "--check-artifact", repo_name, suffix=suffix).returncode != 0:
         build.ok, build.detail = False, f"artifact check failed for {repo_name}"
     return build
+
+
+def full_build_standalone(build: Path, pc: PreCommit) -> Build:
+    argv = ["ninja", "-C", str(build)]
+    done = subprocess.run(argv, cwd=build, capture_output=True, text=True, check=False)
+    return _built(done, shlex.join(argv), pc)
 
 
 def run_ctest(kit: Path, repo_name: str, base: Path, run_dir: Path, suffix: str) -> Ctest:
     where = baseline.matrix(kit, "--ctest-dir", repo_name, suffix=suffix).stdout.strip().splitlines()
     if not where:
         return Ctest(False, "no ctest directory", [], base)
-    ctest_dir = Path(where[-1])
+    return _compare(Path(where[-1]), base, run_dir, lambda: baseline.last_token(
+        baseline.matrix(kit, "--run-ctest", repo_name, suffix=suffix).stdout))
+
+
+def run_ctest_standalone(build: Path, base: Path, run_dir: Path, jobs: int | None = None) -> Ctest:
+    return _compare(build, base, run_dir, lambda: baseline.run_ctest(build, jobs))
+
+
+def _compare(ctest_dir: Path, base: Path, run_dir: Path, run: Callable[[], str]) -> Ctest:
     log = ctest_dir / "Testing" / "Temporary" / "LastTestsFailed.log"
     log.unlink(missing_ok=True)
-    out = baseline.matrix(kit, "--run-ctest", repo_name, suffix=suffix).stdout
-    tokens = [t for t in out.split() if t.startswith("T:")]
-    token = tokens[-1] if tokens else "no token"
+    token = run()
     m = re.fullmatch(r"T:(\d+)/(\d+)", token)
     if not m or int(m.group(2)) == 0:
         return Ctest(False, token, [], base, "ctest did not run")

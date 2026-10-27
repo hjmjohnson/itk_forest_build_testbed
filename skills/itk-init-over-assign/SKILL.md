@@ -1,8 +1,8 @@
 ---
 name: itk-init-over-assign
 version: 1.0.0
-purpose: Run every initialize-over-assign stage on one forest consumer unattended and leave a local branch with one gated commit per refactor kind, plus a report and a PR body draft.
-description: Master of the init-over-assign refactor. Preflights a consumer worktree in a forest (clean tree, not on main, HEAD at the catalog's upstream tip, ninja graph found, clang-tidy series matching the forest compiler), records a ctest baseline, creates branch style-init-over-assign-<YYYYMMDD>, runs eight stages over the working tree (member init, local declare-then-init, local const, container list init, container const, ITK helpers, helper constexpr, narrow scope), partitions the diff into one commit per kind with the comment check, clang-format, and the compile gate, then runs pre-commit, the full forest build, and ctest against the baseline. Writes the report and a PR body under the kit's .devlocal/. Never pushes and never opens a PR.
+purpose: Run every initialize-over-assign stage on one forest consumer or standalone checkout unattended and leave a local branch with one gated commit per refactor kind, plus a report and a PR body draft.
+description: Master of the init-over-assign refactor. Preflights a consumer worktree in a forest (clean tree, not on main, HEAD at the catalog's upstream tip, ninja graph found, clang-tidy series matching the forest compiler), records a ctest baseline, creates branch style-init-over-assign-<YYYYMMDD>, runs eight stages over the working tree (member init, local declare-then-init, local const, container list init, container const, ITK helpers, helper constexpr, narrow scope), partitions the diff into one commit per kind with the comment check, clang-format, and the compile gate, then runs pre-commit, the full forest build, and ctest against the baseline. Standalone mode (--repo/--build) skips the forest and builds with ninja and runs ctest in the checkout's own build tree. Writes the report and a PR body under the kit's .devlocal/. Never pushes and never opens a PR.
 triggers:
   - itk-init-over-assign
   - /itk-init-over-assign
@@ -11,7 +11,7 @@ triggers:
   - unattended initialization refactor
 user_invocable: true
 cmd: false
-argument_hint: "<repo-name> [--forest <suffix>] [--stages k1,k2] [--dry-run]"
+argument_hint: "<repo-name> [--forest <suffix>] | --repo <path> --build <dir> [--upstream <remote/branch>]; [--stages k1,k2] [--dry-run]"
 contract:
   inputs:
     - argument
@@ -94,9 +94,15 @@ itk-init-over-assign: one unattended run, one local branch, one commit per kind
 
 Usage (from the kit root, under pixi):
   pixi run python skills/itk-init-over-assign/run.py <repo> [options]
+  pixi run python skills/itk-init-over-assign/run.py \
+      --repo <path> --build <dir> [--upstream <remote/branch>] [options]
 
   <repo>        consumer directory in the forest, e.g. BRAINSTools
   --forest S    forest suffix; the forest is build_forest-S (default itk-main)
+  --repo P      standalone checkout, no forest (needs --build; excludes
+                <repo> and --forest)
+  --build D     its inner build tree, holding compile_commands.json
+  --upstream U  standalone upstream tip (default origin/main)
   --stages K    comma-separated kinds to run; a const kind needs its parent
   --dry-run     preflight and branch check, then print every stage,
                 pre-commit, build, and ctest command and stop
@@ -113,6 +119,7 @@ ran against:
 
 ```
 Repo: BRAINSTools (0123456789ab) | Forest: build_forest-itk-main | ITK: 6.0.0
+Repo: BRAINSTools (0123456789ab) | Standalone: <repo path>, build <build dir>
 ```
 
 For a supervised, one-class-at-a-time loop with a human between commits,
@@ -171,7 +178,16 @@ subject in `ioa.partition.SUBJECTS`.
    `BUILD_FOREST_ROOT` removed. A failures token without
    `LastTestsFailed.log`, a run that did not execute, or a new failure
    against the baseline exits 1.
-6. Any exception after the stages still writes the report, with the step,
+6. Standalone mode (`--repo`/`--build`) runs `ioa.preflight.check_standalone`
+   instead: it fetches `--upstream`, refuses `dirty-tree`, `no-graph`,
+   `not-at-upstream-tip` (with the `fetch && merge --ff-only` hint), and
+   `branch-exists`, but not `on-main`, since the run makes its own branch.
+   An AppleClang build skips the tidy-series check and says so in the
+   report's notes. The baseline, the build, and the ctest step run
+   `ctest --test-dir <build> -j<N> --timeout 300 --output-on-failure` and
+   `ninja -C <build>` directly; the `T:<passed>/<total>` token is built
+   from ctest's summary line, so the same green rule applies.
+7. Any exception after the stages still writes the report, with the step,
    the exception, and its last frame under "Run error", and exits 1.
 
 The run never pushes, never calls `gh`, and writes into the consumer only
@@ -199,3 +215,6 @@ PYTHONPATH=skills/itk-init-over-assign/lib pixi run pytest skills/itk-init-over-
 partitioner, and every subprocess, and checks stage order, the
 `--only-from` wiring, exit codes, a single plan after all stages, the
 report sections, and that no command pushes or calls `gh`.
+`tests/test_standalone.py` covers standalone preflight against a temporary
+git repo, the ninja and ctest commands and their order, the token built from
+ctest's summary line, and the standalone coordinate line.
