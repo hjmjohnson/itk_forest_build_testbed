@@ -7,6 +7,7 @@ match varDecl(
       cxxOperatorCallExpr(hasOverloadedOperatorName("[]"))))),
     cxxOperatorCallExpr(hasOverloadedOperatorName("="), hasArgument(0, ignoringParenImpCasts(
       cxxOperatorCallExpr(hasOverloadedOperatorName("[]"))))))))))))),
+  hasAutomaticStorageDuration(),
   hasInitializer(cxxConstructExpr(argumentCountIs(0))),
   hasType(hasUnqualifiedDesugaredType(recordType(hasDeclaration(namedDecl(
     hasAnyName("::std::vector", "::std::array", "::itk::Array", "::vnl_vector"))))))).bind("index_assign_run")

@@ -4,6 +4,7 @@ set bind-root false
 match varDecl(
   hasParent(declStmt(hasParent(compoundStmt(hasAnySubstatement(expr(ignoringImplicit(
     cxxMemberCallExpr(callee(cxxMethodDecl(hasAnyName("push_back", "emplace_back"))))))))))),
+  hasAutomaticStorageDuration(),
   hasInitializer(cxxConstructExpr(argumentCountIs(0))),
   hasType(hasUnqualifiedDesugaredType(recordType(hasDeclaration(namedDecl(
     hasAnyName("::std::vector", "::std::array", "::itk::Array", "::vnl_vector"))))))).bind("push_back_run")

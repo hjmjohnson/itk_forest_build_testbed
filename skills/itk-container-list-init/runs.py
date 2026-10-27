@@ -18,8 +18,9 @@ FLOAT_LITERAL = re.compile(r"^-?\s*(?:\d[\d']*\.[\d']*|\.\d[\d']*|\d[\d']*(?=[eE
 IDENT = re.compile(r"^[A-Za-z_]\w*$")
 INT_RANK = {"char": 1, "short": 2, "int": 3, "long": 4, "long long": 5}
 FLOAT_RANK = {"float": 1, "double": 2, "long double": 3}
-UNSIGNED_ALIASES = {"size_t": 4, "SizeValueType": 4, "IdentifierType": 4, "IndexValueType": 4}
-SIGNED_ALIASES = {"ptrdiff_t": 4, "OffsetValueType": 4}
+UNSIGNED_ALIASES = {"size_t": 4, "SizeValueType": 4, "IdentifierType": 4}
+SIGNED_ALIASES = {"ptrdiff_t": 4, "OffsetValueType": 4, "IndexValueType": 4}
+STORAGE = re.compile(r"(?<![\w:])(?:static|thread_local)\b")
 
 
 @dataclass
@@ -333,6 +334,8 @@ def judge(run: Run, canonicals: list[str], before: str) -> None:
 
 
 def _verdict(run: Run, container: str, targs: list[str], before: str) -> tuple[Reason, str] | None:
+    if STORAGE.search(run.head):
+        return Reason.STATIC_LOCAL, ""
     if container == "vnl_vector":
         return Reason.INIT_LIST_CTOR, "no-init-list"
     if any(len(a) > 1 for a in run.args) and element_type(run.head) is None:
@@ -342,7 +345,7 @@ def _verdict(run: Run, container: str, targs: list[str], before: str) -> tuple[R
         size = targs[1] if container == "std::array" and len(targs) > 1 else None
         if sorted(run.indices) != list(range(n)) or (size is not None and size.isdigit() and int(size) != n):
             return Reason.NARROWING, "partial-coverage"
-        if run.indices != sorted(run.indices) and any("(" in a[0] for a in run.args):
+        if run.indices != sorted(run.indices) and not all(_inert(a[0]) for a in run.args):
             return Reason.ORDER_VIOLATION, "index-order"
     target = classify(targs[0]) if targs else None
     if target is None:
@@ -350,9 +353,18 @@ def _verdict(run: Run, container: str, targs: list[str], before: str) -> tuple[R
     kinds = [element_kind(a[0], before) if len(a) == 1 else None for a in run.args]
     if any(k is not None and narrows(target, k) for k in kinds):
         return Reason.NARROWING, ""
-    if container == "std::vector" and len(run.args) <= 2 and any(k and k[0] == "int" for k in kinds):
+    if container == "std::vector" and len(run.args) <= 2 and (
+            not all(k and k[0] == "float" for k in kinds) if target[0] == "int"
+            else any(k and k[0] == "int" for k in kinds)):
         return Reason.INIT_LIST_CTOR, ""
     return None
+
+
+def _inert(expr: str) -> bool:
+    """A literal or plain identifier: evaluating it in another order changes nothing."""
+    e = expr.strip()
+    return bool(INT_LITERAL.match(e) or FLOAT_LITERAL.match(e) or IDENT.match(e)
+                or re.fullmatch(r"(?:u8|u|U|L)?(?:'(?:\\.|[^'\\])+'|\"(?:\\.|[^\"\\])*\")", e))
 
 
 def render(run: Run) -> str:

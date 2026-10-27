@@ -84,7 +84,7 @@ Usage:
                lines and write nothing
 
 Classes:   push_back_run, index_assign_run
-Skips:     narrowing (also note partial-coverage), init-list-ctor (notes
+Skips:     static-local, narrowing (also note partial-coverage), init-list-ctor (notes
            no-init-list, element-type-unknown), order-violation (index-order),
            preprocessor, comment-stranded, gate-failed (element-count)
 ```
@@ -118,22 +118,27 @@ falling back to `PATH`. Run through `pixi run` so `CONDA_PREFIX` is set.
    - `emplace_back` with several arguments when the declaration does not spell
      the element type (a typedef such as `PairVec`): `init-list-ctor`, note
      `element-type-unknown`. Otherwise the element becomes `Elem(a, b)`.
+   - `static` or `thread_local` locals: `static-local` (the matchers already
+     require automatic storage; the text check is a backstop), because brace
+     initialization would run once instead of appending on every call.
    - index runs whose indices are not exactly `0..n-1`, or whose count differs
      from a `std::array` size: `narrowing`, note `partial-coverage`. Indices out
-     of order are sorted, unless an element contains a call
-     (`order-violation`, note `index-order`).
+     of order are sorted only when every element is a literal or a plain
+     identifier; otherwise `order-violation`, note `index-order`.
    - `narrowing`: an integer element type receiving a floating literal or
      identifier; a signed integer type receiving an unsigned identifier
-     (declared `unsigned`, `size_t`, `SizeValueType`, `IdentifierType`, or
-     `IndexValueType`) or a `u`-suffixed literal; an unsigned type receiving a
+     (declared `unsigned`, `size_t`, `SizeValueType`, or `IdentifierType`;
+     `IndexValueType` and `OffsetValueType` are signed) or a `u`-suffixed literal; an unsigned type receiving a
      signed identifier or a negative literal; a wider integer identifier; a
      floating type receiving an integer identifier or a wider floating
      identifier. An identifier's type is read from the last declaration of it
      earlier in the file. Elements whose type cannot be determined are allowed;
      the compile gate catches a real narrowing error.
-   - `init-list-ctor`: an arithmetic `std::vector` with one or two elements of
-     which any is an integer literal or integer identifier, because a reader
-     cannot tell `{3}` from the `(size_type, value)` constructor.
+   - `init-list-ctor`: a `std::vector` of an integral type with one or two
+     elements, unless every element is known to be floating; or of a floating
+     type with one or two elements of which any is an integer literal or
+     integer identifier. A reader cannot tell `{3}` from the
+     `(size_type, value)` constructor.
    - `preprocessor`: a directive inside the run (the next statement after the
      directive continues it).
    `std::array` brace initialization is aggregate initialization and needs no

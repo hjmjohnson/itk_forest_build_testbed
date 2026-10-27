@@ -201,3 +201,35 @@ def test_dry_run_prints_counts_and_writes_nothing(fixture_graph, capsys):
     assert _git(g.repo, "status", "--porcelain") == ""
     assert "index_assign_run a.cxx 1" in out.stdout
     assert "skipped:narrowing a.cxx 1" in out.stdout
+
+
+@needs_tools
+def test_static_and_thread_local_locals_are_never_rewritten(fixture_graph):
+    g = fixture_graph("static_local")
+    before = (g.repo / "a.cxx").read_text()
+    out = run_list_init(g)
+    assert out.manifest.applied() == []
+    assert out.read("a.cxx") == before
+
+
+@needs_tools
+def test_out_of_order_runs_with_side_effects_are_not_reordered(fixture_graph):
+    g = fixture_graph("order_effects")
+    before = (g.repo / "a.cxx").read_text()
+    out = run_list_init(g)
+    assert [(s.skipped, s.note) for s in out.manifest.sites] == [(Reason.ORDER_VIOLATION, "index-order")] * 2
+    assert out.read("a.cxx") == before
+
+
+@needs_tools
+def test_unclassified_element_in_short_int_vector_is_init_list_ctor(fixture_graph):
+    g = fixture_graph("init_list_expr")
+    before = (g.repo / "a.cxx").read_text()
+    out = run_list_init(g)
+    assert [s.skipped for s in out.manifest.sites] == [Reason.INIT_LIST_CTOR]
+    assert out.read("a.cxx") == before
+
+
+def test_apply_requires_manifest(tmp_path):
+    with pytest.raises(SystemExit):
+        list_init.main(["--graph", str(tmp_path), "--repo", str(tmp_path), "--apply"])

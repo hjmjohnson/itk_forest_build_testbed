@@ -4,8 +4,15 @@ Pure functions over declaration text and the variable's canonical type.
 """
 
 import re
+import sys
+from pathlib import Path
 
-from ioa.source import mask
+try:
+    import ioa  # noqa: F401
+except ImportError:
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "itk-init-over-assign" / "lib"))
+
+from ioa.source import mask  # noqa: E402
 
 NUMBER = r"[+-]?(?:0[xX][\da-fA-F']+|0[bB][01']+|(?:\d[\d']*\.?[\d']*|\.\d[\d']*)(?:[eE][+-]?\d+)?)[uUlLfFzZ]*"
 CHAR = r"(?:u8|u|U|L)?'(?:\\.|[^'\\])+'"

@@ -161,6 +161,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--manifest", type=Path, help="manifest path (written only with --apply)")
     ap.add_argument("--apply", action="store_true", help="edit the working tree")
     args = ap.parse_args(argv)
+    if args.apply and args.manifest is None:
+        ap.error("--apply needs --manifest")
     root = args.repo.resolve()
     if not root.is_dir():
         ap.error(f"--repo {args.repo} is not a directory")

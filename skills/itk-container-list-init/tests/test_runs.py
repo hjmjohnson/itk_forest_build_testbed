@@ -6,7 +6,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from ioa.skip import Reason  # noqa: E402
-from runs import brace_list, container_of, element_type, find_run, judge, render  # noqa: E402
+from runs import brace_list, container_of, count_elements, element_type, find_run, judge, render  # noqa: E402
 
 
 def body(*lines: str) -> str:
@@ -86,6 +86,7 @@ def test_non_constant_index_ends_the_run():
     ("long n = 2;", "n", "std::vector<int>"),
     ("int n = 2;", "n", "std::vector<unsigned int>"),
     ("", "-1", "std::vector<unsigned long>"),
+    ("itk::IndexValueType n = 2;", "n", "std::vector<unsigned long>"),
 ])
 def test_narrowing_elements_are_skipped(decl, elem, canonical):
     lines = [decl] if decl else []
@@ -174,3 +175,41 @@ def test_comment_inside_element_is_skipped():
     run = run_of(body("std::vector<double> v;", "v.push_back(g(1, // one", "                 2));"),
                  canonical="std::vector<double>")
     assert (run.skipped, run.note) == (Reason.COMMENT_STRANDED, "comment-in-element")
+
+
+def test_index_value_type_is_signed():
+    run = run_of(body("itk::IndexValueType n = 2;", "std::vector<long> v;", "v.push_back(n);", "v.push_back(7);",
+                      "v.push_back(8);"), canonical="std::vector<long>")
+    assert run.skipped is None
+
+
+@pytest.mark.parametrize("head", ["static std::vector<double> v;", "thread_local std::vector<double> v;",
+                                  "static thread_local std::vector<double> v;"])
+def test_static_and_thread_local_are_skipped(head):
+    run = run_of(body(head, "v.push_back(1.5);", "v.push_back(2.5);"), canonical="std::vector<double>")
+    assert run.skipped == Reason.STATIC_LOCAL
+
+
+@pytest.mark.parametrize("rhs", ["i++", "x += 1", "-i", "a.b"])
+def test_out_of_order_index_run_with_effects_is_order_violation(rhs):
+    run = run_of(body("std::array<int, 2> v;", f"v[1] = {rhs};", f"v[0] = {rhs};"), canonical="std::array<int, 2>")
+    assert (run.skipped, run.note) == (Reason.ORDER_VIOLATION, "index-order")
+
+
+def test_out_of_order_index_run_of_identifiers_is_sorted():
+    run = run_of(body("std::array<int, 2> v;", "v[1] = q;", "v[0] = 'c';"), canonical="std::array<int, 2>")
+    assert (run.skipped, brace_list(run)) == (None, ["'c'", "q"])
+
+
+@pytest.mark.parametrize("elems", [["n + 1"], ["g()", "h()"], ["n", "k"]])
+def test_short_integral_vector_with_unclassified_element_is_init_list_ctor(elems):
+    run = run_of(body("std::vector<int> v;", *(f"v.push_back({e});" for e in elems)))
+    assert run.skipped == Reason.INIT_LIST_CTOR
+
+
+def test_count_elements_detects_a_wrong_rendering():
+    text = body("std::vector<int> v{ 1, 2 };")
+    assert count_elements(text, 0, "v")[0] == 2
+    assert count_elements(body("std::vector<int> v{ 1, f(2, 3) };"), 0, "v")[0] == 2
+    assert count_elements(body("std::vector<int> v{};"), 0, "v")[0] == 0
+    assert count_elements(body("std::vector<int> v;"), 0, "v") is None
