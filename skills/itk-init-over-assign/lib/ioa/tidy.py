@@ -1,0 +1,264 @@
+"""clang-tidy plumbing shared by the init-over-assign stages: run a check over a
+compile_commands.json graph, read its exported fixes, and apply byte-exact edits."""
+
+import difflib
+import json
+import os
+import re
+import shutil
+import subprocess
+import tempfile
+from dataclasses import dataclass
+from pathlib import Path
+
+EXCLUDED = ("ThirdParty", "build", "Utilities")
+KV = re.compile(r"^( *)(- )?(\w+):\s*(.*)$")
+
+
+def tool(name: str) -> str:
+    prefix = os.environ.get("CONDA_PREFIX")
+    if prefix and (Path(prefix) / "bin" / name).exists():
+        return str(Path(prefix) / "bin" / name)
+    found = shutil.which(name)
+    if found is None:
+        raise SystemExit(f"ioa: {name} not found in $CONDA_PREFIX/bin or on PATH")
+    return found
+
+
+@dataclass(frozen=True)
+class Repl:
+    file: Path
+    offset: int
+    length: int
+    text: str
+
+
+@dataclass(frozen=True)
+class Diag:
+    check: str
+    message: str
+    repls: tuple[Repl, ...]
+    file: Path | None = None
+    offset: int | None = None
+
+
+def _scalar(v: str) -> str:
+    v = v.strip()
+    if v.startswith("'"):
+        return v[1:-1].replace("''", "'")
+    if v.startswith('"'):
+        return json.loads(v)
+    return v
+
+
+def parse_fixes(text: str) -> list[Diag]:
+    """Read clang-tidy -export-fixes YAML (the subset clang-tidy emits)."""
+    out: list[dict] = []
+    cur: dict | None = None
+    section = sub = ""
+    for line in text.splitlines():
+        kv = KV.match(line)
+        if not kv:
+            continue
+        col = len(kv[1]) + (2 if kv[2] else 0)
+        key, val = kv[3], kv[4]
+        if col == 4 and key == "DiagnosticName":
+            cur = {"check": _scalar(val), "message": "", "repls": [], "file": None, "offset": None}
+            out.append(cur)
+            section = "diag"
+        elif cur is None:
+            continue
+        elif col == 4:
+            section = "notes" if key == "Notes" else "diag"
+        elif section != "diag":
+            continue
+        elif col == 6:
+            sub = key
+            if key == "Message":
+                cur["message"] = _scalar(val)
+            elif key == "FilePath" and _scalar(val):
+                cur["file"] = Path(_scalar(val))
+            elif key == "FileOffset":
+                cur["offset"] = int(val)
+        elif col == 10 and sub == "Replacements":
+            if kv[2]:
+                cur["repls"].append({})
+            cur["repls"][-1][key] = _scalar(val)
+    return [
+        Diag(d["check"], d["message"], tuple(
+            Repl(Path(r["FilePath"]), int(r["Offset"]), int(r["Length"]), r["ReplacementText"])
+            for r in d["repls"]
+        ), d["file"], d["offset"])
+        for d in out
+    ]
+
+
+def _ere(s: str) -> str:
+    return re.sub(r"([.^$|()\[\]{}*+?\\])", r"\\\1", s)
+
+
+def in_scope(path: Path, root: Path) -> bool:
+    try:
+        rel = path.resolve().relative_to(root)
+    except ValueError:
+        return False
+    return not any(p in EXCLUDED for p in rel.parts[:-1])
+
+
+def _rel(path: Path, root: Path) -> str:
+    return str(path.relative_to(root)) if path.is_relative_to(root) else str(path)
+
+
+def crashed_tus(output: str) -> list[str]:
+    """TUs that run-clang-tidy reports as failed or killed."""
+    found = re.findall(r"^Error while processing (.+?)\.?$", output, re.M)
+    found += re.findall(r"^(.+?): terminated by signal \d+$", output, re.M)
+    return list(dict.fromkeys(found))
+
+
+def run_tidy(
+    graph: Path,
+    root: Path,
+    check: str,
+    options: dict[str, object] | None = None,
+    files: list[Path] | None = None,
+) -> tuple[list[Diag], list[str]]:
+    """Fixes for one check, and the TUs dropped because they failed to compile.
+
+    ``files`` limits the run to those translation units; an empty list runs nothing.
+    """
+    if files is not None and not files:
+        return [], []
+    excluded = "|".join(EXCLUDED)
+    if files is None:
+        targets = [f"^{re.escape(str(root))}/(?!(?:.*/)?(?:{excluded})/)"]
+    else:
+        targets = [f"^{re.escape(str(Path(f).resolve()))}$" for f in files]
+    config = []
+    if options:
+        opts = ", ".join(f"{check}.{k}: {json.dumps(v)}" for k, v in options.items())
+        config = [f"-config={{CheckOptions: {{{opts}}}}}"]
+    with tempfile.TemporaryDirectory() as fixes:
+        res = subprocess.run(
+            [
+                tool("run-clang-tidy"),
+                "-clang-tidy-binary", tool("clang-tidy"),
+                "-clang-apply-replacements-binary", tool("clang-apply-replacements"),
+                "-p", str(graph), f"-checks=-*,{check}", *config,
+                f"-header-filter=^{_ere(str(root))}/",
+                f"-exclude-header-filter=/({excluded})/",
+                "-export-fixes", fixes, "-quiet", "-j", str(os.cpu_count() or 1),
+                *targets,
+            ],
+            capture_output=True, text=True,
+        )
+        diags: list[Diag] = []
+        dropped: list[str] = []
+        for y in sorted(Path(fixes).glob("*.yaml")):
+            text = y.read_text(errors="surrogateescape")
+            parsed = parse_fixes(text)
+            if any(d.check == "clang-diagnostic-error" for d in parsed):
+                main = re.search(r"^MainSourceFile:\s*(.*)$", text, re.M)
+                tu = Path(_scalar(main[1])) if main else Path(y.name)
+                dropped.append(_rel(tu, root))
+            else:
+                diags += parsed
+    for tu in crashed_tus(res.stdout + res.stderr):
+        rel = _rel(Path(tu).resolve(), root)
+        if rel not in dropped:
+            dropped.append(f"{rel} (tidy-crash)")
+    if res.returncode != 0 and not dropped:
+        raise RuntimeError(f"run-clang-tidy failed (exit {res.returncode}):\n{res.stderr[-4000:]}")
+    seen, out = set(), []
+    for d in diags:
+        if d.check != check or not d.repls or d in seen:
+            continue
+        if all(in_scope(r.file, root) for r in d.repls):
+            seen.add(d)
+            out.append(d)
+    return out, dropped
+
+
+class Doc:
+    """A source file with byte <-> character offset mapping."""
+
+    def __init__(self, path: Path):
+        self.path = path
+        self.data = path.read_bytes()
+        self.text = self.data.decode("utf-8", "surrogateescape")
+
+    def c(self, byte: int) -> int:
+        if self.data.isascii():
+            return byte
+        return len(self.data[:byte].decode("utf-8", "surrogateescape"))
+
+    def b(self, char: int) -> int:
+        if self.data.isascii():
+            return char
+        return len(self.text[:char].encode("utf-8", "surrogateescape"))
+
+    def line(self, char: int) -> int:
+        return self.text.count("\n", 0, char)
+
+
+def apply_edits(
+    edits: dict[Path, list[tuple[int, int, str]]], docs: dict[Path, Doc], name: str = "member-init"
+) -> None:
+    """Apply (start, end, text) character-offset edits with clang-apply-replacements."""
+    lines = ["---", "MainSourceFile: \"\"", "Diagnostics:"]
+    for path, items in edits.items():
+        doc = docs[path]
+        lines += [
+            f"  - DiagnosticName: \"ioa-{name}\"",
+            "    DiagnosticMessage:",
+            f"      Message: \"{name}\"",
+            f"      FilePath: {json.dumps(str(path))}",
+            "      FileOffset: 0",
+            "      Replacements:",
+        ]
+        for a, b, text in sorted(items):
+            lines += [
+                f"        - FilePath: {json.dumps(str(path))}",
+                f"          Offset: {doc.b(a)}",
+                f"          Length: {doc.b(b) - doc.b(a)}",
+                f"          ReplacementText: {json.dumps(text)}",
+            ]
+        lines += ["    Level: Warning", "    BuildDirectory: \"\""]
+    lines.append("...")
+    with tempfile.TemporaryDirectory() as d:
+        (Path(d) / "fixes.yaml").write_text("\n".join(lines) + "\n")
+        res = subprocess.run([tool("clang-apply-replacements"), d], capture_output=True, text=True)
+        if res.returncode != 0 or res.stderr.strip():
+            raise RuntimeError(f"clang-apply-replacements failed (exit {res.returncode}):\n{res.stderr[-4000:]}")
+
+
+def changed_ranges(old: str, new: str) -> list[tuple[int, int]]:
+    """Half-open 0-based line ranges of new that differ from old."""
+    ops = difflib.SequenceMatcher(None, old.splitlines(True), new.splitlines(True), autojunk=False)
+    return [(j1, j2) for tag, _, _, j1, j2 in ops.get_opcodes() if tag != "equal"]
+
+
+def format_changed(path: Path, old: str) -> None:
+    """clang-format only the lines of path that differ from old."""
+    new = path.read_text(errors="surrogateescape")
+    n = max(1, new.count("\n"))
+    spans = [f"--lines={max(1, j1)}:{min(n, max(j2, j1 + 1))}" for j1, j2 in changed_ranges(old, new)]
+    if spans:
+        subprocess.run(
+            [tool("clang-format"), "-i", "--style=file", "--fallback-style=none", *spans, str(path)],
+            check=True, capture_output=True, text=True,
+        )
+
+
+def opcodes(a: str, b: str) -> list[tuple]:
+    return difflib.SequenceMatcher(None, a.splitlines(True), b.splitlines(True), autojunk=False).get_opcodes()
+
+
+def map_line(ops: list[tuple], x: int, end: bool) -> int:
+    """Map 0-based line x of the old text through ops to the new text."""
+    for tag, i1, i2, j1, j2 in ops:
+        if (i1 < x <= i2) if end else (i1 <= x < i2):
+            if tag == "equal":
+                return j1 + (x - i1)
+            return j2 if end else j1
+    return ops[-1][4] if ops else x
