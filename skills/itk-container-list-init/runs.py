@@ -361,9 +361,9 @@ def _verdict(run: Run, container: str, targs: list[str], before: str) -> tuple[R
 
 
 def _inert(expr: str) -> bool:
-    """A literal or plain identifier: evaluating it in another order changes nothing."""
+    """A literal: evaluating it in another order changes nothing."""
     e = expr.strip()
-    return bool(INT_LITERAL.match(e) or FLOAT_LITERAL.match(e) or IDENT.match(e)
+    return bool(INT_LITERAL.match(e) or FLOAT_LITERAL.match(e)
                 or re.fullmatch(r"(?:u8|u|U|L)?(?:'(?:\\.|[^'\\])+'|\"(?:\\.|[^\"\\])*\")", e))
 
 

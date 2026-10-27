@@ -233,3 +233,23 @@ def test_unclassified_element_in_short_int_vector_is_init_list_ctor(fixture_grap
 def test_apply_requires_manifest(tmp_path):
     with pytest.raises(SystemExit):
         list_init.main(["--graph", str(tmp_path), "--repo", str(tmp_path), "--apply"])
+
+
+@needs_tools
+def test_element_count_mismatch_reverts_file_as_gate_failed(fixture_graph, monkeypatch):
+    g = fixture_graph("push_back")
+    before = {n: (g.repo / n).read_text() for n in ("a.cxx", "h.h")}
+    real = list_init.count_elements
+
+    def wrong(text, begin, name):
+        found = real(text, begin, name)
+        return (found[0] + 1, *found[1:]) if found and name == "w" else found
+
+    monkeypatch.setattr(list_init, "count_elements", wrong)
+    out = run_list_init(g)
+    assert out.read("a.cxx") == before["a.cxx"]
+    assert out.read("h.h") != before["h.h"]
+    assert [(s.file, s.start, s.skipped, s.note) for s in out.manifest.sites] == [
+        (Path("a.cxx"), 8, Reason.GATE_FAILED, "element-count:2"),
+        (Path("a.cxx"), 12, Reason.GATE_FAILED, "element-count:2"),
+        (Path("h.h"), 7, None, "elements:2")]

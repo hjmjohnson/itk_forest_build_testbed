@@ -123,8 +123,8 @@ falling back to `PATH`. Run through `pixi run` so `CONDA_PREFIX` is set.
      initialization would run once instead of appending on every call.
    - index runs whose indices are not exactly `0..n-1`, or whose count differs
      from a `std::array` size: `narrowing`, note `partial-coverage`. Indices out
-     of order are sorted only when every element is a literal or a plain
-     identifier; otherwise `order-violation`, note `index-order`.
+     of order are sorted only when every element is a literal (integer,
+     floating, character, or string); any identifier or expression gives `order-violation`, note `index-order`.
    - `narrowing`: an integer element type receiving a floating literal or
      identifier; a signed integer type receiving an unsigned identifier
      (declared `unsigned`, `size_t`, `SizeValueType`, or `IdentifierType`;

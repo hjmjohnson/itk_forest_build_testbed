@@ -196,9 +196,17 @@ def test_out_of_order_index_run_with_effects_is_order_violation(rhs):
     assert (run.skipped, run.note) == (Reason.ORDER_VIOLATION, "index-order")
 
 
-def test_out_of_order_index_run_of_identifiers_is_sorted():
-    run = run_of(body("std::array<int, 2> v;", "v[1] = q;", "v[0] = 'c';"), canonical="std::array<int, 2>")
-    assert (run.skipped, brace_list(run)) == (None, ["'c'", "q"])
+def test_out_of_order_index_run_of_literals_is_sorted():
+    run = run_of(body("std::array<int, 3> v;", "v[2] = 3;", "v[1] = 'c';", "v[0] = 1.5f;"),
+                 canonical="std::array<int, 3>")
+    assert brace_list(run) == ["1.5f", "'c'", "3"]
+
+
+@pytest.mark.parametrize("rhs", [("n", "k"), ("n", "1"), ("1", "k")])
+def test_out_of_order_index_run_reading_an_identifier_is_order_violation(rhs):
+    run = run_of(body("std::array<int, 2> v;", f"v[1] = {rhs[0]};", f"v[0] = {rhs[1]};"),
+                 canonical="std::array<int, 2>")
+    assert (run.skipped, run.note) == (Reason.ORDER_VIOLATION, "index-order")
 
 
 @pytest.mark.parametrize("elems", [["n + 1"], ["g()", "h()"], ["n", "k"]])
