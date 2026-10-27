@@ -125,6 +125,17 @@ def in_scope(path: Path, root: Path) -> bool:
     return not any(p in EXCLUDED for p in rel.parts[:-1])
 
 
+def _rel(path: Path, root: Path) -> str:
+    return str(path.relative_to(root)) if path.is_relative_to(root) else str(path)
+
+
+def crashed_tus(output: str) -> list[str]:
+    """TUs that run-clang-tidy reports as failed or killed."""
+    found = re.findall(r"^Error while processing (.+?)\.?$", output, re.M)
+    found += re.findall(r"^(.+?): terminated by signal \d+$", output, re.M)
+    return list(dict.fromkeys(found))
+
+
 def run_tidy(graph: Path, root: Path, cls: str) -> tuple[list[Diag], list[str]]:
     """Fixes for one check, and the TUs dropped because they failed to compile."""
     excluded = "|".join(EXCLUDED)
@@ -151,10 +162,14 @@ def run_tidy(graph: Path, root: Path, cls: str) -> tuple[list[Diag], list[str]]:
             if any(d.check == "clang-diagnostic-error" for d in parsed):
                 main = re.search(r"^MainSourceFile:\s*(.*)$", text, re.M)
                 tu = Path(_scalar(main[1])) if main else Path(y.name)
-                dropped.append(str(tu.relative_to(root)) if tu.is_relative_to(root) else str(tu))
+                dropped.append(_rel(tu, root))
             else:
                 diags += parsed
-    if (res.returncode != 0 and not dropped) or (not files and "error" in res.stderr.lower()):
+    for tu in crashed_tus(res.stdout + res.stderr):
+        rel = _rel(Path(tu).resolve(), root)
+        if rel not in dropped:
+            dropped.append(f"{rel} (tidy-crash)")
+    if res.returncode != 0 and not dropped:
         raise RuntimeError(f"run-clang-tidy failed (exit {res.returncode}):\n{res.stderr[-4000:]}")
     seen, out = set(), []
     for d in diags:
@@ -270,7 +285,11 @@ class Planner:
         if members is None:
             return self.skip(doc, ctor.sig_end, body, Reason.GATE_FAILED, "class-not-found", PMI)
         keyed, removals, stranded = [], [], []
+        body_close = pf.match_fwd(doc.m, body)
         for seq, at, a, b, text in items:
+            if pf.has_directive(doc.text, *pf.neighbor_lines(doc.text, a, b, body, body_close)):
+                self.skip(doc, a, b, Reason.PREPROCESSOR, "directive around the assignment", PMI)
+                continue
             s, e, carried, strands = pf.statement_removal(doc.text, doc.comments, a, b)
             if strands:
                 stranded.append((a, b))
@@ -281,6 +300,8 @@ class Planner:
         if stranded:
             for a, b in stranded:
                 self.skip(doc, a, b, Reason.COMMENT_STRANDED, "comment above the assignment", PMI)
+            return
+        if not keyed:
             return
         keyed += [((e.start, 1, 0), e) for e in ctor.entries]
         merged = [e for _, e in sorted(keyed, key=lambda k: k[0])]
@@ -331,8 +352,13 @@ class Planner:
                 continue
             holders = [(cdoc, body, entry, False)]
             for other in pf.ctor_bodies(cdoc.m, ctor.cls):
-                c2 = self._parse(cdoc, other) if other != body else None
-                if c2 is None or c2.cls != ctor.cls:
+                if other == body:
+                    continue
+                c2 = self._parse(cdoc, other)
+                if c2 is None:
+                    holders.append((cdoc, other, None, False))
+                    continue
+                if c2.cls != ctor.cls:
                     continue
                 same = next((e for e in c2.entries if e.name == entry.name and e.text == entry.text), None)
                 if same is not None:
@@ -341,6 +367,11 @@ class Planner:
 
         removed: dict[tuple[Path, int], list[pf.Entry]] = defaultdict(list)
         for hdoc, at, text, holders in plans.values():
+            if any(e is None for _, _, e, _ in holders):
+                for cdoc, body, e, _ in holders:
+                    a, b = (e.start, e.end) if e is not None else (body, body)
+                    self.skip(cdoc, a, b, Reason.GATE_FAILED, "ctor-unparsed", DMI)
+                continue
             ls, le = pf.line_bounds(hdoc.text, at, at)
             trails = {e.trail for _, _, e, _ in holders if e.trail}
             header_comment = any(ls <= c0 < le for c0, _ in hdoc.comments)

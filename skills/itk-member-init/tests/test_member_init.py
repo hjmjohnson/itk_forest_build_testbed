@@ -188,6 +188,14 @@ def test_backstop_revert_restores_every_partner_transitively(fixture_graph, monk
     before = _originals(g)
     monkeypatch.setattr(
         member_init, "check_hunks", lambda diff: [Stranded(Path("a.cxx"), 5, "// forced")])
+    plan_dmi = member_init.Planner.plan_dmi
+
+    def b_pair_first(self, diags):
+        plan_dmi(self, diags)
+        self.partners = sorted(self.partners, key=lambda pair: "b.cxx" not in {p.name for p in pair})
+        assert [sorted(p.name for p in pair) for pair in self.partners] == [["b.cxx", "foo.h"], ["a.cxx", "foo.h"]]
+
+    monkeypatch.setattr(member_init.Planner, "plan_dmi", b_pair_first)
     out = run_member_init(g, apply=True)
     assert _originals(g) == before
     assert [(s.file, s.skipped) for s in out.manifest.sites] == [(Path("a.cxx"), Reason.COMMENT_STRANDED)]
@@ -245,3 +253,27 @@ def test_base_initializer_does_not_block_reordering():
                postfix.Entry("m_B", "m_B(1)"), postfix.Entry("m_A", "m_A(0)")]
     ordered, _ = postfix.plan_order(entries, ["m_A", "m_B"])
     assert [e.name for e in ordered] == ["Superclass", "m_A", "m_B"]
+
+
+def test_directive_around_body_assignment_skips_that_fix(fixture_graph):
+    out = run_member_init(fixture_graph("preprocessor_body"), apply=True)
+    source = out.read("foo.cxx")
+    assert "#ifndef X\n  m_A = 1;\n#endif\n  m_C = 3;\n}" in source
+    assert "Foo::Foo()\n  : m_B(2)\n{" in source
+    assert sorted(s.skipped for s in out.manifest.skipped()) == [Reason.PREPROCESSOR] * 2
+
+
+def test_unparsable_ctor_sharing_an_initializer_refuses_the_group(fixture_graph):
+    g = fixture_graph("shared_unparsed")
+    before = _originals(g)
+    out = run_member_init(g, apply=True)
+    assert _originals(g) == before
+    assert {(s.skipped, s.note) for s in out.manifest.sites} == {(Reason.GATE_FAILED, "ctor-unparsed")}
+
+
+def test_crashed_tus_are_parsed_from_run_clang_tidy_output():
+    text = (
+        "[1/2][0.0s] clang-tidy ...\nError while processing /r/a.cxx.\n"
+        "/r/b.cxx: terminated by signal 11\n"
+    )
+    assert member_init.crashed_tus(text) == ["/r/a.cxx", "/r/b.cxx"]

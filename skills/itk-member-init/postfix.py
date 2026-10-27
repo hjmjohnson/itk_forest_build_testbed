@@ -369,6 +369,13 @@ def has_directive(text: str, a: int, b: int) -> bool:
     return re.search(r"^[ \t]*#", text[text.rfind("\n", 0, a) + 1:b], re.M) is not None
 
 
+def neighbor_lines(text: str, a: int, b: int, lo: int, hi: int) -> tuple[int, int]:
+    """Span from the line before [a, b) to the line after it, clipped to (lo, hi)."""
+    start = text.rfind("\n", 0, max(text.rfind("\n", 0, a), 0)) + 1
+    end = text.find("\n", text.find("\n", b) + 1)
+    return max(start, lo + 1), min(len(text) if end < 0 else end, hi)
+
+
 def ctor_bodies(m: str, cls: str) -> list[int]:
     """Body braces of every constructor of cls defined in m."""
     out = []

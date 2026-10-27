@@ -106,7 +106,9 @@ back to `PATH`. Run through `pixi run` so `CONDA_PREFIX` is set.
    A constructor that cannot be parsed, whose class is not found, or whose list
    would need an unknown entry moved is recorded `gate-failed` with the notes
    `ctor-unparsed`, `class-not-found`, or `unknown-initializer`. A preprocessor
-   line between the signature and the body skips it as `preprocessor`.
+   line between the signature and the body skips it as `preprocessor`, and a
+   directive on the line before or after a moved assignment skips that
+   assignment as `preprocessor`.
 4. **Comments travel.** A trailing `//` or `/* */` comment on a moved
    assignment goes with it to the initializer entry. An own-line comment above
    a moved assignment would be stranded, so that constructor is left alone and
@@ -120,13 +122,16 @@ back to `PATH`. Run through `pixi run` so `CONDA_PREFIX` is set.
    `SmartPointer` never get a brace initializer (ITK
    `compiler-cautions.md` 1a); their constructor entry stays. A default member
    initializer is added only when every constructor of the class in that file
-   that writes the same initializer can drop it.
+   that writes the same initializer can drop it; if one of them cannot be
+   parsed, the whole group is skipped as `gate-failed` (`ctor-unparsed`).
 7. Backstop: `ioa.comments.check_hunks` on `git diff -U0` of the touched files.
    A file with a stranded comment is restored, together with every file
    reachable from it through default-member-init fixes (header and
    constructor files, to a fixed point), and recorded `comment-stranded`.
 8. A `run-clang-tidy` or `clang-apply-replacements` failure raises with the
-   tool's stderr. TUs that fail to compile are dropped and listed in the output.
+   tool's stderr when no failing TU can be identified. TUs that fail to compile,
+   or that clang-tidy reports as failed or killed (`tidy-crash`), are dropped
+   and listed in the output.
 
 clang-tidy itself declines to move an assignment that reads a member not yet
 initialized, so the order guard mostly catches pre-existing list entries that
