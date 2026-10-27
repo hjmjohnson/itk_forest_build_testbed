@@ -13,25 +13,54 @@
 # is why the PR #608 dead-typedef regression passed macOS CI but failed GCC).
 #
 # Usage:
-#   itk-compile-gate.sh <build-dir> <src.cxx> [<src2.cxx> ...]
+#   itk-compile-gate.sh <build-dir> <src.cxx|hdr.h|hdr.hxx> [...]
 #   itk-compile-gate.sh <build-dir> --changed <repo>   # gate files changed vs HEAD
+# A header is gated through up to 8 translation units that include it.
 #
 # Apply the transform in place first, then run this against the touched TUs.
 # Exit 0 only if every gated TU compiles clean with no fatal warning.
 set -uo pipefail
 
-[ "$#" -ge 2 ] || { echo "usage: $0 <build-dir> <src.cxx>... | <build-dir> --changed <repo>" >&2; exit 2; }
+[ "$#" -ge 2 ] || { echo "usage: $0 <build-dir> <src.cxx|hdr.h>... | <build-dir> --changed <repo>" >&2; exit 2; }
 
 BUILD="$1"; shift
 [ -f "$BUILD/build.ninja" ] || { echo "not a ninja build dir: $BUILD" >&2; exit 2; }
 
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export PYTHONPATH="$HERE/itk-init-over-assign/lib${PYTHONPATH:+:$PYTHONPATH}"
+
+INPUTS=()
+REPO=""
 if [ "${1:-}" = "--changed" ]; then
-    repo="${2:-.}"
-    mapfile -t TUS < <(git -C "$repo" diff --name-only HEAD -- '*.cxx' '*.cpp' '*.cc' \
-                       | while read -r p; do echo "$repo/$p"; done)
-    [ "${#TUS[@]}" -gt 0 ] || { echo "no changed C++ TUs vs HEAD"; exit 0; }
+    REPO="$(cd "${2:-.}" && pwd)"
+    while IFS= read -r p; do
+        [ -n "$p" ] && INPUTS+=("$REPO/$p")
+    done < <(git -C "$REPO" diff --name-only HEAD -- '*.cxx' '*.cpp' '*.cc' '*.h' '*.hxx')
+    [ "${#INPUTS[@]}" -gt 0 ] || { echo "no changed C++ files vs HEAD"; exit 0; }
 else
-    TUS=("$@")
+    for f in "$@"; do
+        case "$f" in /*) INPUTS+=("$f") ;; *) INPUTS+=("$PWD/$f") ;; esac
+    done
+fi
+
+HAS_HEADER=0
+for f in "${INPUTS[@]}"; do
+    case "$f" in *.h|*.hxx) HAS_HEADER=1 ;; esac
+done
+
+TUS=()
+if [ "$HAS_HEADER" -eq 1 ]; then
+    [ -n "$REPO" ] || REPO="$(git -C "$(dirname "${INPUTS[0]}")" rev-parse --show-toplevel)" \
+        || { echo "cannot find repo root for ${INPUTS[0]}" >&2; exit 2; }
+    [ -f "$BUILD/compile_commands.json" ] || { echo "no compile_commands.json in $BUILD" >&2; exit 2; }
+    expand_err="$(mktemp)"
+    while IFS= read -r t; do
+        [ -n "$t" ] && TUS+=("$t")
+    done < <(python3 -m ioa.gate --expand --graph "$BUILD" --repo-root "$REPO" "${INPUTS[@]}" 2>"$expand_err")
+    DEAD="$(cat "$expand_err")"; rm -f "$expand_err"
+else
+    TUS=("${INPUTS[@]}")
+    DEAD=""
 fi
 
 # Warning sets differ by compiler family: -Wunused-local-typedefs is GCC,
@@ -58,7 +87,7 @@ for src in "${TUS[@]}"; do
     # nothing. Insert the fatal warning set before the -c source argument.
     cmd2="$(echo "$cmd" | sed -E \
         -e 's#-o +[^ ]+\.o##' \
-        -e 's#-M[DM]?##g' -e 's#-M[TQF] +[^ ]+##g' \
+        -e 's# -M[TQF] +[^ ]+##g' -e 's# -M[DM]?( |$)# #g' \
         -e "s#-c +#${wf//#/\\#} -c #")"
 
     gated=$((gated+1))
@@ -71,6 +100,11 @@ for src in "${TUS[@]}"; do
         fail=1
     fi
 done
+
+if [ -n "$DEAD" ]; then
+    echo "$DEAD" | sed 's/^/FAIL  /'
+    fail=1
+fi
 
 echo "----------------------------------------"
 echo "gated: $gated  result: $([ "$fail" -eq 0 ] && echo PASS || echo FAIL)"
