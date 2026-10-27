@@ -362,3 +362,73 @@ def test_stage_fails_only_when_every_site_hit_an_internal_error(fixture_graph, m
     sites = Manifest.read(manifest).sites
     assert rc == 1 and sites and all(s.note == "internal-error:RuntimeError" for s in sites)
     assert _git(g.repo, "status", "--porcelain") == ""
+
+
+@pytest.mark.parametrize("sig", ["Foo::bar()", "Foo ::Bar()"])
+def test_qualified_non_constructor_is_not_a_constructor(sig):
+    text = f"{sig}\n{{\n  m_A = 1;\n}}\n"
+    m, comments = postfix.mask(text)
+    assert postfix.parse_ctor(text, m, comments, text.index("{")) is None
+
+
+def test_failed_constructor_render_drops_its_whole_default_member_group(fixture_graph, monkeypatch):
+    real = postfix.render
+
+    def flaky(ctor, entries):
+        if ctor.cls == "A" and len(entries) < len(ctor.entries):
+            raise RuntimeError("render")
+        return real(ctor, entries)
+
+    monkeypatch.setattr(postfix, "render", flaky)
+    out = run_member_init(fixture_graph("shared_header"), apply=True)
+    header = out.read("foo.h")
+    assert "m_X{" not in header and "m_Y{" not in header and "m_P{ 3 }" in header
+    assert "m_X(1)" in out.read("a.cxx") and "m_P(3)" not in out.read("b.cxx")
+    dmi = [s for s in out.manifest.sites if s.cls == "use-default-member-init"]
+    assert {s.file.name for s in dmi if s.note == "internal-error:RuntimeError"} == {"foo.h"}
+    assert not [s for s in dmi if s.file == Path("a.cxx") and s.skipped is None]
+
+
+def test_failed_apply_restores_crlf_bytes(tmp_path, monkeypatch):
+    path = tmp_path / "w.cxx"
+    data = b"int a;\r\nint b;\r\n"
+    path.write_bytes(data)
+    planner = member_init.Planner(tmp_path)
+    doc = planner.doc(path)
+    planner.edits[doc.path] = [(0, 0, "x")]
+
+    def boom(*args, **kw):
+        raise RuntimeError("apply")
+
+    monkeypatch.setattr(member_init, "apply_edits", boom)
+    member_init._apply(planner, member_init.PMI, {doc.path: doc.text.replace("\r\n", "\n")})
+    assert path.read_bytes() == data and planner.errors == 1 and not planner.edits
+
+
+def test_error_location_never_raises(tmp_path, monkeypatch):
+    path = tmp_path / "v.cxx"
+    path.write_bytes(b"a\nb\nc\n")
+    planner = member_init.Planner(tmp_path)
+    assert planner.where(tmp_path / "missing.cxx", 4) == (tmp_path / "missing.cxx", 0)
+
+    def broken(self, p):
+        raise OSError("doc")
+
+    monkeypatch.setattr(member_init.Planner, "doc", broken)
+    assert planner.where(path, 4) == (path.resolve(), 2)
+
+
+def test_grouping_error_skips_one_diagnostic_and_the_rest_apply(fixture_graph, monkeypatch, capsys):
+    real = postfix.body_after
+    calls = []
+
+    def flaky(m, at):
+        calls.append(at)
+        if len(calls) == 1:
+            raise RuntimeError("group")
+        return real(m, at)
+
+    monkeypatch.setattr(postfix, "body_after", flaky)
+    out = run_member_init(fixture_graph("basic"), apply=True)
+    assert [s.note for s in out.manifest.sites].count("internal-error:RuntimeError") == 1
+    assert out.manifest.applied()

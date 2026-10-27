@@ -239,6 +239,8 @@ def parse_ctor(text: str, m: str, comments: list[tuple[int, int]], body_open: in
         if not ids:
             return None
         cls, in_class = ids[-1], False
+        if re.sub(r"<.*>", "", name.rsplit("::", 1)[1]) != cls:
+            return None
     else:
         cls, in_class = name, True
     sig_end = params + 1

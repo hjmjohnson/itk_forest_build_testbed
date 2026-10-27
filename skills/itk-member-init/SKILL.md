@@ -130,8 +130,12 @@ back to `PATH`. Run through `pixi run` so `CONDA_PREFIX` is set.
 7. Every planning and applying step runs per site: an unexpected exception
    skips that constructor, initializer group, or file (with its partner
    files) as `gate-failed`, note `internal-error:<ExceptionType>`, prints
-   one line to stderr with the file and line, and the stage goes on. The
-   stage exits 1 only when every site failed that way.
+   one line to stderr with the file and line, and the stage goes on. A
+   default-member-init group is recorded only after every constructor it
+   touches renders, so a failure drops the header and source edits together;
+   a failed file is restored byte for byte. The stage exits 1 only when every
+   site failed that way. A qualified name whose last component differs from
+   its class (`Foo::bar()`) is not a constructor.
 8. Backstop: `ioa.comments.check_hunks` on `git diff -U0` of the touched files.
    A file with a stranded comment is restored, together with every file
    reachable from it through default-member-init fixes (header and
