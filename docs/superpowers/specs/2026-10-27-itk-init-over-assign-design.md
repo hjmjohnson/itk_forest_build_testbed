@@ -166,12 +166,17 @@ once at the end makes the revert local.
 
 ### Partitioning the diff
 
-Each sub-skill's manifest records the line ranges it rewrote. The
-partitioner walks `git diff -U0` hunks, assigns each hunk to the stage
-whose manifest covers it, and builds one commit per stage with
-`git apply --cached` of the selected hunks. A hunk no manifest covers
-(for example clang-format spill) is attached to the stage that touched
-the nearest line above it. The per-stage const/constexpr commit is built
+The master snapshots the working tree as a git tree object before and
+after every stage. The partitioner diffs each pair to learn which line
+texts that stage added or removed, then walks the final `git diff -U0`
+hunks and assigns each to the latest stage whose added (or, for a pure
+deletion, removed) lines intersect it, building one commit per stage with
+`git apply --cached` of the selected hunks. Ownership is by content
+because each stage's finder runs on the previous stage's output, so
+manifest line numbers refer to different trees; manifests supply the
+site counts and the skip list only. A hunk no stage produced (for
+example clang-format spill) is attached to the stage that touched the
+nearest line above it. The per-stage const/constexpr commit is built
 the same way from `itk-const-promote`'s manifest.
 
 Commit messages: `STYLE: <kind sentence> across <repo short name>`, with
