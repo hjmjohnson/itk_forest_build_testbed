@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.16)
+project(nontrivial_dtor CXX)
+set(CMAKE_CXX_STANDARD 17)
+add_library(fx STATIC a.cxx)
+target_include_directories(fx PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

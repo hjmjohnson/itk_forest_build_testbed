@@ -37,6 +37,7 @@ class Candidate:
     name: str
     types: set[str] = field(default_factory=set)
     trivial: set[str] = field(default_factory=set)
+    trivial_dtor: set[str] = field(default_factory=set)
     static: bool = False
     ctor: bool = False
 
@@ -55,6 +56,8 @@ def candidates(graph: Path, root: Path) -> tuple[list[Candidate], list[str]]:
             c.types.add(n.canonical)
         elif m.binding == "trivial":
             c.trivial.add(n.canonical)
+        elif m.binding == "trivialdtor":
+            c.trivial_dtor.add(n.canonical)
         elif m.binding == "static":
             c.static = True
         elif m.binding == "ctor":
@@ -73,7 +76,8 @@ def plan_all(cands: list[Candidate], docs: dict[Path, Doc],
     for c in cands:
         doc = docs.setdefault(c.file, Doc(c.file))
         src = sources.setdefault(c.file, Source(doc.text))
-        mv = plan(src, Decl(_offset(doc, c.line, c.col), c.name, c.types <= c.trivial, c.static, c.ctor))
+        mv = plan(src, Decl(_offset(doc, c.line, c.col), c.name, c.types <= c.trivial, c.static,
+                            c.ctor, c.types <= c.trivial_dtor))
         if mv is not None:
             out.append((c.file, mv))
     return out

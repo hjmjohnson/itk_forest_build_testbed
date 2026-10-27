@@ -83,7 +83,7 @@ Usage:
 
 Class:     narrow-scope (notes: block, init-statement, loop-body)
 Skips:     static-local, loop-carried (notes address-taken, escapes), costly-construct
-           (notes call, non-trivial, side-effect), goto-or-case, try-read-after,
+           (notes call, non-trivial, nontrivial-dtor, side-effect), goto-or-case, try-read-after,
            preprocessor, comment-stranded, gate-failed
 ```
 
@@ -140,7 +140,14 @@ falling back to `PATH`. Run through `pixi run` so `CONDA_PREFIX` is set.
      constructible, a member call for any type (`p = s.c_str();`,
      `p = pt.GetDataPointer();`), or a bare array name that decays
      (`p = buf;`). The variable's lifetime would end earlier. A plain value
-     copy of a trivial variable (`sum += v;`) is not an escape.
+     copy of a trivial variable (`sum += v;`) is not an escape. The same note
+     applies, checked last, when the variable or a member-call result on it is
+     a whole argument of a call in the target (`h.Set(x);`, `Use(x.Data());`);
+     casts and control heads are not calls, and `g(x + 1)` is not an escape.
+   - `costly-construct`, note `nontrivial-dtor`: outside loops, a type that is
+     not trivially destructible (a user-provided or virtual destructor, or a
+     field or base that is not a builtin, pointer, enum, or array of those)
+     never moves, since the move would run its destructor earlier.
    - In a loop body, or any block inside a loop: a declaration with a call
      (`f()`, `T::New()`, `new`, `T{...}`, arguments to a user-provided
      constructor, or `(`/`{` arguments on a non-trivial type) is

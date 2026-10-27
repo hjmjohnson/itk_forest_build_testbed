@@ -50,6 +50,7 @@ class Decl:
     trivial: bool
     static: bool
     ctor: bool = False
+    trivial_dtor: bool = True
 
 
 @dataclass
@@ -413,6 +414,45 @@ def escapes(m: str, name: str, a: int, b: int, whole: bool = True, array: bool =
     return False
 
 
+NOT_CALLS = {
+    "if", "while", "for", "switch", "return", "catch", "sizeof", "alignof", "decltype",
+    "noexcept", "static_cast", "const_cast", "reinterpret_cast", "dynamic_cast",
+}
+
+
+def _args(m: str, open_: int) -> list[str]:
+    close = closing(m, open_)
+    out, depth, start = [], 0, open_ + 1
+    for k in range(open_ + 1, close):
+        c = m[k]
+        if c in OPEN:
+            depth += 1
+        elif c in CLOSE:
+            depth -= 1
+        elif c == "," and depth == 0:
+            out.append(m[start:k])
+            start = k + 1
+    return [*out, m[start:close]]
+
+
+def call_argument(m: str, name: str, a: int, b: int) -> bool:
+    """True when name, or a member-call result on it, is a whole argument of a call in m[a:b]."""
+    whole = re.compile(rf"\s*{re.escape(name)}(?:\s*(?:\.|->)\s*~?[A-Za-z_]\w*\s*(?:<[^;]*?>\s*)?\(.*\))?\s*",
+                       re.S)
+    for k in range(a, b):
+        if m[k] != "(":
+            continue
+        j = _back(m, k)
+        if j < 0 or not (m[j].isalnum() or m[j] in "_>)]"):
+            continue
+        callee = re.search(r"([A-Za-z_]\w*)\s*(?:<[^;(){}]*>)?$", m[:j + 1])
+        if callee and callee[1] in NOT_CALLS:
+            continue
+        if any(whole.fullmatch(arg) for arg in _args(m, k)):
+            return True
+    return False
+
+
 def _end(src: Source, t: Target) -> int:
     return t.stmt.end if t.form == "init-statement" else min(closing(src.masked, t.at - 1), len(src.masked))
 
@@ -443,10 +483,14 @@ def _check(src: Source, mv: Move, t: Target, ms: list[int], init: str) -> tuple[
             return Reason.COSTLY_CONSTRUCT, "non-trivial"
         if not dead:
             return Reason.LOOP_CARRIED, ""
-        return None
-    reads = any(w not in LITERAL_WORDS for w in IDENT.findall(init))
-    if (call or mutates or reads and not dead) and "".join(crossed.split()) not in ENTRIES.get(t.form, set()):
-        return Reason.COSTLY_CONSTRUCT, "side-effect"
+    else:
+        if not mv.decl.trivial_dtor:
+            return Reason.COSTLY_CONSTRUCT, "nontrivial-dtor"
+        reads = any(w not in LITERAL_WORDS for w in IDENT.findall(init))
+        if (call or mutates or reads and not dead) and "".join(crossed.split()) not in ENTRIES.get(t.form, set()):
+            return Reason.COSTLY_CONSTRUCT, "side-effect"
+    if call_argument(m, mv.decl.name, t.at, _end(src, t)):
+        return Reason.LOOP_CARRIED, "escapes"
     return None
 
 

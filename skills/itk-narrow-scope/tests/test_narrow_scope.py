@@ -301,3 +301,21 @@ def test_array_decay_and_data_pointer_escapes_are_skipped(fixture_graph):
     out = run_narrow(g)
     assert out.sites() == [(9, 9, Reason.LOOP_CARRIED, "escapes"), (22, 22, Reason.LOOP_CARRIED, "escapes")]
     assert_unchanged(g)
+
+
+@needs_tools
+def test_call_argument_escapes_are_skipped(fixture_graph):
+    g = fixture_graph("call_escape")
+    out = run_narrow(g)
+    assert out.sites()[:2] == [(19, 19, Reason.LOOP_CARRIED, "escapes"),
+                               (30, 30, Reason.LOOP_CARRIED, "escapes")]
+    assert out.sites()[2][2] is None
+    assert "    int x = 0;\n    x = c;" in out.read()
+
+
+@needs_tools
+def test_type_without_trivial_destructor_never_moves(fixture_graph):
+    g = fixture_graph("nontrivial_dtor")
+    out = run_narrow(g)
+    assert out.sites() == [(11, 11, Reason.COSTLY_CONSTRUCT, "nontrivial-dtor")]
+    assert_unchanged(g)
