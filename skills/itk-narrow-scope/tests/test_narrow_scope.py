@@ -293,3 +293,11 @@ def test_mutating_initializer_is_a_side_effect(fixture_graph):
     assert out.sites() == [(7, 7, Reason.COSTLY_CONSTRUCT, "side-effect"),
                            (19, 19, Reason.COSTLY_CONSTRUCT, "side-effect")]
     assert_unchanged(g)
+
+
+@needs_tools
+def test_array_decay_and_data_pointer_escapes_are_skipped(fixture_graph):
+    g = fixture_graph("escapes_trivial")
+    out = run_narrow(g)
+    assert out.sites() == [(9, 9, Reason.LOOP_CARRIED, "escapes"), (22, 22, Reason.LOOP_CARRIED, "escapes")]
+    assert_unchanged(g)

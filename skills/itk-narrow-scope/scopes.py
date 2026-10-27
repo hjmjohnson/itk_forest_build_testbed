@@ -18,7 +18,7 @@ LABEL = re.compile(
     r"(?m)(?:^|[;{}])\s*(?:case\b|default\s*:(?!:)|(?!(?:public|private|protected)\b)[A-Za-z_]\w*\s*:(?!:))"
 )
 CALL = re.compile(r"[\w>\])]\s*\(|\bnew\b|[A-Za-z_]\w*\s*\{")
-MUTATES = re.compile(r"\+\+|--|[^=!<>]=(?!=)")
+MUTATES = re.compile(r"\+\+|--|<<=|>>=|[^=!<>]=(?!=)")
 ASSIGNED = re.compile(r"(?<![\w$])([A-Za-z_]\w*)\s*(?:\[[^\]]*\]\s*)?(?:[-+*/%&|^]|<<|>>)?=(?!=)")
 IDENT = re.compile(r"(?<![\w.])[A-Za-z_]\w*")
 LITERAL_WORDS = {"nullptr", "true", "false"}
@@ -384,12 +384,22 @@ def _candidates(src: Source, level: list[Stmt], ms: list[int]) -> tuple[list[Tar
                               b.open + 1, in_loop, level, in_try=in_try))
 
 
-def escapes(m: str, name: str, a: int, b: int) -> bool:
-    """True when a statement in m[a:b] mentions name and assigns a name declared outside
-    m[a:b], which can carry a pointer or iterator into the variable past its new scope."""
+def _yields_address(text: str, p: int, name: str, whole: bool, array: bool) -> bool:
+    if whole:
+        return True
+    after = text[_ws(text, p + len(name), len(text)):]
+    if re.match(r"(?:\.|->)\s*~?[A-Za-z_]\w*\s*(?:<[^;]*?>\s*)?\(", after):
+        return True
+    return array and not after.startswith("[")
+
+
+def escapes(m: str, name: str, a: int, b: int, whole: bool = True, array: bool = False) -> bool:
+    """True when a statement in m[a:b] assigns a name declared outside m[a:b] and mentions
+    name in a way that can yield its address: any mention when whole, a member call, or a
+    bare array name that decays to a pointer."""
     for piece in re.finditer(r"[^;{}]+", m[a:b]):
         text = piece[0]
-        if not mentions(text, name, 0, len(text)):
+        if not any(_yields_address(text, p, name, whole, array) for p in mentions(text, name, 0, len(text))):
             continue
         for x in ASSIGNED.finditer(text):
             lhs = x[1]
@@ -416,9 +426,10 @@ def _check(src: Source, mv: Move, t: Target, ms: list[int], init: str) -> tuple[
         return Reason.GOTO_OR_CASE, ""
     if address_taken(m, ms, mv.stmt[1]):
         return Reason.LOOP_CARRIED, "address-taken"
-    if not mv.decl.trivial and escapes(m, mv.decl.name, t.at, _end(src, t)):
+    if escapes(m, mv.decl.name, t.at, _end(src, t), whole=not mv.decl.trivial,
+               array=init.lstrip().startswith("[")):
         return Reason.LOOP_CARRIED, "escapes"
-    expr = re.sub(r"^\s*=", "", init)
+    expr = re.sub(r"^\s*(?:\[[^\]]*\]\s*)*=", "", init)
     call = (bool(CALL.search(init)) or mv.decl.ctor
             or not mv.decl.trivial and init.lstrip().startswith(("(", "{")))
     mutates = bool(MUTATES.search(expr))

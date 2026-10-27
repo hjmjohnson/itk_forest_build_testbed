@@ -164,3 +164,19 @@ def test_escape_through_member_assignment():
 def test_assignment_to_a_local_of_the_target_does_not_escape():
     code = "void f(int c)\n{\n  @std::string s;\n  if (c)\n  {\n    s = g();\n    auto n = s.size();\n    h(n);\n  }\n}\n"
     assert "  {\n    std::string s;\n    s = g();\n" in moved(code, "s", trivial=False)
+
+
+def test_array_declarator_equals_is_not_a_side_effect():
+    code = "void f(int c, int a)\n{\n  @int v[2] = {0, 0};\n  g(a);\n  if (c)\n  {\n    v[0] = a;\n    g(v[1]);\n  }\n}\n"
+    assert "  if (c)\n  {\n    int v[2] = {0, 0};\n    v[0] = a;\n" in moved(code, "v")
+
+
+def test_shift_assignment_in_initializer_is_a_side_effect():
+    code = "void f(int c, int n)\n{\n  @int x = (n <<= 1);\n  g(n);\n  if (c)\n  {\n    x = 1;\n    g(x);\n  }\n}\n"
+    _, mv = move(code, "x")
+    assert (mv.skipped, mv.note) == (Reason.COSTLY_CONSTRUCT, "side-effect")
+
+
+def test_accumulating_a_trivial_value_does_not_escape():
+    code = "void f(int m)\n{\n  double s = 0;\n  @double v;\n  for (int i = 0; i < m; ++i)\n  {\n    v = i;\n    s += v;\n  }\n  g(s);\n}\n"
+    assert "  {\n    double v;\n    v = i;\n" in moved(code, "v")

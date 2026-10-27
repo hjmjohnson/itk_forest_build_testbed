@@ -134,15 +134,18 @@ falling back to `PATH`. Run through `pixi run` so `CONDA_PREFIX` is set.
    - `loop-carried`, note `address-taken`: a use takes the address (`&x`),
      binds a reference (`T & r = x`), or sits in a lambda that captures by
      reference.
-   - `loop-carried`, note `escapes`: for a type that is not trivially
-     constructible, a statement in the target both mentions the variable and
-     assigns a name declared outside the target (`p = s.c_str();`,
-     `out.it = v.begin();`), since the value would be destroyed earlier.
+   - `loop-carried`, note `escapes`: a statement in the target assigns a name
+     declared outside the target and mentions the variable in a way that can
+     yield its address: any mention for a type that is not trivially
+     constructible, a member call for any type (`p = s.c_str();`,
+     `p = pt.GetDataPointer();`), or a bare array name that decays
+     (`p = buf;`). The variable's lifetime would end earlier. A plain value
+     copy of a trivial variable (`sum += v;`) is not an escape.
    - In a loop body, or any block inside a loop: a declaration with a call
      (`f()`, `T::New()`, `new`, `T{...}`, arguments to a user-provided
      constructor, or `(`/`{` arguments on a non-trivial type) is
      `costly-construct` note `call`; an initializer with `++`, `--`, or an
-     assignment is `costly-construct` note `side-effect`;
+     assignment (including `<<=`, `>>=`) is `costly-construct` note `side-effect`;
      a type that is not trivially constructible is `costly-construct` note
      `non-trivial`; and the first statement of the target block that
      mentions the variable must be a plain `x = ...;` whose right side does
