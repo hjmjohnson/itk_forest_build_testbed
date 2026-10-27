@@ -155,6 +155,7 @@ def test_backup_tree_is_recorded(repo, fake_gate_ok):
     [sha] = [n.split(": ")[1] for n in res.notes if n.startswith("backup-tree: ")]
     assert git(repo.path, "cat-file", "-t", sha).strip() == "tree"
     assert git(repo.path, "show", f"{sha}:a.cxx") == text
+    assert git(repo.path, "rev-parse", "refs/ioa/backup/local-init").strip() == sha
 
 
 def test_prestaged_index_is_refused(repo, fake_gate_ok):
@@ -231,3 +232,68 @@ def test_clang_format_applies_to_commit_and_worktree(tmp_path, fake_gate_ok):
     assert "\nint a20 = 20;" in git(r.path, "show", "HEAD:a.cxx")
     assert "\nint a20 = 20;" in a.read_text()
     assert "constexpr int a40" in a.read_text()
+
+
+def staged_repo(tmp_path, name, n, edits, clang_format="DisableFormat: true\n"):
+    files = {name: make_repo.lines(name[0], n)}
+    r = make_repo.init_repo(tmp_path, files, clang_format)
+    stages = [make_repo.stage(r, files, kind, fn, sites) for kind, fn, sites in edits]
+    return r, files, stages
+
+
+def test_identical_text_from_two_stages_goes_to_the_stage_that_wrote_it(tmp_path):
+    def local(f):
+        f["e.cxx"][4] = "unsigned int i = 0;"
+
+    def const(f):
+        f["e.cxx"][14] = "unsigned int i = 0;"
+
+    r, _, stages = staged_repo(tmp_path, "e.cxx", 20, [
+        ("local-init", local, [("e.cxx", 5, 5)]),
+        ("local-const", const, [("e.cxx", 15, 15)]),
+    ])
+    plans = plan(r, stages)
+    assert hunk_at(plans, "e.cxx", 5).kind == "local-init"
+    assert hunk_at(plans, "e.cxx", 15).kind == "local-const"
+    assert [s.start for s in hunk_at(plans, "e.cxx", 5).sites] == [5]
+
+
+def test_brace_only_lines_cannot_steal_a_hunk(tmp_path):
+    def local(f):
+        f["f.cxx"][9] = "const int f10 = 10;"
+
+    def scope(f):
+        f["f.cxx"][31:31] = ["}"]
+        f["f.cxx"][29:29] = ["{"]
+
+    r, files, stages = staged_repo(tmp_path, "f.cxx", 40, [
+        ("local-init", local, [("f.cxx", 10, 10)]),
+        ("narrow-scope", scope, [("f.cxx", 30, 31)]),
+    ])
+    files["f.cxx"][11] = "}"
+    make_repo.write(r, files)
+    plans = plan(r, stages)
+    assert hunk_at(plans, "f.cxx", 10).kind == "local-init"
+    assert hunk_at(plans, "f.cxx", 12).kind == "local-init"
+    assert {h.kind for p in plans for h in p.hunks if h.file.name == "f.cxx"
+            and h.added in (["{"], ["}"]) and h.old_start > 20} == {"narrow-scope"}
+
+
+@pytest.mark.skipif(not partition.shutil.which("clang-format"), reason="no clang-format")
+def test_formatting_mirror_survives_next_kind_hunk_nearby(tmp_path, fake_gate_ok):
+    def local(f):
+        f["g.cxx"][9] = "const int  g10=10;"
+
+    def const(f):
+        f["g.cxx"][11] = "const int g12 = 12;"
+
+    r, _, stages = staged_repo(tmp_path, "g.cxx", 20, [
+        ("local-init", local, [("g.cxx", 10, 10)]),
+        ("local-const", const, [("g.cxx", 12, 12)]),
+    ], clang_format="BasedOnStyle: LLVM\n")
+    first, second = plan(r, stages)
+    assert apply(r, first, tmp_path).sha is not None
+    text = (r / "g.cxx").read_text()
+    assert "const int g10 = 10;\nint g11 = 11;\nconst int g12 = 12;" in text
+    assert apply(r, second, tmp_path).sha is not None
+    assert git(r, "diff", "HEAD") == ""

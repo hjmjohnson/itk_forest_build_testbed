@@ -114,6 +114,24 @@ def build_patch(hunks: list[Hunk], renumber: bool = True) -> str:
     return "\n".join(out) + "\n" if out else ""
 
 
+def map_line(p: int, hunks: list[Hunk], end: bool = False, strict: bool = False) -> int:
+    """Map old-side line p of a -U0 diff to its new side."""
+    delta = 0
+    for h in hunks:
+        if h.old_count == 0:
+            if h.old_start < p:
+                delta += h.new_count
+        elif h.old_start + h.old_count - 1 < p:
+            delta += h.new_count - h.old_count
+        elif h.old_start <= p:
+            if strict:
+                raise ValueError(f"line {p} was rewritten by another hunk")
+            if h.new_count == 0:
+                return h.new_start
+            return h.new_start + (h.new_count - 1 if end else 0)
+    return p + delta
+
+
 def index_sha(repo: Path, file: Path) -> str:
     return git(repo, "rev-parse", f":{file.as_posix()}").strip()
 
@@ -124,25 +142,26 @@ def write_index(repo: Path, file: Path, content: bytes) -> None:
     git(repo, "update-index", "--cacheinfo", f"{mode},{sha},{file.as_posix()}")
 
 
-def blob_patch(repo: Path, file: Path, old_sha: str, new_sha: str) -> str:
-    """A context patch for `file` that turns blob old_sha into blob new_sha."""
-    text = diff(repo, "-U3", old_sha, new_sha)
-    name = file.as_posix()
-    body = text.splitlines()
-    start = next(i for i, ln in enumerate(body) if ln.startswith("@@"))
-    head = [f"diff --git a/{name} b/{name}", f"--- a/{name}", f"+++ b/{name}"]
-    return "\n".join(head + body[start:]) + "\n"
-
-
-def apply_to_worktree(repo: Path, patch: str) -> bool:
-    p = subprocess.run(
-        ["git", "apply", "-"], cwd=repo, capture_output=True, text=True, input=patch
-    )
-    return p.returncode == 0
-
-
 def reverse_in_worktree(repo: Path, hunks: list[Hunk]) -> None:
     """Undo hunks whose new side is in working-tree lines, bottom-up so none shift."""
     for h in sorted(hunks, key=lambda h: h.new_start, reverse=True):
         patch = build_patch([h], renumber=False)
         git(repo, "apply", "-R", "--unidiff-zero", "-", input=patch)
+
+
+def mirror_format(repo: Path, file: Path, before: str, after: str) -> None:
+    """Replay the index formatting in working-tree lines, where other kinds' edits sit."""
+    work = git(repo, "hash-object", "-w", "--", file.as_posix()).strip()
+    to_work, _ = parse_diff(diff(repo, "-U0", before, work))
+    fmt, _ = parse_diff(diff(repo, "-U0", before, after))
+    moved = []
+    for h in fmt:
+        try:
+            for ln in h.old_lines() or [h.old_start]:
+                if ln:
+                    map_line(ln, to_work, strict=True)
+        except ValueError as exc:
+            raise RuntimeError(f"{file}: clang-format touched another kind's lines") from exc
+        start = map_line(h.old_start, to_work) if h.old_start else 0
+        moved.append(Hunk(file, start, h.old_count, 0, h.new_count, h.body))
+    git(repo, "apply", "--unidiff-zero", "-", input=build_patch(moved))

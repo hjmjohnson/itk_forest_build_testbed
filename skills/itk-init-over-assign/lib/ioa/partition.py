@@ -9,13 +9,12 @@ from ioa.comments import check_hunks
 from ioa.manifest import Manifest, Site
 from ioa.patch import (
     Hunk,
-    apply_to_worktree,
-    blob_patch,
     build_patch,
     diff,
     git,
     git_bytes,
     index_sha,
+    mirror_format,
     parse_diff,
     reverse_in_worktree,
     write_index,
@@ -65,7 +64,7 @@ def plan(repo: Path, stages: list[StageRecord]) -> list[CommitPlan]:
     hunks, skipped = parse_diff(diff(repo, "-U0", "HEAD"))
     notes: dict[str, list[str]] = {k: [] for k in order}
     for h in hunks:
-        owners = [st for st in loaded if st.owns(h)]
+        owners = [st for st in loaded if st.at(h)] or [st for st in loaded if st.by_text(h)]
         if owners:
             h.kind = owners[-1].record.kind
             h.sites = owners[-1].sites(h)
@@ -109,9 +108,11 @@ def _match(plan_hunks: list[Hunk], fresh: list[Hunk]) -> list[Hunk]:
     return found
 
 
-def _skip(h: Hunk, reason: Reason, note: str) -> list[Site]:
+def _skip(h: Hunk, reason: Reason, note: str, done: list[Site]) -> list[Site]:
     if h.sites:
-        return [dataclasses.replace(s, skipped=reason, note=note) for s in h.sites]
+        fresh = [s for s in h.sites if not any(s is d for d in done)]
+        done.extend(fresh)
+        return [dataclasses.replace(s, skipped=reason, note=note) for s in fresh]
     lines = h.lines()
     end = max(lines.start, lines.stop - 1)
     return [Site(h.file, lines.start, end, h.kind, "uncovered", reason, note)]
@@ -175,15 +176,18 @@ def apply(repo: Path, commit_plan: CommitPlan, graph: Path) -> CommitResult:
     files = list(dict.fromkeys(h.file for h in selected))
     dirty = [Path(p) for p in diff(repo, "--name-only", "HEAD").splitlines()]
     saved = {f: (repo / f).read_bytes() for f in dirty}
-    notes.append(f"backup-tree: {snapshot(repo)}")
+    backup = snapshot(repo)
+    git(repo, "update-ref", f"refs/ioa/backup/{commit_plan.kind}", backup)
+    notes.append(f"backup-tree: {backup}")
     gone: list[Hunk] = []
+    originals: list[Site] = []
     whole: set[Path] = set()
 
     def drop(hunks: list[Hunk], reason: Reason, note: str = "") -> None:
         for h in hunks:
             if not any(h is g for g in gone):
                 gone.append(h)
-                reverted.extend(_skip(h, reason, note))
+                reverted.extend(_skip(h, reason, note, originals))
 
     try:
         git(repo, "apply", "--cached", "--unidiff-zero", "-", input=build_patch(selected))
@@ -220,7 +224,6 @@ def apply(repo: Path, commit_plan: CommitPlan, graph: Path) -> CommitResult:
             drop([h for h in selected if h.file == f], Reason.GATE_FAILED)
         sha = None
         if subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=repo).returncode:
-            originals = [s for h in gone for s in h.sites]
             applied = [
                 s for m in commit_plan.manifests for s in m.applied()
                 if not any(s is o for o in originals)
@@ -228,17 +231,15 @@ def apply(repo: Path, commit_plan: CommitPlan, graph: Path) -> CommitResult:
             body = f"Sites: {len(applied)}, skipped: {len(reverted)}"
             git(repo, "commit", "-q", "-F", "-", input=f"{commit_plan.message}\n\n{body}\n")
             sha = git(repo, "rev-parse", "HEAD").strip()
+        for f, content in saved.items():
+            (repo / f).write_bytes(content)
+        for f in files:
+            reverse_in_worktree(repo, [h for h in gone if h.file == f])
+            if f not in whole and unformatted[f] != formatted[f]:
+                mirror_format(repo, f, unformatted[f], formatted[f])
     except BaseException:
         git(repo, "reset", "-q", "--", *(f.as_posix() for f in files))
         for f, content in saved.items():
             (repo / f).write_bytes(content)
         raise
-    for f, content in saved.items():
-        (repo / f).write_bytes(content)
-    for f in files:
-        reverse_in_worktree(repo, [h for h in gone if h.file == f])
-        if f in whole or unformatted[f] == formatted[f]:
-            continue
-        if not apply_to_worktree(repo, blob_patch(repo, f, unformatted[f], formatted[f])):
-            raise RuntimeError(f"{f}: could not mirror clang-format into the working tree")
     return CommitResult(sha, reverted, notes)

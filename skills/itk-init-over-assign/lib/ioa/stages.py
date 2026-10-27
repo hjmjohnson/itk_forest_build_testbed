@@ -1,11 +1,14 @@
 import os
+import re
 import shutil
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from ioa.manifest import Manifest, Site
-from ioa.patch import Hunk, diff, git, parse_diff
+from ioa.patch import Hunk, diff, git, map_line, parse_diff
+
+WORD = re.compile(r"\w")
 
 
 @dataclass
@@ -29,43 +32,94 @@ def snapshot(repo: Path) -> str:
 
 
 def _texts(lines: list[str]) -> set[str]:
-    return {t for t in (ln.strip() for ln in lines) if t}
+    """Stripped lines with an identifier character; bare braces prove nothing."""
+    return {t for t in (ln.strip() for ln in lines) if WORD.search(t)}
+
+
+@dataclass(frozen=True)
+class Span:
+    """A stage edit in final working-tree lines; `gap` is a deletion after `lo`."""
+
+    lo: int
+    hi: int
+    gap: bool
+
+    def meets(self, h: Hunk) -> bool:
+        if h.new_count == 0:
+            return self.gap and self.lo == h.new_start
+        lo, hi = h.new_start, h.new_start + h.new_count - 1
+        if self.gap:
+            return lo - 1 <= self.lo <= hi
+        return self.lo <= hi and lo <= self.hi
+
+
+def _span(h: Hunk, fwd: list[Hunk]) -> Span:
+    if h.new_count == 0:
+        p = map_line(h.new_start, fwd, end=True)
+        return Span(p, p, True)
+    lo = map_line(h.new_start, fwd)
+    hi = map_line(h.new_start + h.new_count - 1, fwd, end=True)
+    return Span(lo, max(lo, hi), False)
 
 
 @dataclass
-class _Stage:
+class _Site:
+    site: Site
+    spans: list[Span]
+    added: set[str]
+    removed: set[str]
+
+
+@dataclass
+class Stage:
     record: StageRecord
+    spans: dict[Path, list[Span]] = field(default_factory=dict)
     added: dict[Path, set[str]] = field(default_factory=dict)
     removed: dict[Path, set[str]] = field(default_factory=dict)
-    site_texts: list[tuple[Site, set[str], set[str]]] = field(default_factory=list)
+    sites_at: list[_Site] = field(default_factory=list)
 
-    def owns(self, h: Hunk) -> bool:
+    def at(self, h: Hunk) -> bool:
+        return any(s.meets(h) for s in self.spans.get(h.file, []))
+
+    def by_text(self, h: Hunk) -> bool:
         if h.added:
             return bool(self.added.get(h.file, set()) & _texts(h.added))
         return bool(self.removed.get(h.file, set()) & _texts(h.removed))
 
     def sites(self, h: Hunk) -> list[Site]:
+        mine = [s for s in self.sites_at if s.site.file == h.file]
+        placed = [s.site for s in mine if any(sp.meets(h) for sp in s.spans)]
+        if placed or self.at(h):
+            return placed
         key = _texts(h.added) if h.added else _texts(h.removed)
-        return [
-            s for s, add, rem in self.site_texts
-            if s.file == h.file and key & (add if h.added else rem)
-        ]
+        return [s.site for s in mine if key & (s.added if h.added else s.removed)]
 
 
-def load(repo: Path, rec: StageRecord) -> _Stage:
-    st = _Stage(rec)
+def load(repo: Path, rec: StageRecord) -> Stage:
+    """Read a stage's edits and project them onto the current working tree."""
+    st = Stage(rec)
     hunks, _ = parse_diff(diff(repo, "-U0", rec.tree_before, rec.tree_after))
+    fwd: dict[Path, list[Hunk]] = {}
+    for h in parse_diff(diff(repo, "-U0", rec.tree_after))[0]:
+        fwd.setdefault(h.file, []).append(h)
+    span_of = {id(h): _span(h, fwd.get(h.file, [])) for h in hunks}
     for h in hunks:
+        st.spans.setdefault(h.file, []).append(span_of[id(h)])
         st.added.setdefault(h.file, set()).update(_texts(h.added))
         st.removed.setdefault(h.file, set()).update(_texts(h.removed))
     for s in rec.manifest.applied():
-        add: set[str] = set()
-        rem: set[str] = set()
-        for h in hunks:
-            lo = h.lines().start
-            hi = max(lo, h.lines().stop - 1)
-            if h.file == s.file and lo <= s.end and s.start <= hi:
-                add |= _texts(h.added)
-                rem |= _texts(h.removed)
-        st.site_texts.append((s, add, rem))
+        hit = [
+            h for h in hunks
+            if h.file == s.file
+            and h.lines().start <= s.end
+            and s.start <= max(h.lines().start, h.lines().stop - 1)
+        ]
+        st.sites_at.append(
+            _Site(
+                s,
+                [span_of[id(h)] for h in hit],
+                set().union(*(_texts(h.added) for h in hit)),
+                set().union(*(_texts(h.removed) for h in hit)),
+            )
+        )
     return st
