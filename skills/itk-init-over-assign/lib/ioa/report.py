@@ -1,3 +1,4 @@
+import shlex
 import subprocess
 import textwrap
 from collections import Counter
@@ -22,6 +23,8 @@ class Build:
     ok: bool
     detail: str = ""
     warnings: list[str] = field(default_factory=list)
+    precommit_ok: bool = True
+    precommit_changed: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -30,13 +33,16 @@ class Ctest:
     token: str
     new: list[str] = field(default_factory=list)
     baseline: Path | None = None
+    note: str = ""
 
 
 @dataclass
 class Failure:
+    """A stage that exited non-zero, or a step that raised (returncode None)."""
+
     kind: str
     argv: list[str]
-    returncode: int
+    returncode: int | None
     stderr_tail: str
 
 
@@ -87,10 +93,14 @@ def _build_lines(build: Build | None) -> list[str]:
         f"- pre-commit: {build.precommit}",
         f"- Full build and artifact check: {'pass' if build.ok else 'FAIL'}",
     ]
+    if build.precommit_changed:
+        out += ["", "### pre-commit changed files (not committed)", ""]
+        out += [f"- {f}" for f in build.precommit_changed]
+        out += ["", _wrap("These were restored to the branch tip before the build.")]
     if build.detail:
         out += ["", "```text", build.detail.rstrip(), "```"]
     if build.warnings:
-        out += ["", "Warnings in the rebuild:", ""]
+        out += ["", "Warnings in the rebuild log:", ""]
         out += [f"> {w}" for w in build.warnings]
     return out
 
@@ -100,6 +110,8 @@ def _ctest_lines(ctest: Ctest | None) -> list[str]:
         return ["Not run."]
     out = [f"- Result: {ctest.token}"]
     out.append(f"- Baseline: {ctest.baseline}" if ctest.baseline else "- Baseline: none")
+    if ctest.note:
+        out.append(f"- Note: {ctest.note}")
     if ctest.new:
         out.append("- New failures against the baseline:")
         out += [f"  - `{t}`" for t in ctest.new]
@@ -115,7 +127,21 @@ def _kit_commit(kit: Path) -> str:
     return done.stdout.strip() if done.returncode == 0 and done.stdout.strip() else "unknown"
 
 
-def _report_text(coords, commits, skips, build, ctest, branch, tip, run_dir, failed) -> str:
+def _failure_lines(failed: Failure) -> list[str]:
+    if failed.returncode is None:
+        head = ["## Run error", "", _wrap(
+            f"Step `{failed.kind}` raised; the run stopped and left the branch "
+            "and working tree in place.")]
+        body = [failed.stderr_tail.rstrip()]
+    else:
+        head = ["## Failing stage", "", _wrap(
+            f"Stage `{failed.kind}` exited {failed.returncode}; the run stopped "
+            "and left the branch and working tree in place.")]
+        body = [shlex.join(failed.argv), failed.stderr_tail.rstrip()]
+    return ["", *head, "", "```text", *body, "```"]
+
+
+def _report_text(coords, commits, skips, build, ctest, branch, tip, run_dir, failed, notes) -> str:
     lines = [
         f"# init-over-assign: {coords.repo_slug} {run_dir.name.rsplit('-', 1)[-1]}",
         "",
@@ -126,20 +152,7 @@ def _report_text(coords, commits, skips, build, ctest, branch, tip, run_dir, fai
         f"- Run directory: {run_dir}",
     ]
     if failed:
-        lines += [
-            "",
-            "## Failing stage",
-            "",
-            _wrap(
-                f"Stage `{failed.kind}` exited {failed.returncode}; the run stopped "
-                "and left the branch and working tree in place."
-            ),
-            "",
-            "```text",
-            " ".join(failed.argv),
-            failed.stderr_tail.rstrip(),
-            "```",
-        ]
+        lines += _failure_lines(failed)
     lines += ["", "## Commits", ""]
     if commits:
         lines += ["| SHA | Kind | Files | Sites | Gate |", "|---|---|---|---|---|"]
@@ -156,6 +169,8 @@ def _report_text(coords, commits, skips, build, ctest, branch, tip, run_dir, fai
     lines += ["", "## Skip list", "", *_skip_section(skips)]
     lines += ["", "## Build", "", *_build_lines(build)]
     lines += ["", "## ctest", "", *_ctest_lines(ctest)]
+    if notes:
+        lines += ["", "## Notes", "", *(f"- {n}" for n in notes)]
     return "\n".join(lines) + "\n"
 
 
@@ -171,7 +186,9 @@ def _pr_body(kit, coords, commits, skips, build, ctest, run_dir) -> str:
     changed += [f"| {c.kind} | `{_short(c.sha)}` | {c.sites} |" for c in live]
     left = [f"- `{r}`: {n}" for r, n in sorted(reasons.items())] or ["- none"]
     tests = [
-        f"- pre-commit: {build.precommit if build else 'not run'}",
+        f"- pre-commit: {build.precommit if build else 'not run'}"
+        + (f"; changed and restored: {', '.join(build.precommit_changed)}"
+           if build and build.precommit_changed else ""),
         f"- Full build in {coords.forest_name}: "
         + ("not run" if build is None else "pass" if build.ok else "FAIL"),
         f"- ctest: {ctest.token if ctest else 'not run'}"
@@ -223,10 +240,13 @@ def write(
     kit: Path, coords, commits: list[Commit], skips: list[Site],
     build: Build | None, ctest: Ctest | None, *,
     branch: str, tip: str, run_dir: Path, failed: Failure | None = None,
+    notes: list[str] | None = None,
 ) -> Path:
     path = run_dir.parent / f"{run_dir.name}.md"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(_report_text(coords, commits, skips, build, ctest, branch, tip, run_dir, failed))
+    path.write_text(_report_text(
+        coords, commits, skips, build, ctest, branch, tip, run_dir, failed, notes or []
+    ))
     body = kit / ".devlocal" / "pr-bodies" / f"{coords.repo_slug}-init-over-assign.md"
     body.parent.mkdir(parents=True, exist_ok=True)
     body.write_text(_pr_body(kit, coords, commits, skips, build, ctest, run_dir))

@@ -50,6 +50,12 @@ class World:
         self.plan_args: list = []
         self.applied: list[str] = []
         self.ctest_failed: list[str] = []
+        self.ctest_token = "T:10/10"
+        self.build_rc = 0
+        self.apply_raises = False
+        self.precommit_rewrites: list[str] = []
+        self.dirty: set[str] = set()
+        self.envs: list[dict | None] = []
         self.snap = 0
         self.coords = Coordinates("BRAINSTools", "a" * 40, "build_forest-itk-main", self.graph, "6.0.0")
         self.run = _load_run()
@@ -80,6 +86,8 @@ class World:
 
     def apply(self, repo, plan, graph):
         self.applied.append(plan.kind)
+        if self.apply_raises and plan.kind == "narrow-scope":
+            raise RuntimeError("index has staged changes")
         if plan.kind == "narrow-scope":
             gone = Site(Path("b.cxx"), 9, 9, "narrow-scope", "narrow-scope", Reason.GATE_FAILED)
             return CommitResult("c2" * 20, [gone], [])
@@ -88,18 +96,27 @@ class World:
     def record(self, argv, *args, **kwargs):
         argv = [str(a) for a in argv]
         self.calls.append(argv)
+        self.envs.append(kwargs.get("env"))
         out, rc, err = "", 0, ""
         joined = " ".join(argv)
         if self.fail_script and any(a.endswith(self.fail_script) for a in argv):
             return subprocess.CompletedProcess(argv, 3, "", "line1\nboom: stage blew up\n")
         if argv[:2] == ["git", "-C"] and "branch" in argv:
             out = self.existing_branch
+        elif argv[0] == "pre-commit":
+            self.dirty |= set(self.precommit_rewrites)
+            rc = 1 if self.precommit_rewrites else 0
+            out = "trim trailing whitespace....Failed\n" if rc else ""
+        elif "status" in argv and "--porcelain" in argv:
+            out = "".join(f" M {f}\n" for f in sorted(self.dirty))
+        elif "checkout" in argv and "--" in argv:
+            self.dirty -= set(argv[argv.index("--") + 1:])
         elif "rev-parse" in argv:
             out = "f" * 40 + "\n"
         elif "show" in argv and "--name-only" in argv:
             out = "a.cxx\n" if argv[-1].startswith("c1") else "b.cxx\nc.h\n"
         elif "--run-ctest" in argv:
-            out = "T:10/10\n"
+            out = f"{self.ctest_token}\n"
             log = self.ctest_dir / "Testing" / "Temporary" / "LastTestsFailed.log"
             if self.ctest_failed:
                 log.parent.mkdir(parents=True, exist_ok=True)
@@ -108,6 +125,8 @@ class World:
             out = f"{self.ctest_dir}\n"
         elif argv[:2] == ["pixi", "run"]:
             out = "[1/2] x\nfoo.cxx:3:1: warning: unused variable 'q'\n"
+            rc = self.build_rc
+            assert not self.dirty, "build saw files rewritten by pre-commit"
         manifest = _flag(argv, "--manifest")
         if manifest and "sizetype_filled.py" in joined:
             Manifest("itk-helpers", [Site(Path("s.cxx"), 1, 1, "itk-helpers", "fill")]).write(Path(manifest))
@@ -163,7 +182,7 @@ def test_run_refuses_on_preflight_error_with_exit_2(world, monkeypatch, capsys):
 def test_run_refuses_when_branch_exists(world, capsys):
     world.existing_branch = "  style-init-over-assign-20261027\n"
     assert world.run.main(["BRAINSTools"]) == 2
-    assert "dirty-tree" in capsys.readouterr().err
+    assert "branch-exists" in capsys.readouterr().err
     assert not any("checkout" in c for c in world.calls)
     assert world.stage_calls() == []
 
@@ -241,8 +260,91 @@ def test_run_exits_1_on_new_ctest_failure(world):
 def test_dry_run_prints_commands_without_running(world, capsys):
     assert world.run.main(["BRAINSTools", "--dry-run"]) == 0
     out = capsys.readouterr().out
-    assert world.calls == [] and world.plan_args == []
+    assert world.plan_args == []
+    assert all(c[:2] == ["git", "-C"] and "--list" in c for c in world.calls)
     assert "member-init:" in out and "narrow_scope.py" in out and "--only-from" in out
+    assert "pre-commit run --all-files" in out and "pixi run build-BRAINSTools" in out
+    assert "--run-ctest BRAINSTools" in out
+
+
+def test_dry_run_refuses_existing_branch(world, capsys):
+    world.existing_branch = "style-init-over-assign-20261027\n"
+    assert world.run.main(["BRAINSTools", "--dry-run"]) == 2
+    assert "branch-exists" in capsys.readouterr().err
+
+
+def test_precommit_rewrites_are_restored_before_build_and_fail_the_run(world):
+    (world.repo / ".pre-commit-config.yaml").write_text("repos: []\n")
+    world.precommit_rewrites = ["Common/x.cxx"]
+    assert world.run.main(["BRAINSTools"]) == 1
+    assert ["git", "-C", str(world.repo), "checkout", "--", "Common/x.cxx"] in world.calls
+    assert any("--run-ctest" in c for c in world.calls)
+    text = _report(world)
+    assert "### pre-commit changed files (not committed)" in text and "- Common/x.cxx" in text
+    assert "FAILED: trim trailing whitespace" in text
+
+
+def test_exception_after_stages_still_writes_report(world, capsys):
+    world.apply_raises = True
+    assert world.run.main(["BRAINSTools"]) == 1
+    text = _report(world)
+    assert "## Run error" in text and "partition.apply narrow-scope" in text
+    assert "RuntimeError: index has staged changes" in text and "in apply" in text
+    assert "`c1c1c1c1c1c1`" in text
+    assert "report:" in capsys.readouterr().err
+
+
+def test_failures_token_without_log_is_not_green(world):
+    world.ctest_token = "T:8/10"
+    assert world.run.main(["BRAINSTools"]) == 1
+    assert "failures reported but no" in _report(world)
+
+
+def test_ctest_that_did_not_run_is_not_green(world):
+    world.ctest_token = "T:0/0:no-tests"
+    assert world.run.main(["BRAINSTools"]) == 1
+    assert "ctest did not run" in _report(world)
+
+
+def test_build_failure_exits_1_without_ctest(world):
+    world.build_rc = 2
+    assert world.run.main(["BRAINSTools"]) == 1
+    assert not any("--run-ctest" in c for c in world.calls)
+    text = _report(world)
+    assert "Full build and artifact check: FAIL" in text and "exited 2" in text
+    assert "Warnings in the rebuild log:" in text
+
+
+def test_baseline_refusal_writes_report_and_exits_2(world, monkeypatch):
+    def refuse(coords, kit):
+        raise RuntimeError("ctest did not run for BRAINSTools: T:skip")
+
+    monkeypatch.setattr(baseline, "ensure", refuse)
+    assert world.run.main(["BRAINSTools"]) == 2
+    text = _report(world)
+    assert "## Run error" in text and "`baseline`" in text and "(not created)" in text
+    assert not any("checkout" in c for c in world.calls)
+
+
+def test_build_and_ctest_pin_the_forest_env(world, monkeypatch):
+    monkeypatch.setenv("FOREST", "/elsewhere")
+    monkeypatch.setenv("BUILD_FOREST_ROOT", "/elsewhere")
+    monkeypatch.delenv("FOREST_REFERENCE_SUFFIX", raising=False)
+    world.run.main(["BRAINSTools"])
+    pinned = [e for c, e in zip(world.calls, world.envs)
+              if c[:2] == ["pixi", "run"] or any(a.endswith("run-matrix.sh") for a in c)]
+    assert len(pinned) == 4
+    for env in pinned:
+        assert env["FOREST_REFERENCE_SUFFIX"] == "itk-main"
+        assert "FOREST" not in env and "BUILD_FOREST_ROOT" not in env
+    import os
+    assert "FOREST_REFERENCE_SUFFIX" not in os.environ
+
+
+def test_missing_manifest_is_noted(world):
+    world.run.main(["BRAINSTools"])
+    text = _report(world)
+    assert "## Notes" in text and "member-init: no manifest written" in text
 
 
 def test_stages_option_restricts_the_run(world):
@@ -275,7 +377,10 @@ def test_report_write_sections(tmp_path):
     assert "### loop-carried (1)" in text and "a.cxx:4" in text
     assert "`333333333333` itk-helpers" in text and "`111111111111`" not in text.split("## Disjoint commits")[1].split("##")[0]
     assert "## Failing stage" not in text
-    assert all(len(ln) <= 80 for ln in text.splitlines() if not ln.startswith(("|", "-", ">")))
+    assert all(
+        len(ln) <= 80 for ln in text.splitlines()
+        if not (ln.startswith(("|", "-")) and "/" in ln)
+    )
     body = (kit / ".devlocal" / "pr-bodies" / "ITK-init-over-assign.md").read_text()
     assert body.count("<details>") == 2
     assert "<summary>What changed, and what was left alone</summary>" in body

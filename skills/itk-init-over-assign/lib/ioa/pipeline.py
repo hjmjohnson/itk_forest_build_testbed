@@ -105,16 +105,21 @@ class StageFailed(Exception):
         self.failure = failure
 
 
-def _merge(kind: str, parts: list[str], dest: Path) -> Manifest:
+def _merge(kind: str, parts: list[str], dest: Path, notes: list[str]) -> Manifest:
     merged = Manifest(kind)
     for p in map(Path, parts):
         if p.exists():
             merged.sites += Manifest.read(p).sites
+        else:
+            notes.append(f"{kind}: no manifest written at {p}; counted as zero sites")
     merged.write(dest)
     return merged
 
 
-def run_stage(kind: str, stage: Stage, repo: Path, graph: Path, run_dir: Path) -> stages.StageRecord:
+def run_stage(
+    kind: str, stage: Stage, repo: Path, graph: Path, run_dir: Path,
+    notes: list[str] | None = None,
+) -> stages.StageRecord:
     ctx = context(kind, repo, graph, run_dir)
     Path(ctx["dir"]).mkdir(parents=True, exist_ok=True)
     before = stages.snapshot(repo)
@@ -125,7 +130,8 @@ def run_stage(kind: str, stage: Stage, repo: Path, graph: Path, run_dir: Path) -
             tail = "\n".join((done.stderr or "").splitlines()[-20:])
             raise StageFailed(Failure(kind, argv, done.returncode, tail))
     after = stages.snapshot(repo)
-    manifest = _merge(kind, [m for _, m in pairs], Path(ctx["manifest"]))
+    manifest = _merge(kind, [m for _, m in pairs], Path(ctx["manifest"]),
+                      notes if notes is not None else [])
     rec = stages.StageRecord(kind, manifest, before, after)
     log = run_dir / "snapshots.json"
     seen = json.loads(log.read_text()) if log.exists() else []
@@ -158,42 +164,76 @@ def commit_row(repo: Path, plan, result) -> Commit:
     return Commit(result.sha, plan.kind, files, max(0, applied - len(result.reverted)), gate_text(result))
 
 
-def pre_commit(repo: Path) -> str:
+@dataclass
+class PreCommit:
+    status: str
+    ok: bool
+    changed: list[str]
+
+
+def _dirty(repo: Path) -> set[str]:
+    out = _git(repo, "status", "--porcelain", "--untracked-files=no")
+    return {ln[3:] for ln in out.splitlines() if len(ln) > 3}
+
+
+def pre_commit(repo: Path) -> PreCommit:
+    """Run the hooks, then restore any file they rewrote so the build sees the branch tip."""
     if not (repo / ".pre-commit-config.yaml").exists():
-        return "no .pre-commit-config.yaml"
+        return PreCommit("no .pre-commit-config.yaml", True, [])
+    before = _dirty(repo)
     done = subprocess.run(["pre-commit", "run", "--all-files"], cwd=repo,
                           capture_output=True, text=True, check=False)
-    if done.returncode == 0:
-        return "passed"
-    failed = [ln for ln in done.stdout.splitlines() if ln.rstrip().endswith("Failed")]
-    return "FAILED: " + ("; ".join(failed) or f"exit {done.returncode}")
+    changed = sorted(_dirty(repo) - before)
+    if changed:
+        _git(repo, "checkout", "--", *changed)
+    if done.returncode == 0 and not changed:
+        return PreCommit("passed", True, [])
+    failed = [ln for ln in (done.stdout or "").splitlines() if ln.rstrip().endswith("Failed")]
+    return PreCommit("FAILED: " + ("; ".join(failed) or f"exit {done.returncode}"), False, changed)
 
 
-def full_build(kit: Path, repo_name: str, precommit: str) -> Build:
+def post_commands(repo: Path, repo_name: str) -> list[str]:
+    kit_matrix = "bash bin/run-matrix.sh"
+    return [
+        f"pre-commit: (cd {shlex.quote(str(repo))} && pre-commit run --all-files)",
+        f"build: pixi run build-{repo_name}",
+        f"build: {kit_matrix} --check-artifact {repo_name}",
+        f"ctest: {kit_matrix} --run-ctest {repo_name}",
+    ]
+
+
+def full_build(kit: Path, repo_name: str, suffix: str, pc: PreCommit) -> Build:
     done = subprocess.run(["pixi", "run", f"build-{repo_name}"], cwd=kit,
-                          capture_output=True, text=True, check=False)
+                          capture_output=True, text=True, check=False,
+                          env=baseline.forest_env(suffix))
     log = (done.stdout or "") + (done.stderr or "")
     warnings = list(dict.fromkeys(ln.strip() for ln in log.splitlines() if WARNING.search(ln)))
+    build = Build(pc.status, True, "", warnings, pc.ok, pc.changed)
     if done.returncode != 0:
         tail = "\n".join(log.splitlines()[-20:])
-        return Build(precommit, False, f"pixi run build-{repo_name} exited {done.returncode}\n{tail}", warnings)
-    art = baseline._matrix(kit, "--check-artifact", repo_name)
-    if art.returncode != 0:
-        return Build(precommit, False, f"artifact check failed for {repo_name}", warnings)
-    return Build(precommit, True, "", warnings)
+        build.ok, build.detail = False, f"pixi run build-{repo_name} exited {done.returncode}\n{tail}"
+    elif baseline.matrix(kit, "--check-artifact", repo_name, suffix=suffix).returncode != 0:
+        build.ok, build.detail = False, f"artifact check failed for {repo_name}"
+    return build
 
 
-def run_ctest(kit: Path, repo_name: str, base: Path, run_dir: Path) -> Ctest:
-    where = baseline._matrix(kit, "--ctest-dir", repo_name).stdout.strip().splitlines()
+def run_ctest(kit: Path, repo_name: str, base: Path, run_dir: Path, suffix: str) -> Ctest:
+    where = baseline.matrix(kit, "--ctest-dir", repo_name, suffix=suffix).stdout.strip().splitlines()
     if not where:
         return Ctest(False, "no ctest directory", [], base)
     ctest_dir = Path(where[-1])
-    (ctest_dir / "Testing" / "Temporary" / "LastTestsFailed.log").unlink(missing_ok=True)
-    out = baseline._matrix(kit, "--run-ctest", repo_name).stdout
+    log = ctest_dir / "Testing" / "Temporary" / "LastTestsFailed.log"
+    log.unlink(missing_ok=True)
+    out = baseline.matrix(kit, "--run-ctest", repo_name, suffix=suffix).stdout
     tokens = [t for t in out.split() if t.startswith("T:")]
     token = tokens[-1] if tokens else "no token"
+    m = re.fullmatch(r"T:(\d+)/(\d+)", token)
+    if not m or int(m.group(2)) == 0:
+        return Ctest(False, token, [], base, "ctest did not run")
+    if m.group(1) != m.group(2) and not log.exists():
+        return Ctest(False, token, [], base, f"failures reported but no {log}")
     after = run_dir / "ctest-after.json"
+    after.parent.mkdir(parents=True, exist_ok=True)
     after.write_text(json.dumps({"failed": baseline.failed_tests(ctest_dir)}, indent=2) + "\n")
     new = baseline.new_failures(base, after)
-    ran = re.fullmatch(r"T:\d+/([1-9]\d*)", token) is not None
-    return Ctest(ran and not new, token, new, base)
+    return Ctest(not new, token, new, base)

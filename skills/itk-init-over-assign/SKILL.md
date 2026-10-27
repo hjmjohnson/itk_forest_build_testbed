@@ -70,6 +70,9 @@ dependencies:
     - lib/ioa/partition.py
     - lib/ioa/preflight.py
     - lib/ioa/baseline.py
+    - lib/ioa/stages.py
+    - lib/ioa/manifest.py
+    - lib/ioa/skip.py
 deployment:
   tier: project
   target_projects:
@@ -95,10 +98,12 @@ Usage (from the kit root, under pixi):
   <repo>        consumer directory in the forest, e.g. BRAINSTools
   --forest S    forest suffix; the forest is build_forest-S (default itk-main)
   --stages K    comma-separated kinds to run; a const kind needs its parent
-  --dry-run     preflight, then print every stage command and stop
+  --dry-run     preflight and branch check, then print every stage,
+                pre-commit, build, and ctest command and stop
 
-Exit:  0 green   1 failing stage, build error, or new ctest failure
-       2 preflight refusal (branch and tree untouched)
+Exit:  0 green   1 failing stage, raised step, pre-commit failure, build
+                   error, ctest not run, or new ctest failure
+       2 refusal: preflight, existing branch, or baseline (no branch made)
 Out:   <kit>/.devlocal/init-over-assign/<repo>-<YYYYMMDD_HHMM>.md
        <kit>/.devlocal/pr-bodies/<repo>-init-over-assign.md
 ```
@@ -143,11 +148,13 @@ subject in `ioa.partition.SUBJECTS`.
 
 1. `ioa.preflight.check` refuses a dirty tree, a protected branch, a HEAD
    that is not the catalog's upstream tip, a missing ninja graph, or a
-   clang-tidy series that differs from the forest compiler. An existing
-   `style-init-over-assign-<YYYYMMDD>` branch is also refused. Refusals
-   exit 2.
+   clang-tidy series that differs from the forest compiler, with the
+   codes `dirty-tree`, `on-main`, `not-at-upstream-tip`, `no-graph`, and
+   `tidy-series-mismatch`. An existing `style-init-over-assign-<YYYYMMDD>`
+   branch is refused as `branch-exists`. Refusals exit 2.
 2. `ioa.baseline.ensure` runs ctest once per base SHA and caches it under
-   `.devlocal/init-over-assign/baselines/`.
+   `.devlocal/init-over-assign/baselines/`. A baseline that cannot run
+   writes a report and exits 2 before the branch is created.
 3. The branch is created from HEAD. Each stage is bracketed by
    `ioa.stages.snapshot`; manifests go to `<run>/manifests/<kind>.json` and
    the tree pairs to `<run>/snapshots.json`. A stage that exits non-zero
@@ -155,10 +162,17 @@ subject in `ioa.partition.SUBJECTS`.
 4. `ioa.partition.plan` runs once over all stage records, then
    `ioa.partition.apply` commits each plan in kind order, reverting hunks
    that strand a comment or fail the compile gate.
-5. `pre-commit run --all-files` (reported, never fixed),
-   `pixi run build-<repo>` with `FOREST_REFERENCE_SUFFIX` set, then
-   `bin/run-matrix.sh --check-artifact` and `--run-ctest`. New failures
-   against the baseline exit 1.
+5. `pre-commit run --all-files` is reported, never fixed: files a hook
+   rewrites are listed under "pre-commit changed files (not committed)"
+   and restored with `git checkout --`, so the build sees the branch tip,
+   and the run exits 1. Then `pixi run build-<repo>`,
+   `bin/run-matrix.sh --check-artifact`, and `--run-ctest`, each with
+   `FOREST_REFERENCE_SUFFIX` set and any inherited `FOREST` or
+   `BUILD_FOREST_ROOT` removed. A failures token without
+   `LastTestsFailed.log`, a run that did not execute, or a new failure
+   against the baseline exits 1.
+6. Any exception after the stages still writes the report, with the step,
+   the exception, and its last frame under "Run error", and exits 1.
 
 The run never pushes, never calls `gh`, and writes into the consumer only
 through the stage scripts and the partitioner.
@@ -168,7 +182,8 @@ through the stage scripts and the partitioner.
 One row per commit (SHA, kind, files, sites, gate result), the commits that
 share no file with any other (candidates for separate PRs), the skip list
 grouped by reason with `file:line`, pre-commit, build, and ctest results
-with rebuild warnings quoted, and a failing-stage section when the run
+with the warnings in the rebuild log quoted, notes such as a stage that
+wrote no manifest, and a failing-stage or run-error section when the run
 stopped early. The PR body draft follows `pr-message-format`: a short
 summary, `<details>` for what changed and for testing with the AI
 disclosure, and an HTML comment with the kit commit, run directory, and

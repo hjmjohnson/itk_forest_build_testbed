@@ -1,14 +1,27 @@
 import json
+import os
 import re
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
 
-def _matrix(kit: Path, *args: str) -> subprocess.CompletedProcess:
+def forest_env(suffix: str | None) -> dict[str, str]:
+    """The environment for kit tools, pinned to one forest; inherited overrides dropped."""
+    env = {k: v for k, v in os.environ.items() if k not in ("FOREST", "BUILD_FOREST_ROOT")}
+    if suffix:
+        env["FOREST_REFERENCE_SUFFIX"] = suffix
+    return env
+
+
+def suffix_of(forest_name: str) -> str:
+    return forest_name.removeprefix("build_forest-")
+
+
+def matrix(kit: Path, *args: str, suffix: str | None = None) -> subprocess.CompletedProcess:
     return subprocess.run(
         ["bash", str(kit / "bin" / "run-matrix.sh"), *args],
-        cwd=kit, capture_output=True, text=True, check=False,
+        cwd=kit, capture_output=True, text=True, check=False, env=forest_env(suffix),
     )
 
 
@@ -31,13 +44,14 @@ def ensure(coords, kit: Path) -> Path:
     )
     if path.exists():
         return path
-    got = _matrix(kit, "--ctest-dir", coords.repo_slug)
+    suffix = suffix_of(coords.forest_name)
+    got = matrix(kit, "--ctest-dir", coords.repo_slug, suffix=suffix)
     if got.returncode != 0 or not got.stdout.strip():
         raise RuntimeError(f"run-matrix.sh --ctest-dir failed: {got.stderr.strip()}")
     ctest_dir = Path(got.stdout.strip().splitlines()[-1])
     log = ctest_dir / "Testing" / "Temporary" / "LastTestsFailed.log"
     log.unlink(missing_ok=True)
-    run = _matrix(kit, "--run-ctest", coords.repo_slug)
+    run = matrix(kit, "--run-ctest", coords.repo_slug, suffix=suffix)
     tokens = [t for t in run.stdout.split() if t.startswith("T:")]
     token = tokens[-1] if tokens else "no token"
     m = re.fullmatch(r"T:(\d+)/(\d+)", token)
