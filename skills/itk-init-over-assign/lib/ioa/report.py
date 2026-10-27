@@ -15,6 +15,7 @@ class Commit:
     files: list[str]
     sites: int
     gate: str
+    notes: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -164,7 +165,16 @@ def _failure_lines(failed: Failure) -> list[str]:
     return ["", *head, "", "```text", *body, "```"]
 
 
-def _report_text(coords, commits, skips, build, ctest, branch, tip, run_dir, failed, notes) -> str:
+def _commit_notes(commits: list[Commit]) -> list[str]:
+    out: list[str] = []
+    for c in commits:
+        if c.notes:
+            out += ["", f"### `{_short(c.sha)}` {c.kind}", "", *(f"- {n}" for n in c.notes)]
+    return out
+
+
+def _report_text(coords, commits, skips, build, ctest, branch, tip, run_dir, failed, notes,
+                 unpartitioned) -> str:
     lines = [
         f"# init-over-assign: {coords.repo_slug} {run_dir.name.rsplit('-', 1)[-1]}",
         "",
@@ -186,6 +196,12 @@ def _report_text(coords, commits, skips, build, ctest, branch, tip, run_dir, fai
         ]
     else:
         lines.append("No commits.")
+    lines += _commit_notes(commits)
+    if unpartitioned:
+        lines += ["", "## Unpartitioned changes", "", _wrap(
+            "These working-tree changes were left out of every commit; the build and "
+            "ctest saw them, and the run is not green."), "",
+            *(f"- {u}" for u in unpartitioned)]
     alone = disjoint(commits)
     lines += ["", "## Disjoint commits", ""]
     lines.append(_wrap("Disjoint from every other commit (candidates for separate PRs):"))
@@ -270,12 +286,13 @@ def write(
     kit: Path, coords, commits: list[Commit], skips: list[Site],
     build: Build | None, ctest: Ctest | None, *,
     branch: str, tip: str, run_dir: Path, failed: Failure | None = None,
-    notes: list[str] | None = None,
+    notes: list[str] | None = None, unpartitioned: list[str] | None = None,
 ) -> Path:
     path = run_dir.parent / f"{run_dir.name}.md"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(_report_text(
-        coords, commits, skips, build, ctest, branch, tip, run_dir, failed, notes or []
+        coords, commits, skips, build, ctest, branch, tip, run_dir, failed, notes or [],
+        unpartitioned or [],
     ))
     body = kit / ".devlocal" / "pr-bodies" / f"{coords.repo_slug}-init-over-assign.md"
     body.parent.mkdir(parents=True, exist_ok=True)

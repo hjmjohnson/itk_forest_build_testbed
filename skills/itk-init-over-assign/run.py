@@ -126,6 +126,8 @@ def main(argv: list[str] | None = None) -> int:
     if _git(repo, "branch", "--list", branch).stdout.strip():
         return _refuse("branch-exists", f"branch {branch} already exists in {repo}; delete or rename it")
     if args.dry_run:
+        if coords.note:
+            print(f"Note: {coords.note}")
         print(f"Branch: {branch} (not created)")
         for line in pipeline.dry_run_lines(selected, repo, coords.graph, run_dir):
             print(line)
@@ -133,10 +135,10 @@ def main(argv: list[str] | None = None) -> int:
             print(line)
         return 0
     notes = [coords.note] if coords.note else []
-    try:
-        built = harness.build(coords, pipeline.PreCommit("not run (baseline build)", True, []))
-    except OSError as exc:
-        built = report.Build("not run", False, f"{type(exc).__name__}: {exc}")
+    built = _baseline_build(harness, coords)
+    if not built.ok:
+        notes.append("baseline build failed; retried once")
+        built = _baseline_build(harness, coords)
     if not built.ok:
         path = _write(repo, coords, [], [], None, None, f"{branch} (not created)", run_dir,
                       report.Failure("build-failed", [], None, built.detail), notes)
@@ -145,6 +147,10 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     notes.append(f"baseline build: rebuilt {coords.graph} at {coords.sha[:12]} "
                  "before the baseline ctest")
+    changed = pipeline.dirty(repo)
+    if changed:
+        return _refuse("dirty-tree", f"the baseline build changed tracked files in {repo}: "
+                       + ", ".join(changed))
     try:
         base = harness.baseline(coords)
     except (RuntimeError, OSError) as exc:
@@ -160,6 +166,13 @@ def main(argv: list[str] | None = None) -> int:
     return _run(repo, coords, selected, branch, run_dir, base, harness, notes)
 
 
+def _baseline_build(harness, coords) -> report.Build:
+    try:
+        return harness.build(coords, pipeline.PreCommit("not run (baseline build)", True, []))
+    except OSError as exc:
+        return report.Build("not run", False, f"{type(exc).__name__}: {exc}")
+
+
 def _run(repo, coords, selected, branch, run_dir, base, harness, notes) -> int:
     records = []
     for kind, stage in selected:
@@ -171,7 +184,7 @@ def _run(repo, coords, selected, branch, run_dir, base, harness, notes) -> int:
                           exc.failure, notes)
             print(f"stage {kind} failed; report: {path}", file=sys.stderr)
             return 1
-    results, commits, build, ctest = [], [], None, None
+    results, commits, build, ctest, left = [], [], None, None, []
     step = "partition.plan"
     try:
         plans = partition.plan(repo, records)
@@ -180,6 +193,8 @@ def _run(repo, coords, selected, branch, run_dir, base, harness, notes) -> int:
             r = partition.apply(repo, p, coords.graph)
             results.append(r)
             commits.append(pipeline.commit_row(repo, p, r))
+        step = "unpartitioned check"
+        left = pipeline.leftover(repo)
         step = "pre-commit"
         pc = pipeline.pre_commit(repo)
         step = "build"
@@ -188,13 +203,14 @@ def _run(repo, coords, selected, branch, run_dir, base, harness, notes) -> int:
         ctest = harness.ctest(coords, base, run_dir) if build.ok else None
     except Exception as exc:
         path = _write(repo, coords, commits, _skips(records, results), build, ctest, branch,
-                      run_dir, _error(step, exc), notes)
+                      run_dir, _error(step, exc), notes, left)
         print(f"{step} raised {type(exc).__name__}: {exc}; report: {path}", file=sys.stderr)
         return 1
     path = _write(repo, coords, commits, _skips(records, results), build, ctest, branch,
-                  run_dir, None, notes)
+                  run_dir, None, notes, left)
     print(f"report: {path}")
-    return 0 if build.ok and build.precommit_ok and ctest and ctest.ok else 1
+    green = build.ok and build.precommit_ok and ctest and ctest.ok and not left
+    return 0 if green else 1
 
 
 def _skips(records, results) -> list:
@@ -202,11 +218,13 @@ def _skips(records, results) -> list:
     return out + [s for res in results for s in res.reverted]
 
 
-def _write(repo, coords, commits, skips, build, ctest, branch, run_dir, failed, notes) -> Path:
+def _write(repo, coords, commits, skips, build, ctest, branch, run_dir, failed, notes,
+           unpartitioned=None) -> Path:
     tip = _git(repo, "rev-parse", "HEAD").stdout.strip() or "unknown"
     return report.write(
         KIT, coords, commits, skips, build, ctest,
         branch=branch, tip=tip, run_dir=run_dir, failed=failed, notes=notes,
+        unpartitioned=unpartitioned,
     )
 
 

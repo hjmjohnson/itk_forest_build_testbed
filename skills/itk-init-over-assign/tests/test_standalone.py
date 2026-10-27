@@ -154,7 +154,7 @@ class StandaloneWorld(World):
             assert not self.dirty, "build saw files rewritten by pre-commit"
             out = "[1/2] x\nfoo.cxx:3:1: warning: unused variable 'q'\n"
             self.builds += 1
-            rc = self.prebuild_rc if self.builds == 1 else self.build_rc
+            rc = self.prebuild_rc if self.builds <= self.prebuild_tries else self.build_rc
             return subprocess.CompletedProcess(argv, rc, out, "")
         return super().record(argv, *args, **kwargs)
 
@@ -316,7 +316,7 @@ def test_standalone_builds_before_the_baseline_ctest(sworld, monkeypatch):
 
 
 def test_failing_standalone_baseline_build_refuses_without_branch(sworld, capsys):
-    sworld.prebuild_rc = 1
+    sworld.prebuild_rc, sworld.prebuild_tries = 1, 2
     assert sworld.main() == 2
     assert "refused (build-failed)" in capsys.readouterr().err
     assert not any("checkout" in c for c in sworld.calls)

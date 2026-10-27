@@ -10,6 +10,7 @@ from typing import Callable
 
 from ioa import baseline, stages
 from ioa.manifest import Manifest
+from ioa.patch import DIFF_FLAGS, parse_diff
 from ioa.report import Build, Commit, Ctest, Failure
 
 SKILLS = Path(__file__).resolve().parents[3]
@@ -161,7 +162,16 @@ def gate_text(result) -> str:
 def commit_row(repo: Path, plan, result) -> Commit:
     files = _git(repo, "show", "--name-only", "--format=", result.sha).split() if result.sha else []
     applied = sum(len(m.applied()) for m in plan.manifests)
-    return Commit(result.sha, plan.kind, files, max(0, applied - len(result.reverted)), gate_text(result))
+    return Commit(result.sha, plan.kind, files, max(0, applied - len(result.reverted)),
+                  gate_text(result), [*plan.notes, *result.notes])
+
+
+def leftover(repo: Path) -> list[str]:
+    """Working-tree changes against HEAD that no commit took."""
+    hunks, skipped = parse_diff(_git(repo, "diff", *DIFF_FLAGS, "-U0", "HEAD"))
+    return [f"{h.file}:{h.old_start} (-{h.old_count} +{h.new_count})" for h in hunks] + [
+        f"{f}: added or deleted file" for f in skipped
+    ]
 
 
 @dataclass
@@ -169,6 +179,10 @@ class PreCommit:
     status: str
     ok: bool
     changed: list[str]
+
+
+def dirty(repo: Path) -> list[str]:
+    return sorted(_dirty(repo))
 
 
 def _dirty(repo: Path) -> set[str]:
@@ -215,9 +229,23 @@ def _built(done: subprocess.CompletedProcess, label: str, pc: PreCommit) -> Buil
     warnings = list(dict.fromkeys(ln.strip() for ln in log.splitlines() if WARNING.search(ln)))
     build = Build(pc.status, True, "", warnings, pc.ok, pc.changed)
     if done.returncode != 0:
-        tail = "\n".join(log.splitlines()[-20:])
-        build.ok, build.detail = False, f"{label} exited {done.returncode}\n{tail}"
+        build.ok, build.detail = False, f"{label} exited {done.returncode}\n{failure_excerpt(log)}"
     return build
+
+
+def failure_excerpt(log: str, context: int = 20) -> str:
+    """Every FAILED: line with the lines before it, then the log's last lines."""
+    lines = log.splitlines()
+    keep: set[int] = set(range(max(0, len(lines) - context), len(lines)))
+    for i, ln in enumerate(lines):
+        if ln.startswith("FAILED:"):
+            keep.update(range(max(0, i - context), i + 1))
+    out: list[str] = []
+    for i in sorted(keep):
+        if out and i - 1 not in keep:
+            out.append("...")
+        out.append(lines[i])
+    return "\n".join(out)
 
 
 def full_build(kit: Path, repo_name: str, suffix: str, pc: PreCommit) -> Build:

@@ -162,9 +162,12 @@ subject in `ioa.partition.SUBJECTS`.
    branch is refused as `branch-exists`. Refusals exit 2.
 2. The build tree is rebuilt at HEAD before the baseline, so the baseline
    never tests stale binaries: `pixi run build-<repo>` plus
-   `--check-artifact` in a forest, `ninja -C <build>` standalone. A failure
-   is refused as `build-failed`: exit 2, report written, no branch. The
-   report's notes record that the baseline build ran.
+   `--check-artifact` in a forest, `ninja -C <build>` standalone. A failed
+   build is retried once; a second failure is refused as `build-failed`:
+   exit 2, report written with every `FAILED:` line and the 20 lines
+   before each, no branch. A build that leaves tracked files changed is
+   refused as `dirty-tree`, listing them. The report's notes record that
+   the baseline build ran.
 3. `ioa.baseline.ensure` runs ctest once per base SHA and caches it under
    `.devlocal/init-over-assign/baselines/`. A baseline that cannot run,
    or a missing tool, writes a report and exits 2 before the branch is
@@ -179,6 +182,8 @@ subject in `ioa.partition.SUBJECTS`.
    are site-atomic: the hunks of one manifest site (or of a `partners`
    file pair in a manifest) go to the latest kind that touches any of
    them, and a stranded comment or a gate failure on one reverts them all.
+   Changes no commit took are listed under "Unpartitioned changes"; the
+   build and ctest still run, and the run exits 1.
 6. `pre-commit run --all-files` is reported, never fixed: files a hook
    rewrites are listed under "pre-commit changed files (not committed)"
    and restored with `git checkout --`, so the build sees the branch tip,
@@ -209,8 +214,9 @@ through the stage scripts and the partitioner.
 
 ## Report
 
-One row per commit (SHA, kind, files, sites, gate result), the commits that
-share no file with any other (candidates for separate PRs), the skip list
+One row per commit (SHA, kind, files, sites, gate result) with each
+commit's partition notes under it, any unpartitioned changes, the commits
+that share no file with any other (candidates for separate PRs), the skip list
 grouped by reason with `file:line`, pre-commit, build, and ctest results
 with the warnings in the rebuild log quoted, notes such as a stage that
 wrote no manifest, and a failing-stage or run-error section when the run

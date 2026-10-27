@@ -53,6 +53,9 @@ class World:
         self.ctest_token = "T:10/10"
         self.build_rc = 0
         self.prebuild_rc = 0
+        self.prebuild_tries = 1
+        self.build_dirties: list[str] = []
+        self.leftover_diff = ""
         self.builds = 0
         self.apply_raises = False
         self.precommit_rewrites: list[str] = []
@@ -82,7 +85,9 @@ class World:
     def plan(self, repo, recs):
         self.plan_args.append(list(recs))
         return [
-            CommitPlan("local-init", partition.SUBJECTS["local-init"], [], [], [recs[1].manifest]),
+            CommitPlan("local-init", partition.SUBJECTS["local-init"], [],
+                       ["a.cxx:4: hunk moved to local-const with the rest of its site"],
+                       [recs[1].manifest]),
             CommitPlan("narrow-scope", partition.SUBJECTS["narrow-scope"], [], [], [recs[-1].manifest]),
         ]
 
@@ -93,7 +98,7 @@ class World:
         if plan.kind == "narrow-scope":
             gone = Site(Path("b.cxx"), 9, 9, "narrow-scope", "narrow-scope", Reason.GATE_FAILED)
             return CommitResult("c2" * 20, [gone], [])
-        return CommitResult("c1" * 20, [], [])
+        return CommitResult("c1" * 20, [], ["backup-tree: t1"])
 
     def record(self, argv, *args, **kwargs):
         argv = [str(a) for a in argv]
@@ -113,6 +118,8 @@ class World:
             out = "".join(f" M {f}\n" for f in sorted(self.dirty))
         elif "checkout" in argv and "--" in argv:
             self.dirty -= set(argv[argv.index("--") + 1:])
+        elif argv[:2] == ["git", "-C"] and "diff" in argv:
+            out = self.leftover_diff
         elif "rev-parse" in argv:
             out = "f" * 40 + "\n"
         elif "show" in argv and "--name-only" in argv:
@@ -128,8 +135,10 @@ class World:
         elif argv[:2] == ["pixi", "run"]:
             out = "[1/2] x\nfoo.cxx:3:1: warning: unused variable 'q'\n"
             self.builds += 1
-            rc = self.prebuild_rc if self.builds == 1 else self.build_rc
+            rc = self.prebuild_rc if self.builds <= self.prebuild_tries else self.build_rc
             assert not self.dirty, "build saw files rewritten by pre-commit"
+            if self.builds == 1:
+                self.dirty |= set(self.build_dirties)
         manifest = _flag(argv, "--manifest")
         if manifest and "sizetype_filled.py" in joined:
             Manifest("itk-helpers", [Site(Path("s.cxx"), 1, 1, "itk-helpers", "fill")]).write(Path(manifest))
@@ -430,7 +439,7 @@ def test_forest_builds_before_the_baseline(world, monkeypatch):
 
 def test_failing_baseline_build_refuses_without_branch(world, monkeypatch, capsys):
     monkeypatch.setattr(baseline, "ensure", lambda c, k: pytest.fail("baseline ran"))
-    world.prebuild_rc = 2
+    world.prebuild_rc, world.prebuild_tries = 2, 2
     assert world.run.main(["BRAINSTools"]) == 2
     assert "refused (build-failed)" in capsys.readouterr().err
     assert not any("checkout" in c for c in world.calls)
@@ -447,3 +456,56 @@ def test_baseline_oserror_is_a_refusal(world, monkeypatch, capsys):
     assert world.run.main(["BRAINSTools"]) == 2
     assert "refused (baseline)" in capsys.readouterr().err
     assert "FileNotFoundError" in _report(world)
+
+
+def test_commit_notes_are_listed_under_their_commit(world):
+    assert world.run.main(["BRAINSTools"]) == 0
+    text = _report(world)
+    section = text.split("### `c1c1c1c1c1c1` local-init")[1].split("##")[0]
+    assert "- a.cxx:4: hunk moved to local-const with the rest of its site" in section
+    assert "- backup-tree: t1" in section
+
+
+def test_baseline_build_that_dirties_the_tree_is_refused(world, capsys):
+    world.build_dirties = ["Common/gen.h", "Common/version.h"]
+    assert world.run.main(["BRAINSTools"]) == 2
+    err = capsys.readouterr().err
+    assert "refused (dirty-tree)" in err and "Common/gen.h, Common/version.h" in err
+    assert not any("checkout" in c for c in world.calls)
+
+
+def test_unpartitioned_changes_are_reported_and_not_green(world):
+    world.leftover_diff = (
+        "diff --git a/x.cxx b/x.cxx\n--- a/x.cxx\n+++ b/x.cxx\n@@ -3 +3 @@\n-a\n+b\n"
+    )
+    assert world.run.main(["BRAINSTools"]) == 1
+    assert any("--run-ctest" in c for c in world.calls)
+    text = _report(world)
+    assert "## Unpartitioned changes" in text and "- x.cxx:3 (-1 +1)" in text
+
+
+def test_baseline_build_is_retried_once(world, capsys):
+    world.prebuild_rc = 2
+    assert world.run.main(["BRAINSTools"]) == 0
+    assert world.builds == 3
+    assert "baseline build failed; retried once" in _report(world)
+
+
+def test_dry_run_prints_the_coordinates_note(world, capsys):
+    import dataclasses
+    world.coords = dataclasses.replace(world.coords, note="tidy-series: skipped (AppleClang)")
+    assert world.run.main(["BRAINSTools", "--dry-run"]) == 0
+    assert "Note: tidy-series: skipped (AppleClang)" in capsys.readouterr().out
+
+
+def test_build_failure_excerpt_keeps_every_failed_line_and_its_context():
+    log = "\n".join(f"line {i}" for i in range(100)).split("\n")
+    log[10] = "FAILED: a.o"
+    log[60] = "FAILED: b.o"
+    text = pipeline.failure_excerpt("\n".join(log))
+    kept = text.splitlines()
+    assert "FAILED: a.o" in kept and "FAILED: b.o" in kept
+    assert "line 0" in kept and "line 40" in kept and "line 39" not in kept
+    assert "line 99" in kept and "line 79" not in kept
+    done = subprocess.CompletedProcess([], 1, "\n".join(log), "")
+    assert "FAILED: a.o" in pipeline._built(done, "ninja", pipeline.PreCommit("x", True, [])).detail
