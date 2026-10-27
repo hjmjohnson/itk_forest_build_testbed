@@ -115,12 +115,29 @@ def including_tus(
     return (first + rest + outside)[:cap]
 
 
+_COMMANDS: dict[Path, tuple[tuple[int, int], dict[Path, dict]]] = {}
+
+
+def _commands(graph: Path) -> dict[Path, dict]:
+    """The database keyed by resolved source path, parsed once per graph and file version."""
+    db = graph / "compile_commands.json"
+    st = db.stat()
+    stamp = (st.st_mtime_ns, st.st_size)
+    hit = _COMMANDS.get(db.resolve())
+    if hit is None or hit[0] != stamp:
+        index: dict[Path, dict] = {}
+        for e in _entries(graph):
+            index.setdefault(_entry_file(e), e)
+        hit = _COMMANDS[db.resolve()] = (stamp, index)
+    return hit[1]
+
+
 def command_for(tu: Path, graph: Path, repo_root: Path) -> list[str]:
     want = (tu if tu.is_absolute() else repo_root / tu).resolve()
-    for e in _entries(graph):
-        if _entry_file(e) == want:
-            return e["arguments"] if "arguments" in e else shlex.split(e["command"])
-    raise KeyError(str(tu))
+    e = _commands(graph).get(want)
+    if e is None:
+        raise KeyError(str(tu))
+    return e["arguments"] if "arguments" in e else shlex.split(e["command"])
 
 
 def source_files(graph: Path, repo_root: Path) -> list[Path]:

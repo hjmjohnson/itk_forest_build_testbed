@@ -258,9 +258,12 @@ def _gate_failures(repo: Path, graph: Path, files: list[Path]) -> tuple[set[Path
         return set(), []
     bad = {f for f in res.failed if f in files}
     unplaced = [f for f in res.failed if f not in files]
-    if unplaced:
-        for h in (f for f in files if gate.is_header(f) and f not in bad):
-            if not gate.run(graph, [h], repo).ok:
+    headers = [f for f in files if gate.is_header(f) and f not in bad] if unplaced else []
+    if headers:
+        batch = gate.run(graph, headers, repo)
+        for h in headers:
+            tus, _ = gate.expand([h], graph, repo)
+            if h in batch.failed or any(t in batch.failed for t in tus):
                 bad.add(h)
     return bad, unplaced
 

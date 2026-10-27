@@ -73,3 +73,24 @@ def test_missing_compiler_is_a_failure_not_a_raise(fake_graph, repo_root, monkey
     monkeypatch.setattr(gate.subprocess, "run", boom)
     r = gate.run(fake_graph, [Path("IO/tu0.cxx")], repo_root)
     assert not r.ok and "cannot run" in r.failed[Path("IO/tu0.cxx")]
+
+
+def test_translation_units_compile_in_parallel(fake_graph, repo_root, monkeypatch):
+    import threading
+
+    meet = threading.Barrier(2, timeout=10)
+
+    def fake(tu, graph, root):
+        meet.wait()
+        return None
+
+    monkeypatch.setattr(gate, "_compile", fake)
+    monkeypatch.setattr(gate, "workers", lambda: 2)
+    assert gate.run(fake_graph, [Path("IO/tu0.cxx"), Path("IO/tu1.cxx")], repo_root).ok
+
+
+def test_worker_count_is_half_the_cpus_but_at_least_two(monkeypatch):
+    monkeypatch.setattr(gate.os, "cpu_count", lambda: 16)
+    assert gate.workers() == 8
+    monkeypatch.setattr(gate.os, "cpu_count", lambda: 2)
+    assert gate.workers() == 2

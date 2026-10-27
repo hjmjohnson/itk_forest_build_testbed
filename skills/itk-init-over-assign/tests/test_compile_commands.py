@@ -177,3 +177,14 @@ def test_source_files_lists_tus_and_included_headers_under_root(fake_graph, repo
     assert repo_root / "Common" / "foo.h" in files
     assert repo_root / "Dead" / "other.h" not in files
     assert all(f.is_relative_to(repo_root) for f in files)
+
+
+def test_command_for_parses_the_database_once_per_graph(fake_graph, repo_root, monkeypatch):
+    from ioa import compile_commands
+
+    calls = []
+    real = compile_commands._entries
+    monkeypatch.setattr(compile_commands, "_entries", lambda g: calls.append(g) or real(g))
+    for tu in ("IO/tu0.cxx", "IO/tu1.cxx", "Common/tu2.cxx"):
+        command_for(Path(tu), fake_graph, repo_root)
+    assert len(calls) == 1

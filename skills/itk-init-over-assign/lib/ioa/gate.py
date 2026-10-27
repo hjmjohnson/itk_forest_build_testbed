@@ -2,6 +2,7 @@ import argparse
 import os
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -84,15 +85,24 @@ def _compile(tu: Path, graph: Path, repo_root: Path) -> str | None:
     return "\n".join(lines[:8]) or f"exit {p.returncode}"
 
 
+def workers() -> int:
+    return max(2, (os.cpu_count() or 2) // 2)
+
+
+def _check(tu: Path, graph: Path, repo_root: Path) -> str | None:
+    try:
+        return _compile(tu, graph, repo_root)
+    except KeyError:
+        return "no-compile-command"
+
+
 def run(graph: Path, files: list[Path], repo_root: Path) -> GateResult:
     tus, dead = expand(files, graph, repo_root)
     failed = {h: "no-including-tu" for h in dead}
     passed: list[Path] = []
-    for tu in tus:
-        try:
-            msg = _compile(tu, graph, repo_root)
-        except KeyError:
-            msg = "no-compile-command"
+    with ThreadPoolExecutor(max_workers=workers()) as pool:
+        results = list(pool.map(lambda tu: _check(tu, graph, repo_root), tus))
+    for tu, msg in zip(tus, results):
         if msg is None:
             passed.append(tu)
         else:

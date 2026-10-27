@@ -480,3 +480,19 @@ def test_gate_failure_in_a_header_reverts_its_partner_source(tmp_path, monkeypat
     assert git(r, "show", "--name-only", "--format=", "HEAD").split() == ["bar.cxx"]
     assert {s.file.name for s in res.reverted} == {"foo.h", "foo.cxx"}
     assert git(r, "diff", "HEAD") == ""
+
+
+def test_unattributed_failure_gates_the_headers_in_one_batch(tmp_path, monkeypatch):
+    calls = []
+
+    def fake(graph, files, root):
+        calls.append(sorted(f.name for f in files))
+        return GateResult(False, {Path("z.cxx"): "error: boom"})
+
+    monkeypatch.setattr(gate, "run", fake)
+    monkeypatch.setattr(gate, "expand", lambda fs, g, r: (
+        [Path("z.cxx")] if fs[0].name == "a.h" else [Path("y.cxx")], []))
+    bad, unplaced = partition._gate_failures(
+        tmp_path, tmp_path, [Path("a.h"), Path("b.h"), Path("c.cxx")])
+    assert calls == [["a.h", "b.h", "c.cxx"], ["a.h", "b.h"]]
+    assert bad == {Path("a.h")} and unplaced == [Path("z.cxx")]
