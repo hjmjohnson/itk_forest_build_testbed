@@ -127,9 +127,11 @@ The master skill:
    `pixi run` refresh command; it does not rebuild on the human's behalf.
    Then creates branch `style-init-over-assign-<YYYYMMDD>` from that HEAD,
    so the branch is pushable as a PR and the ninja graph matches it.
-3. Locates the ninja graph: the first `compile_commands.json` found at
-   depth 2 or less under the repo's `build/` in that forest (BRAINSTools
-   keeps it in `build/BRAINSTools-Release-EPRelease-build/`), and uses
+3. Locates the ninja graph: a `compile_commands.json` at depth 2 or
+   less under the repo's `build/` in that forest, preferring the directory
+   whose name starts with the repo name (BRAINSTools has both
+   `build/BRAINSTools-Release-EPRelease-build/` and
+   `build/SlicerExecutionModel-Release-build/`), and uses
    that directory for the gate, the full build, and ctest. Confirms it
    exists for the repo in that forest and that `pixi run clang-tidy --version` reports the same
    series as the forest compiler (19.1 today). The tidy tools come from

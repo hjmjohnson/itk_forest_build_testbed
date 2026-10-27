@@ -81,9 +81,10 @@ clang-query 19.1 (`clang-tools` in `pixi.toml`), ninja, git, pytest.
   - `manifest.Manifest(kind: str, sites: list[Site])` with
     `write(path: Path)`, `read(path: Path) -> Manifest`,
     `covers(file: Path, line: int) -> bool`, `applied()`, `skipped()`.
-  - `compile_commands.find_graph(repo_build: Path) -> Path` (directory
-    holding `compile_commands.json`, depth <= 2 under `build/`; raises
-    `FileNotFoundError`).
+  - `compile_commands.find_graph(repo_build: Path, repo_name: str) -> Path`
+    (directory holding `compile_commands.json`, depth <= 2 under
+    `build/`; when several, the one whose name starts with `repo_name`,
+    else the shallowest; raises `FileNotFoundError`).
   - `compile_commands.including_tus(header: Path, graph: Path, cap: int = 8) -> list[Path]`
     (first TU per distinct top-level directory, then path order; uses
     `ninja -t deps` output cached in `graph/.ioa-deps.json`).
@@ -107,6 +108,11 @@ def test_including_tus_capped_and_one_per_top_dir(fake_graph):
 
 def test_header_with_no_including_tu_returns_empty(fake_graph):
     assert including_tus(Path("Dead/dead.hxx"), fake_graph) == []
+
+def test_find_graph_prefers_repo_named_dir(tmp_path):
+    for d in ("SlicerExecutionModel-Release-build", "BRAINSTools-Release-EPRelease-build"):
+        (tmp_path / "build" / d).mkdir(parents=True); (tmp_path / "build" / d / "compile_commands.json").write_text("[]")
+    assert find_graph(tmp_path / "build", "BRAINSTools").name == "BRAINSTools-Release-EPRelease-build"
 ```
 
 `fake_graph` is a fixture writing a `compile_commands.json` with 20 TUs
