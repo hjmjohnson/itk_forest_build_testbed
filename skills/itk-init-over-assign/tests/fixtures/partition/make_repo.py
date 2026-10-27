@@ -36,7 +36,7 @@ def init_repo(root: Path, files: dict[str, list[str]], clang_format: str) -> Pat
 
 
 def stage(repo, files, kind, edit, sites) -> StageRecord:
-    """Apply `edit` to `files` as one stage; sites are in the stage's input lines."""
+    """Apply `edit` to `files` as one stage; sites are in the stage's output lines."""
     before = snapshot(repo)
     edit(files)
     write(repo, files)
@@ -68,10 +68,10 @@ def build(root: Path, clang_format: str = "DisableFormat: true\n") -> SimpleName
 
     s_local = stage(
         repo, files, "local-init", local,
-        [("a.cxx", 10, 11), ("a.cxx", 20, 21), ("a.cxx", 40, 40),
-         ("a.cxx", 48, 48), ("b.cxx", 20, 20), ("c.cxx", 5, 5)],
+        [("a.cxx", 10, 10), ("a.cxx", 19, 19), ("a.cxx", 38, 38),
+         ("a.cxx", 46, 46), ("b.cxx", 20, 20), ("c.cxx", 5, 5)],
     )
-    s_todo = stage(repo, files, "local-const", todo, [("b.cxx", 60, 61)])
+    s_todo = stage(repo, files, "local-const", todo, [("b.cxx", 60, 60)])
     s_helpers = stage(
         repo, files, "itk-helpers", helpers, [("a.cxx", 38, 38), ("a.cxx", 48, 48)]
     )

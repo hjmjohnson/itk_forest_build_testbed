@@ -95,6 +95,13 @@ class Stage:
         return [s.site for s in mine if key & (s.added if h.added else s.removed)]
 
 
+def _touches(h: Hunk, s: Site) -> bool:
+    """Whether a stage hunk's post-edit side meets a site, which is in post-edit lines."""
+    if h.new_count == 0:
+        return s.start <= h.new_start <= s.end
+    return h.new_start <= s.end and s.start <= h.new_start + h.new_count - 1
+
+
 def load(repo: Path, rec: StageRecord) -> Stage:
     """Read a stage's edits and project them onto the current working tree."""
     st = Stage(rec)
@@ -108,12 +115,7 @@ def load(repo: Path, rec: StageRecord) -> Stage:
         st.added.setdefault(h.file, set()).update(_texts(h.added))
         st.removed.setdefault(h.file, set()).update(_texts(h.removed))
     for s in rec.manifest.applied():
-        hit = [
-            h for h in hunks
-            if h.file == s.file
-            and h.lines().start <= s.end
-            and s.start <= max(h.lines().start, h.lines().stop - 1)
-        ]
+        hit = [h for h in hunks if h.file == s.file and _touches(h, s)]
         st.sites_at.append(
             _Site(
                 s,

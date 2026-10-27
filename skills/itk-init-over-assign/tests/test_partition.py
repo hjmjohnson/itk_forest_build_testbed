@@ -193,7 +193,7 @@ def test_revert_in_first_kind_keeps_adjacent_hunk_of_next_kind(tmp_path, fake_ga
         f["d.cxx"][11] = "const int d13 = 13;"
 
     stages = [
-        make_repo.stage(r, files, "local-init", local, [("d.cxx", 10, 11)]),
+        make_repo.stage(r, files, "local-init", local, [("d.cxx", 10, 10)]),
         make_repo.stage(r, files, "local-const", const, [("d.cxx", 12, 12)]),
     ]
     first, second = plan(r, stages)
@@ -369,3 +369,16 @@ def test_run_tidy_raises_when_no_requested_file_is_in_the_database(tmp_path):
     )
     with pytest.raises(RuntimeError, match="matched none"):
         tidy.run_tidy(graph, tmp_path, "misc-const-correctness", files=[tmp_path / "missing.cxx"])
+
+
+def test_sites_match_stage_hunks_on_the_post_edit_side(tmp_path):
+    def local(f):
+        f["k.cxx"][10] = "const int k11 = 11;"
+        f["k.cxx"][2:4] = ["int k3 = 4;"]
+
+    r, _, stages = staged_repo(tmp_path, "k.cxx", 20, [
+        ("local-init", local, [("k.cxx", 3, 3), ("k.cxx", 10, 10)]),
+    ])
+    plans = plan(r, stages)
+    assert [s.start for s in hunk_at(plans, "k.cxx", 11).sites] == [10]
+    assert [s.start for s in hunk_at(plans, "k.cxx", 3).sites] == [3]
