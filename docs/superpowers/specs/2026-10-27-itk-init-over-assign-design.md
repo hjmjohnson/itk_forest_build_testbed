@@ -96,9 +96,11 @@ Stage 4 owns the `Fill` family. When the master runs stage 2 it passes
 spellings follow ITK's `Documentation/AI/code-review-lessons.md` section
 10 (single-expression initialization): `constexpr T v{};` or `T v{};` for
 a zero fill; `constexpr auto v = T::Filled(k);` or `auto v = T::Filled(k);`
-when `T` provides `Filled` (every `FixedArray`-derived type: Size, Index,
-Offset, Vector, Point, and Spacing); `auto v = itk::MakeFilled<T>(k);`
-only for a type without `Filled`. `Filled` is preferred over `MakeFilled`
+only when `T`'s own class declares `Filled` (Size, Index, and FixedArray
+itself; Point and Vector inherit `FixedArray::Filled`, which returns a
+`FixedArray` and would change the deduced type, and Offset has none);
+`auto v = itk::MakeFilled<T>(k);` for every other fixed-size type; types
+without a fixed size (itk::Array, vnl_vector) are skipped. `Filled` is preferred over `MakeFilled`
 wherever both apply. Smart-pointer members get no `{}` initializer
 (`compiler-cautions.md` 1a).
 
