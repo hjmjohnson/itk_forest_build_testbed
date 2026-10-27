@@ -11,10 +11,16 @@ def git(cwd, *args):
     subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True)
 
 
-def commit(repo, name):
+def git_out(cwd, *args):
+    return subprocess.run(
+        ["git", "-C", str(cwd), *args], check=True, capture_output=True, text=True
+    ).stdout.strip()
+
+
+def commit(repo, name, subject=None):
     (repo / name).write_text(name)
     git(repo, "add", name)
-    git(repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", name)
+    git(repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", subject or name)
 
 
 @pytest.fixture
@@ -80,8 +86,8 @@ def test_worktree_ahead_of_upstream_tip_is_refused(world):
     with pytest.raises(PreflightError) as e:
         preflight.check(repo, forest, kit)
     assert e.value.code == "not-at-upstream-tip"
-    assert "FOREST_REFERENCE_SUFFIX=itk-main pixi run checkout" in str(e.value)
-    assert "pixi run build-BRAINSTools" in str(e.value)
+    assert "FOREST_REFERENCE_SUFFIX=itk-main APPLY=1 bash bin/refresh-forest.sh BRAINSTools" in str(e.value)
+    assert "FOREST_REFERENCE_SUFFIX=itk-main pixi run build-BRAINSTools" in str(e.value)
 
 
 def test_missing_graph_is_refused(world):
@@ -159,3 +165,33 @@ def test_unusable_clang_tidy_is_a_preflight_error(world, monkeypatch):
     with pytest.raises(PreflightError) as e:
         preflight.check(repo, forest, kit)
     assert e.value.code == "tidy-series-mismatch"
+
+
+def test_forest_local_commit_on_the_tip_passes(world):
+    repo, forest, kit = world
+    commit(repo, "p1", "COMP: forest-local tbb patch")
+    commit(repo, "p2", "COMP: forest-local kwsys patch")
+    c = preflight.check(repo, forest, kit)
+    assert c.forest_local == ["COMP: forest-local tbb patch", "COMP: forest-local kwsys patch"]
+    assert c.sha == git_out(repo, "rev-parse", "HEAD")
+
+
+def test_at_tip_has_no_forest_local(world):
+    assert preflight.check(*world).forest_local == []
+
+
+def test_other_commit_on_the_tip_is_refused(world):
+    repo, forest, kit = world
+    commit(repo, "p1", "ENH: something else")
+    with pytest.raises(PreflightError) as e:
+        preflight.check(repo, forest, kit)
+    assert e.value.code == "not-at-upstream-tip"
+
+
+def test_forest_local_then_other_commit_is_refused(world):
+    repo, forest, kit = world
+    commit(repo, "p1", "COMP: forest-local tbb patch")
+    commit(repo, "p2", "ENH: something else")
+    with pytest.raises(PreflightError) as e:
+        preflight.check(repo, forest, kit)
+    assert e.value.code == "not-at-upstream-tip"

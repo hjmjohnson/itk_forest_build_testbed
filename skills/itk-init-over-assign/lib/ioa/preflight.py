@@ -1,10 +1,11 @@
 import re
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from ioa import compile_commands, tidy
 
+FOREST_LOCAL = "COMP: forest-local"
 PROTECTED = ("main", "master", "release", "dashboard")
 
 
@@ -22,6 +23,7 @@ class Coordinates:
     forest_name: str
     graph: Path
     itk_version: str
+    forest_local: list[str] = field(default_factory=list)
 
 
 def _git(repo: Path, *args: str, code: str = "not-at-upstream-tip") -> str:
@@ -122,11 +124,24 @@ def itk_version(graph: Path) -> str:
     return "unknown"
 
 
+def _forest_local_commits(repo: Path, tip: str, head: str) -> list[str] | None:
+    if head == tip:
+        return []
+    shas = _git(repo, "rev-list", "--first-parent", f"{tip}..{head}").split()
+    if not shas or _git(repo, "rev-parse", f"{shas[-1]}^") != tip:
+        return None
+    subjects = _git(repo, "log", "--first-parent", "--format=%s", f"{tip}..{head}").splitlines()
+    if not all(t.startswith(FOREST_LOCAL) for t in subjects):
+        return None
+    return subjects[::-1]
+
+
 def check(repo: Path, forest: Path, kit: Path) -> Coordinates:
     suffix = forest.name.removeprefix("build_forest-")
     refresh = (
-        f"refresh the forest with `FOREST_REFERENCE_SUFFIX={suffix} pixi run checkout` "
-        f"then `pixi run build-{repo.name}`"
+        f"refresh the forest with `FOREST_REFERENCE_SUFFIX={suffix} APPLY=1 "
+        f"bash bin/refresh-forest.sh {repo.name}` then "
+        f"`FOREST_REFERENCE_SUFFIX={suffix} pixi run build-{repo.name}`"
     )
     if _git(repo, "status", "--porcelain", "--untracked-files=no"):
         raise PreflightError("dirty-tree", f"{repo} has uncommitted changes")
@@ -138,10 +153,12 @@ def check(repo: Path, forest: Path, kit: Path) -> Coordinates:
     url, floating = catalog_entry(kit, repo.name)
     tip = _upstream_tip(repo, url, floating, refresh)
     sha = _git(repo, "rev-parse", "HEAD")
-    if sha != tip:
+    forest_local = _forest_local_commits(repo, tip, sha)
+    if forest_local is None:
         raise PreflightError(
             "not-at-upstream-tip",
-            f"HEAD {sha[:12]} differs from upstream {floating} {tip[:12]}; {refresh}",
+            f"HEAD {sha[:12]} differs from upstream {floating} {tip[:12]} by more than "
+            f"`{FOREST_LOCAL}` commits; {refresh}",
         )
     try:
         graph = compile_commands.find_graph(repo / "build", repo.name)
@@ -152,4 +169,4 @@ def check(repo: Path, forest: Path, kit: Path) -> Coordinates:
         raise PreflightError(
             "tidy-series-mismatch", f"clang-tidy {have} but the forest compiler is {want}"
         )
-    return Coordinates(repo.name, sha, forest.name, graph, itk_version(graph))
+    return Coordinates(repo.name, sha, forest.name, graph, itk_version(graph), forest_local)

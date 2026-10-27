@@ -388,3 +388,22 @@ def test_report_write_sections(tmp_path):
     assert "itk-init-over-assign" in body and "must review" in body
     assert "run_dir:" in body and "baseline:" in body and "kit_commit:" in body
     assert "—" not in body and "—" not in text
+
+
+def test_report_lists_forest_local_commits(tmp_path):
+    kit = tmp_path / "kit"
+    run_dir = kit / ".devlocal" / "init-over-assign" / "ITK-20261027_0900"
+    coords = Coordinates(
+        "ITK", "b" * 40, "build_forest-itk-main", tmp_path / "g", "6.0.0",
+        ["COMP: forest-local tbb patch"],
+    )
+    path = report.write(
+        kit, coords, [], [], None, None, branch="b", tip="9" * 40, run_dir=run_dir
+    )
+    text = path.read_text()
+    assert "Forest-local commits (drop before opening the PR):" in text
+    assert "- COMP: forest-local tbb patch" in text
+    body = (kit / ".devlocal" / "pr-bodies" / "ITK-init-over-assign.md").read_text()
+    comment = body.split("<!--")[1]
+    assert "COMP: forest-local tbb patch" in comment and "drop them before" in comment
+    assert "COMP: forest-local" not in body.split("<!--")[0]

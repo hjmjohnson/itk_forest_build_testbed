@@ -53,6 +53,14 @@ def coordinate_line(coords) -> str:
     )
 
 
+def _forest_local_lines(coords) -> list[str]:
+    local = getattr(coords, "forest_local", [])
+    if not local:
+        return []
+    return ["", "Forest-local commits (drop before opening the PR):", "",
+            *(f"- {t}" for t in local)]
+
+
 def _wrap(text: str) -> str:
     return textwrap.fill(text, 80, break_on_hyphens=False, break_long_words=False)
 
@@ -146,6 +154,7 @@ def _report_text(coords, commits, skips, build, ctest, branch, tip, run_dir, fai
         f"# init-over-assign: {coords.repo_slug} {run_dir.name.rsplit('-', 1)[-1]}",
         "",
         coordinate_line(coords),
+        *_forest_local_lines(coords),
         "",
         f"- Branch: `{branch}`",
         f"- Tip: `{tip}`",
@@ -231,6 +240,11 @@ def _pr_body(kit, coords, commits, skips, build, ctest, run_dir) -> str:
         f"run_dir: {run_dir}",
         f"baseline: {baseline}",
         f"base_sha: {coords.sha}",
+        *(
+            ["forest_local: the base carries these forest-local commits; drop them before "
+             "opening the PR: " + "; ".join(coords.forest_local)]
+            if getattr(coords, "forest_local", None) else []
+        ),
         "-->",
         "",
     ])
