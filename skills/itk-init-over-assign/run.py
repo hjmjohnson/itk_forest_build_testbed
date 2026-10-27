@@ -176,6 +176,9 @@ def _baseline_build(harness, coords) -> report.Build:
 
 def _run(repo, coords, selected, branch, run_dir, base, harness, notes, before_warnings=()) -> int:
     records = []
+    run_dir.mkdir(parents=True, exist_ok=True)
+    stamp = run_dir / "stages.stamp"
+    stamp.write_text("")
     for kind, stage in selected:
         print(f"stage {kind}", flush=True)
         try:
@@ -185,6 +188,13 @@ def _run(repo, coords, selected, branch, run_dir, base, harness, notes, before_w
                           exc.failure, notes)
             print(f"stage {kind} failed; report: {path}", file=sys.stderr)
             return 1
+    ignored = pipeline.ignored_changes(repo, stamp)
+    if ignored:
+        path = _write(repo, coords, [], _skips(records, []), None, None, branch, run_dir,
+                      report.Failure("dirty-tree", [], None, "\n".join(ignored)), notes)
+        print(f"refused (dirty-tree): stages changed {len(ignored)} ignored file(s) in {repo}; "
+              f"report: {path}", file=sys.stderr)
+        return 1
     results, commits, build, ctest, left = [], [], None, None, []
     step = "partition.plan"
     try:

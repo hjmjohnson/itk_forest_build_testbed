@@ -187,6 +187,25 @@ class PreCommit:
     changed: list[str]
 
 
+SOURCE_SUFFIXES = (".h", ".hh", ".hpp", ".hxx", ".txx", ".c", ".cc", ".cpp", ".cxx")
+
+
+def ignored_changes(repo: Path, since: Path) -> list[str]:
+    """C and C++ files under git-ignored paths changed after the `since` stamp file."""
+    listed = _git(repo, "ls-files", "--others", "--ignored", "--exclude-standard", "--directory", "-z")
+    names = [x for n in SOURCE_SUFFIXES for x in ("-o", "-name", f"*{n}")][1:]
+    hits: list[str] = []
+    for entry in (e for e in listed.split("\0") if e):
+        path = repo / entry
+        if entry.endswith("/"):
+            found = subprocess.run(["find", str(path), "-type", "f", "-newer", str(since), "(", *names, ")"],
+                                   capture_output=True, text=True, check=False).stdout
+            hits += [Path(f).relative_to(repo).as_posix() for f in found.splitlines() if f]
+        elif path.suffix in SOURCE_SUFFIXES and path.is_file() and path.stat().st_mtime > since.stat().st_mtime:
+            hits.append(entry)
+    return sorted(hits)
+
+
 def dirty(repo: Path) -> list[str]:
     return sorted(_dirty(repo))
 

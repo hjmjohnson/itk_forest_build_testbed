@@ -24,7 +24,9 @@ from constexpr_rule import mask, promotable  # noqa: E402
 from ioa.compile_commands import NinjaNotFoundError, find_graph, including_tus  # noqa: E402
 from ioa.manifest import Manifest, Site  # noqa: E402
 from ioa.skip import Reason  # noqa: E402
-from ioa.tidy import Diag, Doc, apply_edits, format_changed, map_line, opcodes, run_tidy  # noqa: E402
+from ioa.tidy import (  # noqa: E402
+    Diag, Doc, apply_edits, format_changed, in_scope, map_line, opcodes, run_tidy,
+)
 
 CHECK = "misc-const-correctness"
 OPTIONS = {
@@ -211,7 +213,8 @@ def site(root: Path, path: Path, first: int, last: int, kind: str, cls: str, tex
 
 
 def run(graph: Path, root: Path, manifest: Path | None, only_from: Path, kind: str, apply: bool) -> int:
-    ranges = {p: r for p, r in ranges_of(Manifest.read(only_from), root).items() if p.is_file()}
+    ranges = {p: r for p, r in ranges_of(Manifest.read(only_from), root).items()
+              if p.is_file() and in_scope(p, root)}
     files = sorted(ranges)
     tus = translation_units(files, graph, root)
     diags, dropped = run_tidy(graph, root, CHECK, OPTIONS, tus)

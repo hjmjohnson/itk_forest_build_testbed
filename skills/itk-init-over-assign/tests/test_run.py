@@ -58,6 +58,8 @@ class World:
         self.leftover_diff = ""
         self.build_outs: dict[int, str] = {}
         self.branch_diff = ""
+        self.ignored_out = ""
+        self.find_out = ""
         self.builds = 0
         self.apply_raises = False
         self.precommit_rewrites: list[str] = []
@@ -120,6 +122,10 @@ class World:
             out = "".join(f" M {f}\n" for f in sorted(self.dirty))
         elif "checkout" in argv and "--" in argv:
             self.dirty -= set(argv[argv.index("--") + 1:])
+        elif argv[0] == "find":
+            out = self.find_out
+        elif "ls-files" in argv and "--ignored" in argv:
+            out = self.ignored_out
         elif argv[:2] == ["git", "-C"] and "diff" in argv:
             out = self.branch_diff if any(".." in a for a in argv) else self.leftover_diff
         elif "rev-parse" in argv:
@@ -615,3 +621,15 @@ def test_warning_in_a_hunk_present_in_the_baseline_is_not_new(world):
     line = f"{world.repo}/Common/bar.cxx:%d:5: warning: unused variable 'r'\n"
     world.build_outs = {1: line % 4, 2: line % 9}
     assert world.run.main(["BRAINSTools"]) == 0
+
+
+def test_stages_that_change_ignored_sources_are_refused_before_partition(world, capsys):
+    world.ignored_out = "build/\0.serena/\0"
+    world.find_out = f"{world.repo}/build/include/itkFoo.h\n"
+    assert world.run.main(["BRAINSTools"]) == 1
+    assert world.plan_args == []
+    assert "refused (dirty-tree)" in capsys.readouterr().err
+    text = _report(world)
+    assert "## Ignored files changed" in text and "build/include/itkFoo.h" in text
+    finds = [c for c in world.calls if c[0] == "find"]
+    assert len(finds) == 2 and "-newer" in finds[0] and "*.hxx" in finds[0]

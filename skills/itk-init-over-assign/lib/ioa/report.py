@@ -159,7 +159,13 @@ def _kit_commit(kit: Path) -> str:
 
 
 def _failure_lines(failed: Failure) -> list[str]:
-    if failed.kind == "build-failed":
+    if failed.kind == "dirty-tree":
+        head = ["## Ignored files changed", "", _wrap(
+            "The stages changed git-ignored files (dirty-tree), such as a build tree's "
+            "installed or generated sources; nothing was partitioned or committed. "
+            "Restore them before rebuilding.")]
+        body = [failed.stderr_tail.rstrip()]
+    elif failed.kind == "build-failed":
         head = ["## Baseline build failed", "", _wrap(
             "The build before the baseline ctest failed (build-failed); no branch "
             "was created and no stage ran.")]

@@ -4,15 +4,19 @@
 # Dry-run by default; --apply to write. Never commits. Re-run clang-format +
 # build afterward. --manifest <path> (with --apply) clang-formats the edits and
 # writes a member-default-init manifest; --graph <dir> is accepted for the
-# common CLI.
+# common CLI. Only git-tracked files are edited (--tracked-only, the default);
+# --all-files allows a plain grep outside a git checkout.
 set -uo pipefail
 
 APPLY=0
 REPO="."
 MANIFEST=""
+TRACKED_ONLY=1
 while [ $# -gt 0 ]; do
   case "$1" in
     --apply) APPLY=1 ;;
+    --tracked-only) TRACKED_ONLY=1 ;;
+    --all-files) TRACKED_ONLY=0 ;;
     --manifest) MANIFEST="${2:-}"; shift ;;
     --graph) shift ;;
     *) REPO="$1" ;;
@@ -32,6 +36,9 @@ cd "$REPO" || { echo "cannot cd to $REPO" >&2; exit 2; }
 if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   FILES=$(git grep -lE "$PAT" -- '*.h' '*.hxx' \
             ':(exclude)*ThirdParty/*' ':(exclude)*/ThirdParty/*' 2>/dev/null)
+elif [ "$TRACKED_ONLY" -eq 1 ]; then
+  echo "$REPO is not a git checkout; only tracked files are edited (pass --all-files to override)" >&2
+  exit 2
 else
   FILES=$(grep -rlE "$PAT" --include='*.h' --include='*.hxx' . 2>/dev/null \
           | grep -v '/ThirdParty/')

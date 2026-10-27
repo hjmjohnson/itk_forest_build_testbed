@@ -73,6 +73,7 @@ dependencies:
     - lib/ioa/stages.py
     - lib/ioa/manifest.py
     - lib/ioa/skip.py
+    - lib/ioa/repo.py
 deployment:
   tier: project
   target_projects:
@@ -181,7 +182,14 @@ subject in `ioa.partition.SUBJECTS`.
    created.
 4. The branch is created from HEAD. Each stage is bracketed by
    `ioa.stages.snapshot`; manifests go to `<run>/manifests/<kind>.json` and
-   the tree pairs to `<run>/snapshots.json`. Stages run with `PYTHON` set
+   the tree pairs to `<run>/snapshots.json`. Every stage edits only files
+   git tracks (`ioa.repo.tracked_files`, applied through `tidy.in_scope`
+   and `compile_commands.source_files`), so a build tree inside the repo,
+   its installed headers, and generated test drivers are never edited, even
+   when a tracked translation unit includes them. After the stages, a C or
+   C++ file under a git-ignored path that changed since the stages began is
+   refused as `dirty-tree` (exit 1, report written, nothing partitioned).
+   Stages run with `PYTHON` set
    to the master's interpreter, which the bash stages use. Notes a stage
    writes into its manifest are copied into the report. A stage that exits non-zero
    stops the run with exit 1; the report names it and quotes its stderr.

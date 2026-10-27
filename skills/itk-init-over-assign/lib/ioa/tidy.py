@@ -11,6 +11,8 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from ioa.repo import is_tracked
+
 EXCLUDED = ("ThirdParty", "build", "Utilities")
 KV = re.compile(r"^( *)(- )?(\w+):\s*(.*)$")
 
@@ -98,11 +100,12 @@ def _ere(s: str) -> str:
 
 
 def in_scope(path: Path, root: Path) -> bool:
+    """Under root, outside excluded directories, and tracked by git (never a build tree)."""
     try:
-        rel = path.resolve().relative_to(root)
+        rel = path.resolve().relative_to(root.resolve())
     except ValueError:
         return False
-    return not any(p in EXCLUDED for p in rel.parts[:-1])
+    return not any(p in EXCLUDED for p in rel.parts[:-1]) and is_tracked(path, root)
 
 
 def _rel(path: Path, root: Path) -> str:
@@ -159,9 +162,13 @@ def run_tidy(
     roots = root_spellings(spelled, root)
     under = "|".join(_ere(r) for r in roots)
     if files is None:
-        targets = [f"^(?:{'|'.join(re.escape(r) for r in roots)})/(?!(?:.*/)?(?:{excluded})/)"]
-    else:
-        targets = [f"^{re.escape(spelled.get(Path(f).resolve(), str(Path(f).resolve())))}$" for f in files]
+        if not spelled:
+            raise RuntimeError(f"run-clang-tidy failed: {graph / 'compile_commands.json'} "
+                               "is unreadable or empty")
+        files = [real for real in spelled if in_scope(real, root)]
+        if not files:
+            return [], []
+    targets = [f"^{re.escape(spelled.get(Path(f).resolve(), str(Path(f).resolve())))}$" for f in files]
     config = []
     if options:
         opts = ", ".join(f"{check}.{k}: {json.dumps(v)}" for k, v in options.items())

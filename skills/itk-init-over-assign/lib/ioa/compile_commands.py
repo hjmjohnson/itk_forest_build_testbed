@@ -3,6 +3,8 @@ import shlex
 import subprocess
 from pathlib import Path
 
+from ioa.repo import is_tracked
+
 DEPS_CACHE = ".ioa-deps.json"
 
 
@@ -152,4 +154,4 @@ def source_files(graph: Path, repo_root: Path) -> list[Path]:
         for key, tus_of in _load_deps(graph, repo_root).items()
         if tus_of and not Path(key).is_absolute() and Path(key).suffix in {".h", ".hxx"}
     }
-    return sorted(tus | headers)
+    return sorted(f for f in tus | headers if is_tracked(f, root))

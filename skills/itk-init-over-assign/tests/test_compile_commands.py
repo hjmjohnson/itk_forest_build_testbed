@@ -188,3 +188,58 @@ def test_command_for_parses_the_database_once_per_graph(fake_graph, repo_root, m
     for tu in ("IO/tu0.cxx", "IO/tu1.cxx", "Common/tu2.cxx"):
         command_for(Path(tu), fake_graph, repo_root)
     assert len(calls) == 1
+
+
+def _tracked_tree(tmp_path):
+    import subprocess as sp
+
+    from ioa import repo as ioa_repo
+
+    root = tmp_path / "src"
+    (root / "build" / "include").mkdir(parents=True)
+    (root / "build" / "gen").mkdir(parents=True)
+    body = "void\nF()\n{\n  int x;\n  x = G();\n}\n"
+    (root / "a.cxx").write_text('#include "gen.h"\n' + body)
+    (root / "build" / "include" / "gen.h").write_text(body)
+    (root / "build" / "gen" / "Driver.cxx").write_text(body)
+    (root / ".gitignore").write_text("build/\n")
+    for args in (["init", "-q"], ["add", "a.cxx", ".gitignore"],
+                 ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "i"]):
+        sp.run(["git", "-C", str(root), *args], check=True, capture_output=True)
+    graph = root / "build" / "Proj-build"
+    graph.mkdir()
+    entries = [{"directory": str(graph), "command": f"c++ -I{root}/build/include -c {root / f}",
+                "file": str(root / f)} for f in ("a.cxx", "build/gen/Driver.cxx")]
+    (graph / "compile_commands.json").write_text(json.dumps(entries))
+    (graph / ".ioa-deps.json").write_text(json.dumps({"build/include/gen.h": ["a.cxx"]}))
+    ioa_repo._TRACKED.clear()
+    return root, graph
+
+
+def test_untracked_build_tree_files_are_never_listed_or_in_scope(tmp_path):
+    from ioa.compile_commands import source_files
+    from ioa.tidy import in_scope
+
+    root, graph = _tracked_tree(tmp_path)
+    assert source_files(graph, root) == [(root / "a.cxx").resolve()]
+    assert in_scope(root / "a.cxx", root)
+    assert not in_scope(root / "build" / "include" / "gen.h", root)
+    assert not in_scope(root / "build" / "gen" / "Driver.cxx", root)
+
+
+def test_local_init_never_edits_an_untracked_header_a_tracked_tu_includes(tmp_path):
+    import subprocess as sp
+    import sys
+
+    root, graph = _tracked_tree(tmp_path)
+    finder = Path(__file__).resolve().parents[2] / "itk-declare-then-init" / "find_declare_then_init.py"
+    manifest = tmp_path / "m.json"
+    sp.run([sys.executable, str(finder), "--classes", "assign", "--graph", str(graph),
+            "--repo-root", str(root), "--apply", "--manifest", str(manifest)],
+           check=True, capture_output=True, text=True)
+    from ioa.manifest import Manifest
+
+    assert (root / "build" / "include" / "gen.h").read_text().count("int x;") == 1
+    assert (root / "build" / "gen" / "Driver.cxx").read_text().count("int x;") == 1
+    assert "int x = G();" in (root / "a.cxx").read_text()
+    assert {s.file for s in Manifest.read(manifest).sites} == {Path("a.cxx")}

@@ -4,7 +4,8 @@
 # candidate loop is left alone and reported. Dry-run by default; --apply to
 # write. Never commits. --manifest <path> (with --apply) clang-formats the
 # edits and writes an itk-helpers manifest, skipped loops included;
-# --graph <dir> is accepted for the common CLI.
+# --graph <dir> is accepted for the common CLI. Files come from git grep, so
+# only tracked files are edited; --tracked-only and --all-files are accepted.
 set -uo pipefail
 
 APPLY=0
@@ -15,6 +16,7 @@ while [ $# -gt 0 ]; do
         --apply) APPLY=1 ;;
         --manifest) MANIFEST="${2:-}"; shift ;;
         --graph) shift ;;
+        --tracked-only|--all-files) ;;
         *) REPO="$1" ;;
     esac
     shift
