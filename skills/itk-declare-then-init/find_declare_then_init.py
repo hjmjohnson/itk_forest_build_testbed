@@ -63,6 +63,16 @@ DECL_PATTERN = re.compile(
     r"\s*;\s*$"  # semicolon, end of line
 )
 
+INIT_DECL_PATTERN = re.compile(
+    r"^(\s*)"
+    r"((?:[\w:]+(?:<[^>]*>)?(?:::[\w]+(?:<[^>]*>)?)*)(?:\s*\*)*)"
+    r"(?:\s+|(?<=\*))"
+    r"(\w+)"
+    r"\s*=\s*(nullptr|NULL|true|false|[-+]?\d[\w.]*|\"\"|\{\})\s*;\s*$"
+)
+INIT_DECL_CLASSES = {"bool_branch", "placeholder"}
+NOT_A_TYPE = {"return", "else", "delete", "throw", "goto", "case", "co_return", "new", "typedef"}
+
 FILL_PATTERN = re.compile(r"^\s*(\w+)\.Fill\(\s*(.+?)\s*\)\s*;\s*$")
 ASSIGN_PATTERN = re.compile(r"^\s*(\w+)\s*=\s*(.+?)\s*;\s*$")
 SETSIZE_PATTERN = re.compile(r"^\s*(\w+)\.SetSize\(\s*(.+?)\s*\)\s*;\s*$")
@@ -236,6 +246,25 @@ def file_is_in_itk_namespace(filepath: str) -> bool:
         return True
     # .h files in include/ dirs are inside namespace itk
     return ext == ".h" and "/include/" in filepath
+
+
+def gap_is_blank_or_comment(lines: list[str], i: int, j: int) -> bool:
+    """True when every line strictly between indices i and j is blank or a comment."""
+    return all(
+        not (g := lines[k].strip()) or g.startswith(("//", "/*")) for k in range(i + 1, j)
+    )
+
+
+def has_top_level_comma(expr: str) -> bool:
+    depth = 0
+    for ch in re.sub(r'"[^"]*"', '""', expr):
+        if ch in "([{<":
+            depth += 1
+        elif ch in ")]}>":
+            depth -= 1
+        elif ch == "," and depth == 0:
+            return True
+    return False
 
 
 def check_indent_match(decl_indent: str, init_line: str) -> bool:
@@ -486,9 +515,10 @@ def analyze_file(
     except (OSError, UnicodeDecodeError):
         return findings
 
+    decl_pattern = INIT_DECL_PATTERN if pattern in INIT_DECL_CLASSES else DECL_PATTERN
     for i, line in enumerate(lines):
-        decl_match = DECL_PATTERN.match(line)
-        if not decl_match:
+        decl_match = decl_pattern.match(line)
+        if not decl_match or decl_match.group(2).split()[0] in NOT_A_TYPE:
             continue
 
         indent = decl_match.group(1)
@@ -620,12 +650,15 @@ def apply_findings(
     return applied
 
 
+DECLINE_REASONS = {"vector-bool": "init-list-ctor", "comment-stranded": "comment-stranded"}
+
+
 def skip_reason(f: Finding, lines: list[str]) -> tuple["Reason", str] | None:
     """Return (reason, note) when the finder declines `f`, else None."""
     from ioa.skip import Reason
 
     if f.declined:
-        return Reason.LOOP_CARRIED, f.declined
+        return Reason(DECLINE_REASONS.get(f.declined, "loop-carried")), f.declined
     if not f.forward_refs:
         return None
     gap = lines[f.decl_line : f.init_line - 1]
@@ -672,6 +705,15 @@ def record_sites(
                  reason[0] if reason else None, reason[1] if reason else "")
         )
     return removed
+
+
+sys.modules.setdefault("find_declare_then_init", sys.modules[__name__])
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+from classes import bool_branch, placeholder, sized_ctor, stream_open  # noqa: E402
+
+for _mod in (sized_ctor, stream_open, bool_branch, placeholder):
+    PATTERN_ANALYZERS[_mod.__name__.rsplit(".", 1)[1]] = _mod.analyze
 
 
 def main() -> None:

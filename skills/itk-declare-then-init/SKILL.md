@@ -1,7 +1,7 @@
 ---
 name: itk-declare-then-init
 version: 1.0.0
-purpose: Find and fix ITK C++ declare-then-initialize patterns one class at a time (fill_zero, fill_nonzero, elem_same, elem_diff, elem_zero, assign, setsize_fill), following N-Dekker's incremental per-commit methodology.
+purpose: Find and fix ITK C++ declare-then-initialize patterns one class at a time (fill_zero, fill_nonzero, elem_same, elem_diff, elem_zero, assign, setsize_fill, sized_ctor, stream_open, bool_branch, placeholder), following N-Dekker's incremental per-commit methodology.
 description: Find and fix C++ declare-then-initialize patterns where a variable is declared and then initialized on a subsequent line. Addresses ONE pattern class at a time following N-Dekker's incremental methodology. Use when refactoring ITK source to prefer initialization at declaration.
 triggers:
   - itk-declare-then-init
@@ -82,6 +82,10 @@ Usage:
   /itk-declare-then-init elem_diff          Type v; v[0]=x; v[1]=y -> Type v{x,y}
   /itk-declare-then-init assign             Type v; v = expr -> Type v = expr
   /itk-declare-then-init setsize_fill       SetSize+Fill -> Type v(N, V)
+  /itk-declare-then-init sized_ctor         vector v; v.resize(n) -> vector v(n)
+  /itk-declare-then-init stream_open        ofstream f; f.open(x) -> ofstream f(x)
+  /itk-declare-then-init bool_branch        bool b=false; if (c) b=true -> const bool b = c
+  /itk-declare-then-init placeholder        T p = nullptr; p = f() -> T p = f()
   /itk-declare-then-init <pat> --varname size   Filter by variable name
 
 Unattended modes:
