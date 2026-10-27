@@ -259,6 +259,38 @@ def new_warnings(before: list[str], after: list[str]) -> list[str]:
     return [w for w in after if _unlined(w) not in seen]
 
 
+HUNK_SLACK = 2
+
+
+def changed_ranges(repo: Path, base: str) -> dict[str, list[tuple[int, int]]]:
+    """New-side line ranges of `git diff <base>..HEAD`, widened by HUNK_SLACK."""
+    hunks, _ = parse_diff(_git(repo, "diff", *DIFF_FLAGS, "-U0", f"{base}..HEAD"))
+    out: dict[str, list[tuple[int, int]]] = {}
+    for h in hunks:
+        last = h.new_start + max(h.new_count, 1) - 1
+        out.setdefault(h.file.as_posix(), []).append((h.new_start - HUNK_SLACK, last + HUNK_SLACK))
+    return out
+
+
+def classify_warnings(repo: Path, base: str, before: list[str],
+                      after: list[str]) -> tuple[list[str], list[str]]:
+    """(new, pre-existing in touched files): new means inside a changed hunk and not in the
+    baseline by file and text."""
+    ranges = changed_ranges(repo, base)
+    fresh = set(new_warnings(before, after))
+    new, touched = [], []
+    for w in after:
+        m = re.match(r"(.*):(\d+): warning: ", w)
+        if not m or m[1] not in ranges:
+            continue
+        inside = any(a <= int(m[2]) <= b for a, b in ranges[m[1]])
+        if inside and w in fresh:
+            new.append(w)
+        elif not inside:
+            touched.append(w)
+    return new, touched
+
+
 def _built(done: subprocess.CompletedProcess, label: str, pc: PreCommit,
            repo: Path | None = None, base: Path | None = None) -> Build:
     log = (done.stdout or "") + (done.stderr or "")

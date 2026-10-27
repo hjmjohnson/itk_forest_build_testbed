@@ -28,6 +28,7 @@ class Build:
     precommit_changed: list[str] = field(default_factory=list)
     warning_keys: list[str] = field(default_factory=list)
     new_warnings: list[str] = field(default_factory=list)
+    touched_warnings: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -122,9 +123,13 @@ def _build_lines(build: Build | None, coords) -> list[str]:
         out += ["", "```text", build.detail.rstrip(), "```"]
     if build.new_warnings:
         out += ["", "### New warnings", "", _wrap(
-            "Warnings in the rebuild that the baseline build did not report; the run "
-            "is not green."), ""]
+            "Warnings inside a changed hunk that the baseline build did not report; "
+            "the run is not green."), ""]
         out += [f"- `{w}`" for w in build.new_warnings]
+    if build.touched_warnings:
+        out += ["", "### Pre-existing warnings in touched files", "", _wrap(
+            "Outside every changed hunk; listed for review, not counted against the run."), ""]
+        out += [f"- `{w}`" for w in build.touched_warnings]
     if build.warnings:
         out += ["", "Warnings in the rebuild log:", ""]
         out += [f"> {w}" for w in build.warnings]

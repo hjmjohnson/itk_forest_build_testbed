@@ -57,6 +57,7 @@ class World:
         self.build_dirties: list[str] = []
         self.leftover_diff = ""
         self.build_outs: dict[int, str] = {}
+        self.branch_diff = ""
         self.builds = 0
         self.apply_raises = False
         self.precommit_rewrites: list[str] = []
@@ -120,7 +121,7 @@ class World:
         elif "checkout" in argv and "--" in argv:
             self.dirty -= set(argv[argv.index("--") + 1:])
         elif argv[:2] == ["git", "-C"] and "diff" in argv:
-            out = self.leftover_diff
+            out = self.branch_diff if any(".." in a for a in argv) else self.leftover_diff
         elif "rev-parse" in argv:
             out = "f" * 40 + "\n"
         elif "show" in argv and "--name-only" in argv:
@@ -529,7 +530,12 @@ def test_member_default_init_is_its_own_kind_after_member_init():
     assert not any("in-class-member-init" in a for argv, _ in helpers for a in argv)
 
 
+BAR_HUNK = "diff --git a/Common/bar.cxx b/Common/bar.cxx\n--- a/Common/bar.cxx\n+++ b/Common/bar.cxx\n" \
+    "@@ -8,2 +8,2 @@\n-a\n-b\n+c\n+d\n"
+
+
 def test_new_warning_in_the_rebuild_is_reported_and_not_green(world):
+    world.branch_diff = BAR_HUNK
     old = "foo.cxx:3:1: warning: unused variable 'q' [-Wunused-variable]\n"
     world.build_outs = {
         1: old,
@@ -578,3 +584,34 @@ def test_manifest_notes_reach_the_run_notes(tmp_path):
     merged = pipeline._merge("local-const", [str(a), str(b)], tmp_path / "m.json", notes)
     assert notes == ["local-const: 2 plain auto local(s) near a prior site left unanalyzed"]
     assert Manifest.read(tmp_path / "m.json").notes == merged.notes and len(merged.sites) == 1
+
+
+def test_warning_ten_lines_from_any_hunk_is_pre_existing_not_new(world):
+    world.branch_diff = BAR_HUNK
+    world.build_outs = {
+        1: "",
+        2: f"{world.repo}/Common/bar.cxx:21:5: warning: unused variable 'old'\n",
+    }
+    assert world.run.main(["BRAINSTools"]) == 0
+    text = _report(world)
+    assert "### New warnings" not in text
+    section = text.split("### Pre-existing warnings in touched files")[1]
+    assert "- `Common/bar.cxx:21: warning: unused variable 'old'`" in section
+
+
+def test_warning_inside_a_hunk_is_new_even_with_an_incremental_baseline(world):
+    world.branch_diff = BAR_HUNK
+    world.build_outs = {
+        1: "",
+        2: f"{world.repo}/Common/bar.cxx:10:5: warning: unused variable 'r'\n",
+    }
+    assert world.run.main(["BRAINSTools"]) == 1
+    assert "- `Common/bar.cxx:10: warning: unused variable 'r'`" in _report(world).split(
+        "### New warnings")[1]
+
+
+def test_warning_in_a_hunk_present_in_the_baseline_is_not_new(world):
+    world.branch_diff = BAR_HUNK
+    line = f"{world.repo}/Common/bar.cxx:%d:5: warning: unused variable 'r'\n"
+    world.build_outs = {1: line % 4, 2: line % 9}
+    assert world.run.main(["BRAINSTools"]) == 0

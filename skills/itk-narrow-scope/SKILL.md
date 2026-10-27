@@ -197,11 +197,10 @@ the original declaration lines.
 
 ## Limits
 
-- Moving a default-constructed class into a nested block runs its destructor
-  earlier. Escape is detected only through an assignment in the target that
-  mentions the variable; a pointer passed out through a function argument
-  (`Store(s.c_str())`) is not seen. Calls are never moved past code; default
-  construction is.
+- A trivially constructible variable passed whole to a call that binds it by
+  reference and stores its address (`h.Set(x)` with `void Set(int & v)`) is
+  not caught; the move then shortens a lifetime the callee relies on. Calls
+  are never moved past code; default construction is.
 - Uses are matched by name within the block, so an unrelated local of the
   same name in a nested lambda or class blocks the move rather than enabling a
   wrong one.

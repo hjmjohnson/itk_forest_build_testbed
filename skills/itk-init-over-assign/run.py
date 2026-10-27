@@ -200,7 +200,8 @@ def _run(repo, coords, selected, branch, run_dir, base, harness, notes, before_w
         pc = pipeline.pre_commit(repo)
         step = "build"
         build = harness.build(coords, pc)
-        build.new_warnings = pipeline.new_warnings(list(before_warnings), build.warning_keys)
+        build.new_warnings, build.touched_warnings = pipeline.classify_warnings(
+            repo, coords.sha, list(before_warnings), build.warning_keys)
         step = "ctest"
         ctest = harness.ctest(coords, base, run_dir) if build.ok else None
     except Exception as exc:
