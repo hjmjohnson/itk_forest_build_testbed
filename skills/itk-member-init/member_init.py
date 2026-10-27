@@ -125,10 +125,11 @@ def in_scope(path: Path, root: Path) -> bool:
     return not any(p in EXCLUDED for p in rel.parts[:-1])
 
 
-def run_tidy(graph: Path, root: Path, cls: str) -> list[Diag]:
+def run_tidy(graph: Path, root: Path, cls: str) -> tuple[list[Diag], list[str]]:
+    """Fixes for one check, and the TUs dropped because they failed to compile."""
     excluded = "|".join(EXCLUDED)
     with tempfile.TemporaryDirectory() as fixes:
-        subprocess.run(
+        res = subprocess.run(
             [
                 tool("run-clang-tidy"),
                 "-clang-tidy-binary", tool("clang-tidy"),
@@ -142,10 +143,19 @@ def run_tidy(graph: Path, root: Path, cls: str) -> list[Diag]:
             capture_output=True, text=True,
         )
         diags: list[Diag] = []
-        for y in sorted(Path(fixes).glob("*.yaml")):
-            parsed = parse_fixes(y.read_text(errors="surrogateescape"))
-            if not any(d.check == "clang-diagnostic-error" for d in parsed):
+        dropped: list[str] = []
+        files = sorted(Path(fixes).glob("*.yaml"))
+        for y in files:
+            text = y.read_text(errors="surrogateescape")
+            parsed = parse_fixes(text)
+            if any(d.check == "clang-diagnostic-error" for d in parsed):
+                main = re.search(r"^MainSourceFile:\s*(.*)$", text, re.M)
+                tu = Path(_scalar(main[1])) if main else Path(y.name)
+                dropped.append(str(tu.relative_to(root)) if tu.is_relative_to(root) else str(tu))
+            else:
                 diags += parsed
+    if (res.returncode != 0 and not dropped) or (not files and "error" in res.stderr.lower()):
+        raise RuntimeError(f"run-clang-tidy failed (exit {res.returncode}):\n{res.stderr[-4000:]}")
     seen, out = set(), []
     for d in diags:
         if d.check != CHECKS[cls] or not d.repls or d in seen:
@@ -153,7 +163,7 @@ def run_tidy(graph: Path, root: Path, cls: str) -> list[Diag]:
         if all(in_scope(r.file, root) for r in d.repls):
             seen.add(d)
             out.append(d)
-    return out
+    return out, dropped
 
 
 class Doc:
@@ -220,6 +230,9 @@ class Planner:
 
     def members(self, doc: Doc, ctor: pf.Ctor) -> list[str] | None:
         cands = [doc]
+        for sibling in (doc.path.with_suffix(".h"), doc.path.with_suffix(".hxx")):
+            if sibling != doc.path and sibling.is_file():
+                cands.append(self.doc(sibling))
         if not ctor.in_class:
             for inc in re.findall(r'^[ \t]*#[ \t]*include[ \t]*[<"]([^>"]+)[>"]', doc.text, re.M):
                 path = self._include(doc, inc)
@@ -250,10 +263,12 @@ class Planner:
     def _plan_ctor(self, doc: Doc, body: int, items: list) -> None:
         ctor = pf.parse_ctor(doc.text, doc.m, doc.comments, body)
         if ctor is None:
-            return self.skip(doc, body, body, Reason.ORDER_VIOLATION, "unparsed constructor", PMI)
+            return self.skip(doc, body, body, Reason.GATE_FAILED, "ctor-unparsed", PMI)
+        if pf.has_directive(doc.text, ctor.sig_end, body):
+            return self.skip(doc, ctor.sig_end, body, Reason.PREPROCESSOR, "directive in initializer list", PMI)
         members = self.members(doc, ctor)
         if members is None:
-            return self.skip(doc, ctor.sig_end, body, Reason.ORDER_VIOLATION, "class not found", PMI)
+            return self.skip(doc, ctor.sig_end, body, Reason.GATE_FAILED, "class-not-found", PMI)
         keyed, removals, stranded = [], [], []
         for seq, at, a, b, text in items:
             s, e, carried, strands = pf.statement_removal(doc.text, doc.comments, a, b)
@@ -271,11 +286,34 @@ class Planner:
         merged = [e for _, e in sorted(keyed, key=lambda k: k[0])]
         ordered, note = pf.plan_order(merged, members)
         if ordered is None:
-            return self.skip(doc, ctor.sig_end, body, Reason.ORDER_VIOLATION, note, PMI)
+            reason = Reason.GATE_FAILED if note == pf.UNKNOWN_INITIALIZER else Reason.ORDER_VIOLATION
+            return self.skip(doc, ctor.sig_end, body, reason, note, PMI)
         self.edits[doc.path] += [(ctor.sig_end, body, pf.render(ctor, ordered)), *removals]
 
+    def _parse(self, doc: Doc, body: int) -> pf.Ctor | None:
+        key = (doc.path, body)
+        if key not in self._ctors:
+            self._ctors[key] = pf.parse_ctor(doc.text, doc.m, doc.comments, body)
+        return self._ctors[key]
+
+    def _dmi_ctor(self, doc: Doc, body: int) -> pf.Ctor | None:
+        """Parsed editable constructor, or None after recording why not (once)."""
+        ctor = self._parse(doc, body)
+        if (doc.path, body) in self._refused:
+            return None
+        if ctor is None:
+            self.skip(doc, body, body, Reason.GATE_FAILED, "ctor-unparsed", DMI)
+        elif pf.has_directive(doc.text, ctor.sig_end, body):
+            self.skip(doc, ctor.sig_end, body, Reason.PREPROCESSOR, "directive in initializer list", DMI)
+            ctor = None
+        if ctor is None:
+            self._refused.add((doc.path, body))
+        return ctor
+
     def plan_dmi(self, diags: list[Diag]) -> None:
-        groups: dict[tuple[Path, int], list] = defaultdict(list)
+        self._ctors: dict[tuple[Path, int], pf.Ctor | None] = {}
+        self._refused: set[tuple[Path, int]] = set()
+        plans: dict[tuple[Path, int], tuple] = {}
         for d in diags:
             ins = [r for r in d.repls if r.length == 0 and r.text.startswith("{")]
             rem = [r for r in d.repls if r.text == "" and r.length > 0]
@@ -283,36 +321,46 @@ class Planner:
                 continue
             hdoc, cdoc = self.doc(ins[0].file), self.doc(rem[0].file)
             at = hdoc.c(ins[0].offset)
-            if pf.POINTERISH.search(pf.decl_head(hdoc.m, at)):
+            if (hdoc.path, at) in plans or pf.POINTERISH.search(pf.decl_head(hdoc.m, at)):
                 continue
             ra = cdoc.c(rem[0].offset)
             body = pf.body_after(cdoc.m, ra)
-            if body is not None:
-                groups[(cdoc.path, body)].append((hdoc, at, ins[0].text, ra))
-        for (path, body), items in groups.items():
-            cdoc = self.docs[path]
-            ctor = pf.parse_ctor(cdoc.text, cdoc.m, cdoc.comments, body)
-            if ctor is None:
-                self.skip(cdoc, body, body, Reason.ORDER_VIOLATION, "unparsed constructor", DMI)
+            ctor = self._dmi_ctor(cdoc, body) if body is not None else None
+            entry = ctor and next((e for e in ctor.entries if e.start <= ra <= e.end), None)
+            if entry is None:
                 continue
-            removed = []
-            for hdoc, at, text, ra in items:
-                entry = next((e for e in ctor.entries if e.start <= ra <= e.end), None)
-                if entry is None:
+            holders = [(cdoc, body, entry, False)]
+            for other in pf.ctor_bodies(cdoc.m, ctor.cls):
+                c2 = self._parse(cdoc, other) if other != body else None
+                if c2 is None or c2.cls != ctor.cls:
                     continue
-                ls, le = pf.line_bounds(hdoc.text, at, at)
-                if entry.lead or (entry.trail and any(ls <= c0 < le for c0, _ in hdoc.comments)):
-                    self.skip(cdoc, entry.start, entry.end, Reason.COMMENT_STRANDED,
-                              "comment cannot follow the default member initializer", DMI)
-                    continue
-                self.edits[hdoc.path].append((at, at, text))
-                if entry.trail:
-                    self.edits[hdoc.path].append((le, le, " " + entry.trail))
-                removed.append(entry)
+                same = next((e for e in c2.entries if e.name == entry.name and e.text == entry.text), None)
+                if same is not None:
+                    holders.append((cdoc, other, same, pf.has_directive(cdoc.text, c2.sig_end, other)))
+            plans[(hdoc.path, at)] = (hdoc, at, ins[0].text, holders)
+
+        removed: dict[tuple[Path, int], list[pf.Entry]] = defaultdict(list)
+        for hdoc, at, text, holders in plans.values():
+            ls, le = pf.line_bounds(hdoc.text, at, at)
+            trails = {e.trail for _, _, e, _ in holders if e.trail}
+            header_comment = any(ls <= c0 < le for c0, _ in hdoc.comments)
+            directive = any(d for *_, d in holders)
+            if directive or any(e.lead for _, _, e, _ in holders) or len(trails) > 1 or (trails and header_comment):
+                reason = Reason.PREPROCESSOR if directive else Reason.COMMENT_STRANDED
+                note = "a constructor sharing this initializer cannot drop it"
+                for cdoc, _, e, _ in holders:
+                    self.skip(cdoc, e.start, e.end, reason, note, DMI)
+                continue
+            self.edits[hdoc.path].append((at, at, text))
+            if trails:
+                self.edits[hdoc.path].append((le, le, " " + trails.pop()))
+            for cdoc, body, e, _ in holders:
+                removed[(cdoc.path, body)].append(e)
                 self.partners.add(frozenset((hdoc.path, cdoc.path)))
-            if removed:
-                keep = [e for e in ctor.entries if e not in removed]
-                self.edits[path].append((ctor.sig_end, body, pf.render(ctor, keep)))
+        for (path, body), gone in removed.items():
+            ctor = self._ctors[(path, body)]
+            keep = [e for e in ctor.entries if e not in gone]
+            self.edits[path].append((ctor.sig_end, body, pf.render(ctor, keep)))
 
 
 def apply_edits(edits: dict[Path, list[tuple[int, int, str]]], docs: dict[Path, Doc]) -> None:
@@ -338,7 +386,9 @@ def apply_edits(edits: dict[Path, list[tuple[int, int, str]]], docs: dict[Path, 
     lines.append("...")
     with tempfile.TemporaryDirectory() as d:
         (Path(d) / "fixes.yaml").write_text("\n".join(lines) + "\n")
-        subprocess.run([tool("clang-apply-replacements"), d], check=True, capture_output=True, text=True)
+        res = subprocess.run([tool("clang-apply-replacements"), d], capture_output=True, text=True)
+        if res.returncode != 0 or res.stderr.strip():
+            raise RuntimeError(f"clang-apply-replacements failed (exit {res.returncode}):\n{res.stderr[-4000:]}")
 
 
 def changed_ranges(old: str, new: str) -> list[tuple[int, int]]:
@@ -378,10 +428,12 @@ def site(root: Path, path: Path, first: int, last: int, cls: str, text: str, **k
 
 
 def run(graph: Path, root: Path, manifest: Path | None, apply: bool) -> int:
-    pmi = run_tidy(graph, root, PMI)
+    pmi, dropped = run_tidy(graph, root, PMI)
+    if dropped:
+        print(f"member-init: dropped {len(dropped)} TU(s) that failed to compile: {', '.join(dropped)}")
     if not apply:
         counts: dict[tuple[str, Path], int] = defaultdict(int)
-        for cls, diags in ((PMI, pmi), (DMI, run_tidy(graph, root, DMI))):
+        for cls, diags in ((PMI, pmi), (DMI, run_tidy(graph, root, DMI)[0])):
             for d in diags:
                 counts[(cls, d.repls[0].file.resolve().relative_to(root))] += 1
         for (cls, rel), n in sorted(counts.items()):
@@ -399,7 +451,7 @@ def run(graph: Path, root: Path, manifest: Path | None, apply: bool) -> int:
     post1 = {p: p.read_text(errors="surrogateescape") for p in orig}
 
     p2 = Planner(root)
-    p2.plan_dmi(run_tidy(graph, root, DMI))
+    p2.plan_dmi(run_tidy(graph, root, DMI)[0])
     for p, d in p2.docs.items():
         orig.setdefault(p, d.text)
         raw.setdefault(p, d.data)
@@ -437,9 +489,13 @@ def run(graph: Path, root: Path, manifest: Path | None, apply: bool) -> int:
         ).stdout
         stranded = check_hunks(diff)
         bad = {(root / s.file).resolve() for s in stranded}
-        for pair in p2.partners:
-            if pair & bad:
-                bad |= pair
+        grew = True
+        while grew:
+            grew = False
+            for pair in p2.partners:
+                if pair & bad and not pair <= bad:
+                    bad |= pair
+                    grew = True
         for path in bad:
             path.write_bytes(raw[path])
         sites = [s for s in sites if (root / s.file).resolve() not in bad]
@@ -452,7 +508,7 @@ def run(graph: Path, root: Path, manifest: Path | None, apply: bool) -> int:
     if manifest is not None:
         Manifest(KIND, sites).write(manifest)
     applied = sum(1 for s in sites if s.skipped is None)
-    print(f"member-init: {applied} applied, {len(sites) - applied} skipped")
+    print(f"member-init: {applied} applied, {len(sites) - applied} skipped, {len(dropped)} TU(s) dropped")
     return 0
 
 

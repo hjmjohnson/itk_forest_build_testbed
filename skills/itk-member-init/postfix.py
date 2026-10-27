@@ -216,7 +216,8 @@ def parse_ctor(text: str, m: str, comments: list[tuple[int, int]], body_open: in
             if p < 0 or m[p] not in ")}":
                 return None
             continue
-        if q >= 1 and m[q] == ":" and m[q - 1] != ":":
+        access = re.search(r"\b(?:public|private|protected)\s*$", m[max(0, q - 16):q])
+        if q >= 1 and m[q] == ":" and m[q - 1] != ":" and not access:
             colon = q
         break
     params = prev_code(m, colon) if colon is not None else pos
@@ -268,7 +269,9 @@ def render(ctor: Ctor, entries: list[Entry]) -> str:
 
 
 def find_class(m: str, cls: str) -> tuple[int, int] | None:
-    pat = re.compile(rf"\b(?:class|struct)\b[^;{{}}()]*?\b{re.escape(cls)}\b[^;{{}}]*\{{")
+    pat = re.compile(
+        rf"\b(?:class|struct)\s+(?:[A-Za-z_]\w*\s+)*?{re.escape(cls)}\s*(?:final\s*)?(?::(?!:)[^;{{}}]*)?\{{"
+    )
     for hit in pat.finditer(m):
         start = hit.end() - 1
         return start + 1, match_fwd(m, start)
@@ -349,10 +352,31 @@ def plan_order(entries: list[Entry], members: list[str]) -> tuple[list[Entry] | 
     for e in entries:
         if e.name in order and _later_refs(e, order):
             return None, f"{e.name} reads a later-declared member"
-    ranked = sorted(entries, key=lambda e: order.get(e.name, -1))
-    if ranked != entries and any(e.name not in order for e in entries):
-        return None, "cannot order an initializer that is not a known member"
-    return ranked, ""
+    unknown = [e for e in entries if e.name not in order]
+    known = [e for e in entries if e.name in order]
+    ranked = sorted(known, key=lambda e: order[e.name])
+    if ranked == known:
+        return entries, ""
+    if entries[: len(unknown)] != unknown:
+        return None, UNKNOWN_INITIALIZER
+    return unknown + ranked, ""
+
+
+UNKNOWN_INITIALIZER = "unknown-initializer"
+
+
+def has_directive(text: str, a: int, b: int) -> bool:
+    return re.search(r"^[ \t]*#", text[text.rfind("\n", 0, a) + 1:b], re.M) is not None
+
+
+def ctor_bodies(m: str, cls: str) -> list[int]:
+    """Body braces of every constructor of cls defined in m."""
+    out = []
+    for hit in re.finditer(rf"(?<![\w~.>]){re.escape(cls)}\s*(?:<[^;{{}}()]*>\s*)?\(", m):
+        body = body_after(m, hit.end() - 1)
+        if body is not None and body not in out:
+            out.append(body)
+    return out
 
 
 def decl_head(m: str, offset: int) -> str:

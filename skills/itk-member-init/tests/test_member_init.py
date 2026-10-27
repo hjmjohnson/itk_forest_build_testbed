@@ -1,3 +1,4 @@
+import json
 import os
 import shutil
 import subprocess
@@ -10,6 +11,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import member_init  # noqa: E402
+import postfix  # noqa: E402
 from ioa.manifest import Manifest  # noqa: E402
 from ioa.skip import Reason  # noqa: E402
 
@@ -57,6 +59,7 @@ def fixture_graph(tmp_path):
     def make(name: str) -> Graph:
         repo = tmp_path / name
         shutil.copytree(FIXTURES / name, repo)
+        shutil.copy(FIXTURES / ".clang-format", repo / ".clang-format")
         _git(repo, "init", "-q")
         _git(repo, "add", ".")
         _git(repo, "commit", "-qm", "fixture")
@@ -103,10 +106,8 @@ def test_applied_sites_are_recorded_with_post_edit_lines(fixture_graph):
     assert m.kind == "member-init"
     assert m.skipped() == []
     assert {s.cls for s in m.sites} == {"prefer-member-initializer"}
-    lines = out.read("foo.cxx").splitlines()
-    for s in m.sites:
-        assert s.file == Path("foo.cxx")
-        assert any("m_" in lines[i - 1] for i in range(s.start, s.end + 1))
+    assert [(s.file, s.start, s.end) for s in m.sites] == [
+        (Path("foo.cxx"), 4, 7), (Path("foo.cxx"), 10, 13)]
 
 
 def test_dependent_out_of_order_initializer_is_skipped(fixture_graph):
@@ -122,8 +123,10 @@ def test_smart_pointer_member_gets_no_brace_init(fixture_graph):
     header = out.read("foo.h")
     assert "m_Reader{}" not in header
     assert "m_Reader{ }" not in header
+    assert "m_Owned{" not in header
+    assert "m_Smart{" not in header
     assert "m_Count{ 0 };" in header
-    assert ": m_Reader()\n{" in out.read("foo.cxx")
+    assert ": m_Reader()\n  , m_Owned()\n  , m_Smart()\n{}" in out.read("foo.cxx")
 
 
 def test_constant_initializers_become_default_member_initializers(fixture_graph):
@@ -155,3 +158,90 @@ def test_without_apply_prints_plan_and_writes_nothing(fixture_graph, capsys):
     assert out.manifest is None
     assert _git(g.repo, "status", "--porcelain") == ""
     assert "prefer-member-initializer foo.cxx 6" in out.stdout
+
+
+def _originals(g: Graph) -> dict[str, str]:
+    return {p.name: p.read_text() for p in g.repo.iterdir() if p.suffix in {".h", ".hxx", ".cxx"}}
+
+
+def test_template_ctor_in_hxx_finds_class_in_sibling_header(fixture_graph):
+    out = run_member_init(fixture_graph("template_hxx"), apply=True)
+    assert out.manifest.skipped() == []
+    hxx = out.read("foo.hxx")
+    assert "m_X = T();" not in hxx
+    assert "Tpl<T>::Tpl()\n  : m_X(T())\n" in hxx
+
+
+def test_preprocessor_line_in_initializer_list_skips_the_ctor(fixture_graph):
+    g = fixture_graph("preprocessor")
+    before = _originals(g)
+    out = run_member_init(g, apply=True)
+    assert out.read("foo.cxx") == before["foo.cxx"]
+    assert Reason.PREPROCESSOR in {s.skipped for s in out.manifest.sites}
+    assert all(s.skipped == Reason.PREPROCESSOR for s in out.manifest.sites if s.skipped)
+
+
+def test_backstop_revert_restores_every_partner_transitively(fixture_graph, monkeypatch):
+    from ioa.comments import Stranded
+
+    g = fixture_graph("shared_header")
+    before = _originals(g)
+    monkeypatch.setattr(
+        member_init, "check_hunks", lambda diff: [Stranded(Path("a.cxx"), 5, "// forced")])
+    out = run_member_init(g, apply=True)
+    assert _originals(g) == before
+    assert [(s.file, s.skipped) for s in out.manifest.sites] == [(Path("a.cxx"), Reason.COMMENT_STRANDED)]
+
+
+def test_shared_initializer_is_kept_when_one_ctor_cannot_drop_it(fixture_graph):
+    out = run_member_init(fixture_graph("shared_init"), apply=True)
+    header, source = out.read("foo.h"), out.read("foo.cxx")
+    assert "m_A{" not in header
+    assert source.count("m_A(0)") == 2
+    assert "int m_B{ 1 };" in header
+    assert "m_B(other.m_B)" in source
+    assert Reason.COMMENT_STRANDED in {s.skipped for s in out.manifest.sites}
+
+
+def test_broken_translation_unit_is_dropped_and_reported(fixture_graph, capsys):
+    g = fixture_graph("basic")
+    before = _originals(g)
+    db = g.build / "compile_commands.json"
+    entries = json.loads(db.read_text())
+    for e in entries:
+        e["command"] += " -include /nonexistent/missing.h"
+    db.write_text(json.dumps(entries))
+    out = run_member_init(g, apply=True, capsys=capsys)
+    assert "dropped 1 TU(s) that failed to compile: foo.cxx" in out.stdout
+    assert _originals(g) == before
+
+
+def test_unreadable_compile_database_is_an_error(fixture_graph):
+    g = fixture_graph("basic")
+    (g.build / "compile_commands.json").write_text("[ not json")
+    with pytest.raises(RuntimeError, match="run-clang-tidy failed"):
+        run_member_init(g, apply=True)
+
+
+def test_find_class_skips_a_derived_class_naming_the_base():
+    text = (
+        "template <typename T> class Foo;\n"
+        "template <typename T>\nclass ITK_TEMPLATE_EXPORT Bar : public Foo<T>\n{\n  int m_Z;\n};\n"
+        "template <typename T>\nclass ITK_TEMPLATE_EXPORT Foo final : public Base\n{\n  int m_A;\n  int m_B;\n};\n"
+    )
+    m, _ = postfix.mask(text)
+    assert postfix.data_members(m, *postfix.find_class(m, "Foo")) == ["m_A", "m_B"]
+
+
+def test_in_class_ctor_after_access_specifier_parses():
+    text = "class Foo\n{\npublic:\n  Foo()\n  {\n    m_A = 1;\n  }\n  int m_A;\n};\n"
+    m, comments = postfix.mask(text)
+    ctor = postfix.parse_ctor(text, m, comments, text.index("{\n    m_A"))
+    assert ctor is not None and ctor.in_class and ctor.entries == []
+
+
+def test_base_initializer_does_not_block_reordering():
+    entries = [postfix.Entry("Superclass", "Superclass()"),
+               postfix.Entry("m_B", "m_B(1)"), postfix.Entry("m_A", "m_A(0)")]
+    ordered, _ = postfix.plan_order(entries, ["m_A", "m_B"])
+    assert [e.name for e in ordered] == ["Superclass", "m_A", "m_B"]

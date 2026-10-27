@@ -29,7 +29,7 @@ contract:
     modifies_working_tree: true
     network_required: false
     git_required: true
-    user_confirmation_required: true
+    user_confirmation_required: false
   determinism: deterministic
   cache:
     has_cache: false
@@ -83,7 +83,8 @@ Usage:
   --apply     edit the working tree; without it, print "<class> <file> <count>" lines
 
 Classes:   prefer-member-initializer, use-default-member-init
-Skips:     order-violation, comment-stranded
+Skips:     order-violation, comment-stranded, preprocessor,
+           gate-failed (ctor-unparsed, class-not-found, unknown-initializer)
 ```
 
 The tools come from `$CONDA_PREFIX/bin` (the kit's pixi env, LLVM 19.1.7), falling
@@ -96,11 +97,16 @@ back to `PATH`. Run through `pixi run` so `CONDA_PREFIX` is set.
 2. Groups the fixes by constructor and rebuilds each initializer list in ITK
    style (`: a(..)` then `, b(..)` one per line), instead of applying
    clang-tidy's per-member insertions, which conflict at one offset.
-3. **Order guard.** Reads the class's member declaration order (the class body
-   is found in the constructor's file or the headers it includes). If any
-   initializer reads a member declared after the one it initializes, the
+3. **Order guard.** Reads the class's member declaration order. The class body
+   is found in the constructor's file, its sibling `<stem>.h` / `<stem>.hxx`
+   (ITK `.hxx` files do not include their header), or the headers it includes.
+   If any initializer reads a member declared after the one it initializes, the
    constructor is left alone and recorded `order-violation`. Otherwise the list
-   is sorted into declaration order.
+   is sorted into declaration order; base-class initializers stay first.
+   A constructor that cannot be parsed, whose class is not found, or whose list
+   would need an unknown entry moved is recorded `gate-failed` with the notes
+   `ctor-unparsed`, `class-not-found`, or `unknown-initializer`. A preprocessor
+   line between the signature and the body skips it as `preprocessor`.
 4. **Comments travel.** A trailing `//` or `/* */` comment on a moved
    assignment goes with it to the initializer entry. An own-line comment above
    a moved assignment would be stranded, so that constructor is left alone and
@@ -112,10 +118,15 @@ back to `PATH`. Run through `pixi run` so `CONDA_PREFIX` is set.
    entry's trailing comment moves to the end of the member declaration line.
    Members whose type names `Pointer`, `unique_ptr`, `shared_ptr`, or
    `SmartPointer` never get a brace initializer (ITK
-   `compiler-cautions.md` 1a); their constructor entry stays.
+   `compiler-cautions.md` 1a); their constructor entry stays. A default member
+   initializer is added only when every constructor of the class in that file
+   that writes the same initializer can drop it.
 7. Backstop: `ioa.comments.check_hunks` on `git diff -U0` of the touched files.
-   A file with a stranded comment is restored, together with any file paired
-   with it by a default-member-init fix, and recorded `comment-stranded`.
+   A file with a stranded comment is restored, together with every file
+   reachable from it through default-member-init fixes (header and
+   constructor files, to a fixed point), and recorded `comment-stranded`.
+8. A `run-clang-tidy` or `clang-apply-replacements` failure raises with the
+   tool's stderr. TUs that fail to compile are dropped and listed in the output.
 
 clang-tidy itself declines to move an assignment that reads a member not yet
 initialized, so the order guard mostly catches pre-existing list entries that

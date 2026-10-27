@@ -1,3 +1,18 @@
+#include <memory>
+
+namespace itk
+{
+template <typename T>
+class SmartPointer
+{
+public:
+  SmartPointer() = default;
+
+private:
+  T * m_Pointer = nullptr;
+};
+} // namespace itk
+
 class Reader
 {};
 
@@ -8,6 +23,8 @@ public:
 
 private:
   using ReaderPointer = Reader *;
-  ReaderPointer m_Reader;
-  int           m_Count;
+  ReaderPointer                m_Reader;
+  std::unique_ptr<Reader>      m_Owned;
+  itk::SmartPointer<Reader>    m_Smart;
+  int                          m_Count;
 };
