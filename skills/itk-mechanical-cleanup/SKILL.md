@@ -106,7 +106,8 @@ caveats that decide whether a hit is real.
 ### Manifest mode (`in-class-member-init`, `fillbuffer-over-iterate`)
 
 These two transforms also take the common init-over-assign flags, so the
-`itk-init-over-assign` master can run them as `itk-helpers` stages:
+`itk-init-over-assign` master can run them as stages (`in-class-member-init`
+as `member-default-init`, `fillbuffer-over-iterate` as part of `itk-helpers`):
 
 ```bash
 bash patterns/<name>/transform.sh <repo> --apply --manifest m.json [--graph <build-dir>]
@@ -114,7 +115,8 @@ bash patterns/<name>/transform.sh <repo> --apply --manifest m.json [--graph <bui
 
 - `--manifest <path>`: with `--apply`, the script saves each file before
   editing it, then `lib/manifest_from_diff.py` clang-formats the edited
-  lines and writes a manifest of kind `itk-helpers`, class `<name>`, one
+  lines and writes a manifest of kind `member-default-init`
+  (`in-class-member-init`) or `itk-helpers` (`fillbuffer-over-iterate`), class `<name>`, one
   site per changed hunk at post-edit lines. A file whose edit strands a
   comment is restored and its sites marked `comment-stranded`. A relative
   path is taken from the caller's directory. Without `--apply` nothing is

@@ -57,7 +57,7 @@ def test_transform_sh_writes_manifest(tmp_repo, tmp_path):
     out = tmp_path / "m.json"
     transform(MEMBER_INIT, repo, "--apply", "--manifest", str(out), "--graph", str(tmp_path))
     m = Manifest.read(out)
-    assert m.kind == "itk-helpers"
+    assert m.kind == "member-default-init"
     assert [(str(s.file), s.start, s.end, s.cls, s.skipped) for s in m.sites] == [
         ("itkThing.h", 11, 12, "in-class-member-init", None)]
     text = (repo / "itkThing.h").read_text()
@@ -70,7 +70,7 @@ def test_member_init_relative_manifest_path_is_resolved_before_cd(tmp_repo, tmp_
     subprocess.run(["bash", str(MEMBER_INIT), str(repo), "--apply", "--manifest", "rel.json"],
                    check=True, capture_output=True, text=True, cwd=tmp_path,
                    env=dict(os.environ, PYTHONPATH=str(LIB)))
-    assert Manifest.read(tmp_path / "rel.json").kind == "itk-helpers"
+    assert Manifest.read(tmp_path / "rel.json").kind == "member-default-init"
 
 
 def test_member_init_dry_run_writes_nothing(tmp_repo, tmp_path):
@@ -167,3 +167,13 @@ def test_helper_keeps_the_skip_reason_of_a_restored_file(tmp_repo, tmp_path, mon
     m = manifest_from_diff.build(repo, "x", [(orig, "itkThing.h")], skips)
     assert [(s.start, s.skipped, s.note) for s in m.sites] == [
         (12, Reason.COMMENT_STRANDED, "// pixels"), (13, Reason.LOOP_CARRIED, "not-fill-shape")]
+
+
+@needs_tools
+def test_smart_pointer_members_get_no_default_initializer(tmp_repo, tmp_path):
+    repo = tmp_repo("member_init")
+    out = tmp_path / "m.json"
+    transform(MEMBER_INIT, repo, "--apply", "--manifest", str(out))
+    holder = (repo / "itkThing.h").read_text().split("class Holder")[1]
+    assert "{}" not in holder
+    assert [s.start for s in Manifest.read(out).sites] == [11]

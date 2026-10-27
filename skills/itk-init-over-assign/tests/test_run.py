@@ -13,13 +13,13 @@ from ioa.skip import Reason
 
 RUN_PY = Path(__file__).resolve().parents[1] / "run.py"
 KINDS = [
-    "member-init", "local-init", "local-const", "container-list-init",
+    "member-init", "member-default-init", "local-init", "local-const", "container-list-init",
     "container-const", "itk-helpers", "itk-helpers-constexpr", "narrow-scope",
 ]
 SCRIPTS = [
-    "member_init.py", "find_declare_then_init.py", "const_promote.py", "list_init.py",
-    "const_promote.py", "sizetype_filled.py", "allocate_initialized.py",
-    "in-class-member-init/transform.sh", "fillbuffer-over-iterate/transform.sh",
+    "member_init.py", "in-class-member-init/transform.sh", "find_declare_then_init.py",
+    "const_promote.py", "list_init.py", "const_promote.py", "sizetype_filled.py",
+    "allocate_initialized.py", "fillbuffer-over-iterate/transform.sh",
     "const_promote.py", "narrow_scope.py",
 ]
 
@@ -87,7 +87,7 @@ class World:
         return [
             CommitPlan("local-init", partition.SUBJECTS["local-init"], [],
                        ["a.cxx:4: hunk moved to local-const with the rest of its site"],
-                       [recs[1].manifest]),
+                       [recs[2].manifest]),
             CommitPlan("narrow-scope", partition.SUBJECTS["narrow-scope"], [], [], [recs[-1].manifest]),
         ]
 
@@ -165,10 +165,11 @@ def _report(world) -> str:
 
 def test_stages_run_in_spec_order():
     assert [s.kind for s in pipeline.STAGES] == [
-        "member-init", "local-init", "container-list-init", "itk-helpers", "narrow-scope",
+        "member-init", "member-default-init", "local-init", "container-list-init",
+        "itk-helpers", "narrow-scope",
     ]
     assert [s.const_after for s in pipeline.STAGES] == [
-        None, "local-const", "container-const", "itk-helpers-constexpr", None,
+        None, None, "local-const", "container-const", "itk-helpers-constexpr", None,
     ]
     assert [k for k, _ in pipeline.select(None)] == KINDS
 
@@ -205,7 +206,7 @@ def test_run_partitions_once_after_all_stages(world, capsys):
     assert len(world.plan_args) == 1
     recs = world.plan_args[0]
     assert [r.kind for r in recs] == KINDS
-    assert len(recs) == 8
+    assert len(recs) == 9
     assert [(r.tree_before, r.tree_after) for r in recs][:2] == [("tree1", "tree2"), ("tree3", "tree4")]
     calls = world.stage_calls()
     seen = [next(a for a in c if a.endswith((".py", ".sh")) and "skills" in a) for c in calls]
@@ -509,3 +510,18 @@ def test_build_failure_excerpt_keeps_every_failed_line_and_its_context():
     assert "line 99" in kept and "line 79" not in kept
     done = subprocess.CompletedProcess([], 1, "\n".join(log), "")
     assert "FAILED: a.o" in pipeline._built(done, "ninja", pipeline.PreCommit("x", True, [])).detail
+
+
+def test_member_default_init_is_its_own_kind_after_member_init():
+    kinds = [k for k, _ in pipeline.select(None)]
+    assert kinds.index("member-default-init") == kinds.index("member-init") + 1
+    subjects = list(partition.SUBJECTS)
+    assert subjects.index("member-default-init") == subjects.index("member-init") + 1
+    assert partition.SUBJECTS["member-default-init"] == (
+        "STYLE: Give uninitialized members a default initializer")
+    [(argv, _)] = pipeline.commands(dict(pipeline.select(None))["member-default-init"],
+                                    pipeline.context("member-default-init", Path("r"), Path("g"), Path("d")))
+    assert argv[1].endswith("in-class-member-init/transform.sh")
+    helpers = pipeline.commands(dict(pipeline.select(None))["itk-helpers"],
+                                pipeline.context("itk-helpers", Path("r"), Path("g"), Path("d")))
+    assert not any("in-class-member-init" in a for argv, _ in helpers for a in argv)

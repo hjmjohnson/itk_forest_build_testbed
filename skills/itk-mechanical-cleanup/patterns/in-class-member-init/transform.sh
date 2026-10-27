@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Append '{}' before the trailing ';' of uninitialized non-static members.
-# Safe bare-{} case only; never touches constructors. Dry-run by default;
-# --apply to write. Never commits. Re-run clang-format + build afterward.
-# --manifest <path> (with --apply) clang-formats the edits and writes an
-# itk-helpers manifest; --graph <dir> is accepted for the common CLI.
+# Safe bare-{} case only; never touches constructors or smart-pointer members.
+# Dry-run by default; --apply to write. Never commits. Re-run clang-format +
+# build afterward. --manifest <path> (with --apply) clang-formats the edits and
+# writes a member-default-init manifest; --graph <dir> is accepted for the
+# common CLI.
 set -uo pipefail
 
 APPLY=0
@@ -50,7 +51,10 @@ while IFS= read -r f; do
   out=$(awk -v pat="$PAT" '
     {
       line=$0
+      type=line
+      sub(/m_[A-Za-z0-9_]+.*$/, "", type)
       if (line ~ pat && line !~ /static/ && line !~ /=/ && line !~ /\{/ && line !~ /&[ \t]*m_/ \
+          && type !~ /Pointer|unique_ptr|shared_ptr/ \
           && line !~ /^[ \t]*(return|delete|throw|co_return)[ \t]/) {
         # split off a trailing // comment
         cmt=""
@@ -81,7 +85,7 @@ while IFS= read -r f; do
 done <<< "$FILES"
 
 if [ -n "$SAVED" ]; then
-  "${PYTHON:-python3}" "$HELPER" --repo . --cls in-class-member-init --manifest "$MANIFEST" \
+  "${PYTHON:-python3}" "$HELPER" --repo . --cls in-class-member-init --kind member-default-init --manifest "$MANIFEST" \
     ${PAIRS[@]+"${PAIRS[@]}"} || exit 1
 fi
 

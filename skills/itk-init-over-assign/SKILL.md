@@ -2,7 +2,7 @@
 name: itk-init-over-assign
 version: 1.0.0
 purpose: Run every initialize-over-assign stage on one forest consumer or standalone checkout unattended and leave a local branch with one gated commit per refactor kind, plus a report and a PR body draft.
-description: Master of the init-over-assign refactor. Preflights a consumer worktree in a forest (clean tree, not on main, HEAD at the catalog's upstream tip, ninja graph found, clang-tidy series matching the forest compiler), records a ctest baseline, creates branch style-init-over-assign-<YYYYMMDD>, runs eight stages over the working tree (member init, local declare-then-init, local const, container list init, container const, ITK helpers, helper constexpr, narrow scope), partitions the diff into one commit per kind with the comment check, clang-format, and the compile gate, then runs pre-commit, the full forest build, and ctest against the baseline. Standalone mode (--repo/--build) skips the forest and builds with ninja and runs ctest in the checkout's own build tree. Writes the report and a PR body under the kit's .devlocal/. Never pushes and never opens a PR.
+description: Master of the init-over-assign refactor. Preflights a consumer worktree in a forest (clean tree, not on main, HEAD at the catalog's upstream tip, ninja graph found, clang-tidy series matching the forest compiler), records a ctest baseline, creates branch style-init-over-assign-<YYYYMMDD>, runs nine stages over the working tree (member init, member default init, local declare-then-init, local const, container list init, container const, ITK helpers, helper constexpr, narrow scope), partitions the diff into one commit per kind with the comment check, clang-format, and the compile gate, then runs pre-commit, the full forest build, and ctest against the baseline. Standalone mode (--repo/--build) skips the forest and builds with ninja and runs ctest in the checkout's own build tree. Writes the report and a PR body under the kit's .devlocal/. Never pushes and never opens a PR.
 triggers:
   - itk-init-over-assign
   - /itk-init-over-assign
@@ -136,6 +136,7 @@ produced.
 | # | Kind | Runs |
 |---|------|------|
 | 1 | `member-init` | `itk-member-init/member_init.py` |
+| 1b | `member-default-init` | `in-class-member-init` pattern of `itk-mechanical-cleanup` |
 | 2 | `local-init` | `itk-declare-then-init` with seven classes |
 | 2c | `local-const` | `itk-const-promote --kind local-const` |
 | 3 | `container-list-init` | `itk-container-list-init/list_init.py` |
@@ -147,8 +148,10 @@ produced.
 Stage 2 passes `--classes assign,elem_diff,elem_zero,sized_ctor,
 stream_open,bool_branch,placeholder` (one argument, no spaces). Stage 4 runs
 `itk-sizetype-filled`, `itk-allocate-initialized`, and the
-`in-class-member-init` and `fillbuffer-over-iterate` patterns of
-`itk-mechanical-cleanup` in that order. The stage list is `STAGES` in
+`fillbuffer-over-iterate` pattern of `itk-mechanical-cleanup` in that order.
+Stage 1b appends `{}` to uninitialized non-static members and skips any
+member whose type names `Pointer`, `unique_ptr`, `shared_ptr`, or
+`SmartPointer`. The stage list is `STAGES` in
 `lib/ioa/pipeline.py`; adding a kind means adding an entry there and its
 subject in `ioa.partition.SUBJECTS`.
 

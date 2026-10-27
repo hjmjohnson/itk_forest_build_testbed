@@ -36,7 +36,6 @@ def _helpers(ctx: Ctx) -> list[tuple[Cmd, str]]:
     parts = [
         ("sizetype-filled", _py("itk-sizetype-filled/sizetype_filled.py")),
         ("allocate-initialized", _py("itk-allocate-initialized/allocate_initialized.py")),
-        ("in-class-member-init", _sh("in-class-member-init")),
         ("fillbuffer-over-iterate", _sh("fillbuffer-over-iterate")),
     ]
     return [(cmd, str(Path(ctx["manifest"]).with_name(f"itk-helpers.{name}.json")))
@@ -52,6 +51,7 @@ class Stage:
 
 STAGES: list[Stage] = [
     Stage("member-init", _py("itk-member-init/member_init.py"), None),
+    Stage("member-default-init", _sh("in-class-member-init"), None),
     Stage("local-init", [
         "{py}", str(SKILLS / "itk-declare-then-init" / "find_declare_then_init.py"),
         "--classes", LOCAL_CLASSES, "--graph", "{graph}", "--repo-root", "{repo}",

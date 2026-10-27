@@ -24,6 +24,7 @@ from ioa.tidy import tool, widen_to_block
 
 SUBJECTS = {
     "member-init": "STYLE: Initialize members in constructor initializer lists",
+    "member-default-init": "STYLE: Give uninitialized members a default initializer",
     "local-init": "STYLE: Initialize locals at declaration instead of assigning",
     "local-const": "STYLE: Make initialized locals const where never mutated",
     "container-list-init": "STYLE: Replace push_back and index sequences with list initialization",
