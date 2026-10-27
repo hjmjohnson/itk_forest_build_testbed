@@ -64,6 +64,7 @@ class Planner:
         self.skips: list[Skip] = []
         self.partners: set[frozenset[Path]] = set()
         self.moves: list[list[tuple[Path, int]]] = []
+        self.ctor_moves: list[list[tuple[Path, int, int]]] = []
         self.errors = 0
         self._index: list[str] | None = None
 
@@ -187,6 +188,8 @@ class Planner:
             reason = Reason.GATE_FAILED if note == pf.UNKNOWN_INITIALIZER else Reason.ORDER_VIOLATION
             return self.skip(doc, ctor.sig_end, body, reason, note, PMI)
         self.edits[doc.path] += [(ctor.sig_end, body, pf.render(ctor, ordered)), *removals]
+        self.ctor_moves.append([(doc.path, doc.line(ctor.sig_end), doc.line(body)),
+                                *((doc.path, doc.line(a), doc.line(max(a, b - 1))) for a, b, _ in removals)])
 
     def _parse(self, doc: Doc, body: int) -> pf.Ctor | None:
         key = (doc.path, body)
@@ -319,10 +322,9 @@ def site(root: Path, path: Path, first: int, last: int, cls: str, text: str, **k
     return Site(path.relative_to(root), start, min(max(start, last), n), KIND, cls, **kw)
 
 
-def _group_moves(sites: list[Site], dmi: list[tuple[int, Path, int, int]],
-                 moves: list[list[tuple[Path, int]]], ops: dict[Path, list[tuple]]) -> None:
-    """Give the header and source sites of each default-member-init move one group id."""
-    parent = list(range(len(moves)))
+def _label(sites: list[Site], hits: dict[int, list[int]], count: int, tag: str) -> None:
+    """Union moves that share a site and give every site of a union one group id."""
+    parent = list(range(count))
 
     def find(k: int) -> int:
         while parent[k] != k:
@@ -330,6 +332,33 @@ def _group_moves(sites: list[Site], dmi: list[tuple[int, Path, int, int]],
             k = parent[k]
         return k
 
+    for ks in hits.values():
+        for k in ks[1:]:
+            parent[find(k)] = find(ks[0])
+    token = secrets.token_hex(4)
+    for i, ks in hits.items():
+        sites[i].group = f"{KIND}:{token}:{tag}-{find(ks[0])}"
+
+
+def _group_ctor_moves(sites: list[Site], pmi: list[tuple[int, Path, int, int]],
+                      moves: list[list[tuple[Path, int, int]]]) -> None:
+    """One group id for a constructor's inserted list and every assignment it removed.
+
+    Spans and sites are in pre-edit lines; an insertion (i1 == i2) sits before line i1.
+    """
+    hits: dict[int, list[int]] = {}
+    for k, spans in enumerate(moves):
+        for path, lo, hi in spans:
+            for i, p, i1, i2 in pmi:
+                inside = lo < i1 <= hi if i1 == i2 else i1 <= hi and lo <= i2 - 1
+                if p == path and inside:
+                    hits.setdefault(i, []).append(k)
+    _label(sites, {i: list(dict.fromkeys(ks)) for i, ks in hits.items()}, len(moves), "pmi")
+
+
+def _group_moves(sites: list[Site], dmi: list[tuple[int, Path, int, int]],
+                 moves: list[list[tuple[Path, int]]], ops: dict[Path, list[tuple]]) -> None:
+    """Give the header and source sites of each default-member-init move one group id."""
     hits: dict[int, list[int]] = {}
     for k, points in enumerate(moves):
         for path, line in points:
@@ -337,12 +366,7 @@ def _group_moves(sites: list[Site], dmi: list[tuple[int, Path, int, int]],
             for i, p, a, b in dmi:
                 if p == path and a <= at <= b:
                     hits.setdefault(i, []).append(k)
-    for ks in hits.values():
-        for k in ks[1:]:
-            parent[find(k)] = find(ks[0])
-    token = secrets.token_hex(4)
-    for i, ks in hits.items():
-        sites[i].group = f"{KIND}:{token}:dmi-{find(ks[0])}"
+    _label(sites, hits, len(moves), "dmi")
 
 
 def _apply(planner: Planner, cls: str, before: dict[Path, str]) -> None:
@@ -412,15 +436,20 @@ def run(graph: Path, root: Path, manifest: Path | None, apply: bool) -> int:
 
     sites: list[Site] = []
     dmi: list[tuple[int, Path, int, int]] = []
+    pmi: list[tuple[int, Path, int, int]] = []
     for path in sorted(set(p1.edits) | set(p2.edits)):
         o, m, f = orig[path], post1[path], final[path]
         later = _opcodes(m, f)
-        for j1, j2 in changed_ranges(o, m) if path in p1.edits else []:
+        for tag, i1, i2, j1, j2 in _opcodes(o, m) if path in p1.edits else []:
+            if tag == "equal":
+                continue
             a, b = map_line(later, j1, False), map_line(later, j2, True)
+            pmi.append((len(sites), path, i1, i2))
             sites.append(site(root, path, a, b, PMI, f))
         for j1, j2 in changed_ranges(m, f) if path in p2.edits else []:
             dmi.append((len(sites), path, j1 + 1, max(j2, j1 + 1)))
             sites.append(site(root, path, j1, j2, DMI, f))
+    _group_ctor_moves(sites, pmi, p1.ctor_moves)
     _group_moves(sites, dmi, p2.moves, {p: _opcodes(post1[p], final[p]) for p in p2.edits})
     for s in p1.skips + p2.skips:
         if s.file not in final:

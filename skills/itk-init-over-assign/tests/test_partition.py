@@ -590,3 +590,29 @@ def test_failed_worktree_reversal_restores_the_file_from_the_backup_tree(repo, f
     assert res.sha is not None
     assert (repo.path / "b.cxx").read_bytes() == before
     assert any("restored the file from backup tree" in n for n in res.notes)
+
+
+def test_constructor_move_stays_whole_when_a_later_kind_touches_one_removal(tmp_path, fake_gate_ok):
+    src = ["F::F()", "{", "  m_A = 0;", "  int t = 0;", "  m_B = 1;", "  Use(t);", "}"]
+    files = {"p.cxx": list(src)}
+    r = make_repo.init_repo(tmp_path, files, "DisableFormat: true\n")
+
+    def member(f):
+        del f["p.cxx"][4]
+        del f["p.cxx"][2]
+        f["p.cxx"][1:1] = ["  : m_A(0)", "  , m_B(1)"]
+
+    def scope(f):
+        f["p.cxx"][4] = "  int t{};"
+
+    mi = make_repo.stage(r, files, "member-init", member, [("p.cxx", 2, 3), ("p.cxx", 4, 4), ("p.cxx", 5, 5)])
+    for site in mi.manifest.sites:
+        site.group = "member-init:t:pmi-0"
+    ns = make_repo.stage(r, files, "narrow-scope", scope, [("p.cxx", 5, 5)])
+    plans = plan(r, [mi, ns])
+    assert [p.kind for p in plans] == ["narrow-scope"]
+    [only] = plans
+    assert sorted((h.old_start, h.old_count, h.new_count) for h in only.hunks) == [(1, 0, 2), (3, 3, 1)]
+    assert apply(r, only, tmp_path).sha
+    assert git(r, "show", "HEAD:p.cxx").splitlines()[1:3] == ["  : m_A(0)", "  , m_B(1)"]
+    assert git(r, "diff", "HEAD") == ""

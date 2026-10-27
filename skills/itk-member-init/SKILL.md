@@ -155,7 +155,8 @@ Each site has the post-edit 1-based line range, `kind: member-init`, and `cls`
 (`prefer-member-initializer` or `use-default-member-init`). Applied sites are
 the changed hunks; skipped sites carry `skipped` and a `note`. The header
 site and the source sites of one default-member-initializer move share a
-`group` id (sites touched by several moves share one), so the master commits
+`group` id, and so do a constructor's inserted initializer list and every
+assignment it removed (`member-init:<token>:pmi-<n>`) (sites touched by several moves share one), so the master commits
 and reverts them together without tying unrelated members of the same files. The master
 (`itk-init-over-assign`) partitions the diff by content; this stage only edits
 and reports.

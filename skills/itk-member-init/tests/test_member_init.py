@@ -432,3 +432,11 @@ def test_grouping_error_skips_one_diagnostic_and_the_rest_apply(fixture_graph, m
     out = run_member_init(fixture_graph("basic"), apply=True)
     assert [s.note for s in out.manifest.sites].count("internal-error:RuntimeError") == 1
     assert out.manifest.applied()
+
+
+def test_constructor_list_insertion_and_removed_assignments_share_a_group(fixture_graph):
+    out = run_member_init(fixture_graph("split_ctor"), apply=True)
+    assert ": m_A(Get())" in out.read("foo.cxx") and "  Use(m_A);" in out.read("foo.cxx")
+    pmi = [s for s in out.manifest.applied() if s.cls == "prefer-member-initializer"]
+    assert len(pmi) == 2, pmi
+    assert pmi[0].group == pmi[1].group and ":pmi-" in pmi[0].group
