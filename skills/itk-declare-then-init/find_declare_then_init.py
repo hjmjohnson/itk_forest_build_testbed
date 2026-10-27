@@ -42,11 +42,15 @@ Examples:
 
 import argparse
 import json
-import os
 import re
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
+
+try:
+    import ioa  # noqa: F401
+except ImportError:
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "itk-init-over-assign" / "lib"))
 
 # Regex patterns for C++ declarations
 DECL_PATTERN = re.compile(
@@ -116,6 +120,17 @@ class Finding:
     gap_lines: int
     suggestion: str
     forward_refs: list[str] | None = None  # identifiers that would be forward-referenced
+    init_end: int | None = None  # last line removed by --apply (defaults to init_line)
+    declined: str | None = None  # pattern matched but a precondition failed (manifest only)
+
+
+def declined_finding(
+    filepath: str, i: int, j: int, vartype: str, varname: str, pattern: str, check: str
+) -> Finding:
+    return Finding(
+        file=filepath, decl_line=i + 1, init_line=j + 1, varname=varname, vartype=vartype,
+        pattern=pattern, init_expr="", gap_lines=j - i - 1, suggestion="", declined=check,
+    )
 
 
 def find_next_use(
@@ -236,12 +251,9 @@ def analyze_fill_zero(
         return None
     clean = strip_comment(lines[j])
     m = FILL_PATTERN.match(clean)
-    if (
-        m
-        and m.group(1) == varname
-        and is_zero_value(m.group(2))
-        and check_indent_match(indent, lines[j])
-    ):
+    if m and m.group(1) == varname and is_zero_value(m.group(2)):
+        if not check_indent_match(indent, lines[j]):
+            return declined_finding(filepath, i, j, vartype, varname, "fill_zero", "indent-mismatch")
         return Finding(
             file=filepath,
             decl_line=i + 1,
@@ -264,12 +276,11 @@ def analyze_fill_nonzero(
         return None
     clean = strip_comment(lines[j])
     m = FILL_PATTERN.match(clean)
-    if (
-        m
-        and m.group(1) == varname
-        and not is_zero_value(m.group(2))
-        and check_indent_match(indent, lines[j])
-    ):
+    if m and m.group(1) == varname and not is_zero_value(m.group(2)):
+        if not check_indent_match(indent, lines[j]):
+            return declined_finding(
+                filepath, i, j, vartype, varname, "fill_nonzero", "indent-mismatch"
+            )
         val = m.group(2)
         # Determine namespace prefix: .hxx/.txx are inside namespace itk, test files are not
         ns = "" if file_is_in_itk_namespace(filepath) else "itk::"
@@ -308,10 +319,13 @@ def analyze_elem_assign(
     if not m or m.group(1) != varname or m.group(2) != "0":
         return None
     if not check_indent_match(indent, lines[j]):
-        return None
+        return declined_finding(
+            filepath, i, j, vartype, varname, f"elem_{want}", "indent-mismatch"
+        )
 
     # Collect consecutive element assignments [0], [1], [2], ...
     values = [m.group(3)]
+    last = j
     k = j + 1
     expected_idx = 1
     while k < len(lines):
@@ -328,6 +342,7 @@ def analyze_elem_assign(
             and check_indent_match(indent, lines[k])
         ):
             values.append(k_m.group(3))
+            last = k
             expected_idx += 1
             k += 1
         else:
@@ -364,6 +379,7 @@ def analyze_elem_assign(
         init_expr=f"[0..{len(values) - 1}] = {', '.join(values)}",
         gap_lines=j - i - 1,
         suggestion=suggestion,
+        init_end=last + 1,
     )
 
 
@@ -375,7 +391,9 @@ def analyze_assign(
         return None
     clean = strip_comment(lines[j])
     m = ASSIGN_PATTERN.match(clean)
-    if m and m.group(1) == varname and check_indent_match(indent, lines[j]):
+    if m and m.group(1) == varname:
+        if not check_indent_match(indent, lines[j]):
+            return declined_finding(filepath, i, j, vartype, varname, "assign", "indent-mismatch")
         expr = m.group(2)
         return Finding(
             file=filepath,
@@ -387,6 +405,7 @@ def analyze_assign(
             init_expr=expr,
             gap_lines=j - i - 1,
             suggestion=f"{indent}{vartype} {varname} = {expr};",
+            forward_refs=check_gap_forward_refs(lines, i, j, expr),
         )
     return None
 
@@ -399,8 +418,10 @@ def analyze_setsize_fill(
         return None
     clean = strip_comment(lines[j])
     sm = SETSIZE_PATTERN.match(clean)
-    if not sm or sm.group(1) != varname or not check_indent_match(indent, lines[j]):
+    if not sm or sm.group(1) != varname:
         return None
+    if not check_indent_match(indent, lines[j]):
+        return declined_finding(filepath, i, j, vartype, varname, "setsize_fill", "indent-mismatch")
     size_val = sm.group(2)
     # Look for Fill on the next non-blank line
     k = j + 1
@@ -421,6 +442,7 @@ def analyze_setsize_fill(
                 init_expr=f"SetSize({size_val}), Fill({fill_val})",
                 gap_lines=j - i - 1,
                 suggestion=f"{indent}{vartype} {varname}({size_val}, {fill_val});",
+                init_end=k + 1,
             )
     return None
 
@@ -449,13 +471,14 @@ def analyze_file(
     varname_filter: str | None = None,
     vartype_filter: re.Pattern | None = None,
     max_gap: int = 9999,
+    keep_declined: bool = False,
 ) -> list[Finding]:
     """Analyze a single file for ONE pattern class."""
     findings: list[Finding] = []
     analyzer = PATTERN_ANALYZERS[pattern]
 
     try:
-        with open(filepath, encoding="utf-8", errors="replace") as f:
+        with Path(filepath).open(encoding="utf-8", errors="replace") as f:
             lines = f.readlines()
     except (OSError, UnicodeDecodeError):
         return findings
@@ -476,7 +499,7 @@ def analyze_file(
             continue
 
         result = analyzer(lines, i, indent, vartype, varname, filepath, max_gap)
-        if result:
+        if result and (keep_declined or not result.declined):
             findings.append(result)
 
     return findings
@@ -487,9 +510,10 @@ def scan_paths(
     recursive: bool = False,
     exclude_patterns: list[str] | None = None,
     tests_only: bool = False,
+    files: list[Path] | None = None,
     **kwargs,
 ) -> list[Finding]:
-    """Scan files/directories for findings."""
+    """Scan files/directories (or an explicit file list) for findings."""
     findings: list[Finding] = []
     exclude_res = [re.compile(p) for p in (exclude_patterns or [])]
     extensions = {".cxx", ".hxx", ".txx", ".cpp", ".hpp", ".h", ".cc"}
@@ -502,40 +526,49 @@ def scan_paths(
             return bool(re.search(r"Test.*\.cxx$", fname))
         return True
 
+    if files is not None:
+        for path in files:
+            if not should_exclude(str(path)) and matches_file_filter(path.name):
+                findings.extend(analyze_file(str(path), **kwargs))
+        return findings
+
     for path_str in paths:
         path = Path(path_str)
         if path.is_file():
             if not should_exclude(str(path)) and matches_file_filter(path.name):
                 findings.extend(analyze_file(str(path), **kwargs))
         elif path.is_dir() and recursive:
-            for root, _dirs, files in os.walk(path):
-                if should_exclude(root):
-                    continue
-                for fname in files:
-                    fpath = os.path.join(root, fname)
-                    if (
-                        Path(fname).suffix in extensions
-                        and not should_exclude(fpath)
-                        and matches_file_filter(fname)
-                    ):
-                        findings.extend(analyze_file(fpath, **kwargs))
+            for fpath in sorted(path.rglob("*")):
+                if (
+                    fpath.suffix in extensions
+                    and fpath.is_file()
+                    and not should_exclude(str(fpath))
+                    and matches_file_filter(fpath.name)
+                ):
+                    findings.extend(analyze_file(str(fpath), **kwargs))
 
     return findings
 
 
-def apply_findings(findings: list[Finding]) -> dict[str, int]:
+def apply_findings(
+    findings: list[Finding], deleted: dict[str, list[int]] | None = None
+) -> dict[str, int]:
     """Apply fixes to files in-place.  Returns {filepath: count_applied}.
 
     Handles multi-match files correctly by processing init_line in
     descending order so that line deletions don't shift earlier indices.
 
     Findings with forward_refs are skipped (require manual intervention).
+    When `deleted` is given, the 1-based pre-edit numbers of removed lines
+    are appended to deleted[filepath].
     """
     from collections import defaultdict
 
     by_file: dict[str, list[Finding]] = defaultdict(list)
     skipped = []
     for f in findings:
+        if f.declined:
+            continue
         if f.forward_refs:
             skipped.append(f)
         else:
@@ -555,7 +588,7 @@ def apply_findings(findings: list[Finding]) -> dict[str, int]:
 
     applied: dict[str, int] = {}
     for filepath, file_findings in sorted(by_file.items()):
-        with open(filepath) as fh:
+        with Path(filepath).open() as fh:
             lines = fh.readlines()
 
         # Sort by init_line DESCENDING so deletions don't shift earlier indices
@@ -564,12 +597,14 @@ def apply_findings(findings: list[Finding]) -> dict[str, int]:
         for f in file_findings:
             decl_idx = f.decl_line - 1
             init_idx = f.init_line - 1
-            # Remove the init line
-            del lines[init_idx]
+            end = f.init_end or f.init_line
+            del lines[init_idx:end]
+            if deleted is not None:
+                deleted.setdefault(filepath, []).extend(range(f.init_line, end + 1))
             # Replace the declaration line with the suggestion
             lines[decl_idx] = f.suggestion + "\n"
 
-        with open(filepath, "w") as fh:
+        with Path(filepath).open("w") as fh:
             fh.writelines(lines)
 
         applied[filepath] = len(file_findings)
@@ -582,18 +617,78 @@ def apply_findings(findings: list[Finding]) -> dict[str, int]:
     return applied
 
 
+def skip_reason(f: Finding, lines: list[str]) -> tuple["Reason", str] | None:
+    """Return (reason, note) when the finder declines `f`, else None."""
+    from ioa.skip import Reason
+
+    if f.declined:
+        return Reason.LOOP_CARRIED, f.declined
+    if not f.forward_refs:
+        return None
+    gap = lines[f.decl_line : f.init_line - 1]
+    note = "forward-ref: " + ",".join(f.forward_refs)
+    if any(re.search(r"\btry\b", g) for g in gap):
+        return Reason.TRY_READ_AFTER, note
+    if any(g.lstrip().startswith("#") for g in gap):
+        return Reason.PREPROCESSOR, note
+    return Reason.LOOP_CARRIED, note
+
+
+def record_sites(
+    sites: list, findings: list[Finding], repo_root: Path, applying: bool
+) -> dict[str, list[int]]:
+    """Append a Site per finding, shifting earlier sites for lines this pass removes.
+
+    Returns the removed-line map keyed by resolved path (empty unless applying).
+    """
+    from ioa.manifest import Site
+
+    raw: dict[str, list[int]] = {}
+    pending = []
+    for f in findings:
+        with Path(f.file).open(encoding="utf-8", errors="replace") as fh:
+            reason = skip_reason(f, fh.readlines())
+        pending.append((f, reason))
+    if applying:
+        apply_findings(findings, raw)
+    removed = {str(Path(k).resolve()): v for k, v in raw.items()}
+    root = repo_root.resolve()
+
+    for s in sites:
+        gone = removed.get(str(root / s.file), [])
+        s.start = s.end = s.start - sum(1 for n in gone if n < s.start)
+    for f, reason in pending:
+        rel = Path(f.file).resolve().relative_to(root)
+        gone = removed.get(str(Path(f.file).resolve()), [])
+        line = f.decl_line - sum(1 for n in gone if n < f.decl_line)
+        sites.append(
+            Site(rel, line, line, "local-init", f.pattern,
+                 reason[0] if reason else None, reason[1] if reason else "")
+        )
+    return removed
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Find C++ declare-then-initialize patterns (one class at a time).",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
-    parser.add_argument("paths", nargs="+", help="Files or directories to scan")
+    parser.add_argument("paths", nargs="*", help="Files or directories to scan")
     parser.add_argument(
         "--pattern",
-        required=True,
         choices=list(PATTERN_ANALYZERS.keys()),
         help="Pattern class to find (exactly one)",
+    )
+    parser.add_argument(
+        "--classes", help="Comma-separated pattern classes, run in order in one invocation"
+    )
+    parser.add_argument("--manifest", type=Path, help="Write a local-init manifest here")
+    parser.add_argument(
+        "--graph", type=Path, help="Build dir; scan compile_commands.json TUs plus their headers"
+    )
+    parser.add_argument(
+        "--repo-root", type=Path, default=Path.cwd(), help="Root that manifest paths are relative to"
     )
     parser.add_argument("--varname", default=None, help="Only match this variable name")
     parser.add_argument("--vartype", default=None, help="Only match types matching this regex")
@@ -614,25 +709,67 @@ def main() -> None:
     )
 
     args = parser.parse_args()
+    if args.pattern and args.classes:
+        parser.error("--pattern and --classes are mutually exclusive")
+    if args.classes:
+        classes = [c for c in args.classes.split(",") if c]
+        unknown = [c for c in classes if c not in PATTERN_ANALYZERS]
+        if unknown:
+            parser.error(f"unknown class(es): {','.join(unknown)}")
+    elif args.pattern:
+        classes = [args.pattern]
+    else:
+        parser.error("one of --pattern or --classes is required")
+    if not args.paths and not args.graph:
+        parser.error("give paths to scan, or --graph")
     args.exclude.append(r"/ThirdParty/")
 
     vartype_re = re.compile(args.vartype) if args.vartype else None
+    repo_root = args.repo_root.resolve()
 
-    findings = scan_paths(
-        args.paths,
-        recursive=args.recursive,
-        exclude_patterns=args.exclude,
-        tests_only=args.tests_only,
-        pattern=args.pattern,
-        varname_filter=args.varname,
-        vartype_filter=vartype_re,
-        max_gap=args.max_gap,
-    )
+    files = None
+    if args.graph:
+        from ioa.compile_commands import find_graph, source_files
 
-    if args.apply:
-        apply_findings(findings)
+        graph = args.graph
+        if not (graph / "compile_commands.json").exists():
+            graph = find_graph(graph, repo_root.name)
+        files = source_files(graph, repo_root)
+        if args.paths:
+            roots = [Path(p).resolve() for p in args.paths]
+            files = [f for f in files if any(f.is_relative_to(r) for r in roots)]
+
+    sites: list = []
+    findings: list[Finding] = []
+    for cls in classes:
+        found = scan_paths(
+            args.paths,
+            recursive=args.recursive,
+            exclude_patterns=args.exclude,
+            tests_only=args.tests_only,
+            files=files,
+            pattern=cls,
+            varname_filter=args.varname,
+            vartype_filter=vartype_re,
+            max_gap=args.max_gap,
+            keep_declined=bool(args.manifest),
+        )
+        findings.extend(found)
+        if args.manifest:
+            record_sites(sites, found, repo_root, args.apply)
+        elif args.apply:
+            apply_findings(found)
+
+    if args.manifest:
+        from ioa.manifest import Manifest
+
+        Manifest("local-init", sites).write(args.manifest)
+    elif args.apply:
+        pass
     elif args.json:
-        print(json.dumps([asdict(f) for f in findings], indent=2))
+        print(json.dumps(
+            [{k: v for k, v in asdict(f).items() if k not in ("declined", "init_end")}
+             for f in findings], indent=2))
     else:
         for f in findings:
             fwd = ""

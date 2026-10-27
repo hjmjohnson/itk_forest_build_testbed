@@ -121,3 +121,18 @@ def command_for(tu: Path, graph: Path, repo_root: Path) -> list[str]:
         if _entry_file(e) == want:
             return e["arguments"] if "arguments" in e else shlex.split(e["command"])
     raise KeyError(str(tu))
+
+
+def source_files(graph: Path, repo_root: Path) -> list[Path]:
+    root = repo_root.resolve()
+    tus = {
+        f
+        for f in (_entry_file(e) for e in _entries(graph))
+        if f.suffix in {".cxx", ".cpp", ".cc"} and f.is_relative_to(root)
+    }
+    headers = {
+        root / key
+        for key, tus_of in _load_deps(graph, repo_root).items()
+        if tus_of and not Path(key).is_absolute() and Path(key).suffix in {".h", ".hxx"}
+    }
+    return sorted(tus | headers)

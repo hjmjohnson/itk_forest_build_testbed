@@ -11,7 +11,7 @@ triggers:
   - N-Dekker style refactor
 user_invocable: true
 cmd: false
-argument_hint: "<pattern> [--varname NAME] [--vartype REGEX]"
+argument_hint: "<pattern> [--varname NAME] [--vartype REGEX] [--classes a,b,c] [--graph BUILD_DIR] [--manifest PATH]"
 contract:
   inputs:
     - cwd
@@ -24,8 +24,9 @@ contract:
       - "Modules/**/*.cxx"
       - "Modules/**/*.h"
       - "Modules/**/*.hxx"
-    writes_outside_repo: false
-    writes_outside_repo_paths: []
+    writes_outside_repo: true
+    writes_outside_repo_paths:
+      - "<manifest path given by --manifest>"
     modifies_working_tree: true
     network_required: false
     git_required: true
@@ -40,7 +41,8 @@ contract:
     has_ai_derived_layer: false
     derivation_version: 0
 dependencies:
-  skills: []
+  skills:
+    - itk-init-over-assign
   external_tools:
     - git
     - python3
@@ -81,6 +83,12 @@ Usage:
   /itk-declare-then-init assign             Type v; v = expr -> Type v = expr
   /itk-declare-then-init setsize_fill       SetSize+Fill -> Type v(N, V)
   /itk-declare-then-init <pat> --varname size   Filter by variable name
+
+Unattended modes:
+  --classes a,b,c       Run the listed classes in order (instead of --pattern)
+  --graph <build-dir>   Scan the TUs in compile_commands.json plus their headers
+  --manifest <path>     Write a local-init manifest (applied and skipped sites)
+  --repo-root <dir>     Root that manifest paths are relative to (default: cwd)
 ```
 
 Finds C++ variables declared on one line and initialized on a subsequent line.
@@ -113,6 +121,13 @@ commit methodology where each commit targets one regex pattern class.
 | `--max-gap N` | Max unrelated lines between decl and init (default 9999) | |
 | `--exclude PATTERN` | Exclude paths matching regex (repeatable) | |
 | `--apply` | Apply fixes in-place (skips forward-ref hazards) | |
+| `--classes a,b,c` | Several classes in one run; exclusive with `--pattern` | `--classes assign,elem_zero` |
+| `--graph DIR` | File set from `compile_commands.json` plus included headers | |
+| `--manifest PATH` | Write skipped and applied sites (`kind: local-init`) | |
+
+Manifest skip reasons: a hazard between declaration and init gives
+`try-read-after` (gap contains `try`), `preprocessor` (gap line starts with
+`#`), else `loop-carried`; an indent mismatch gives `loop-carried` with a note.
 
 ## Reproducing N-Dekker's Commits
 

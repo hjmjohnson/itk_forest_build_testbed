@@ -169,3 +169,11 @@ def test_missing_ninja_is_a_distinct_error(fake_graph, repo_root, monkeypatch):
     monkeypatch.setenv("PATH", str(fake_graph))
     with pytest.raises(cc.NinjaNotFoundError):
         including_tus(Path("Common/foo.h"), fake_graph, repo_root)
+
+
+def test_source_files_lists_tus_and_included_headers_under_root(fake_graph, repo_root):
+    files = cc.source_files(fake_graph, repo_root)
+    assert repo_root / "IO" / "tu0.cxx" in files
+    assert repo_root / "Common" / "foo.h" in files
+    assert repo_root / "Dead" / "other.h" not in files
+    assert all(f.is_relative_to(repo_root) for f in files)
