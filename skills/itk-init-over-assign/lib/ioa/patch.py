@@ -143,11 +143,33 @@ def write_index(repo: Path, file: Path, content: bytes) -> None:
     git(repo, "update-index", "--cacheinfo", f"{mode},{sha},{file.as_posix()}")
 
 
-def reverse_in_worktree(repo: Path, hunks: list[Hunk]) -> None:
-    """Undo hunks whose new side is in working-tree lines, bottom-up so none shift."""
+def reverse_bytes(data: bytes, hunks: list[Hunk]) -> bytes:
+    """Undo -U0 hunks whose new side is in data, bottom-up, checking every line.
+
+    git apply -R places a zero-context pure deletion at its old-side line, which is wrong
+    once an earlier hunk in the file changed the line count.
+    """
+    lines = data.split(b"\n")
     for h in sorted(hunks, key=lambda h: h.new_start, reverse=True):
-        patch = build_patch([h], renumber=False)
-        git(repo, "apply", "-R", "--unidiff-zero", "-", input=patch)
+        if any(ln.startswith("\\") for ln in h.body):
+            raise ValueError(f"{h.file}:{h.new_start}: hunk touches a missing final newline")
+        added = [ln.encode("utf-8", "surrogateescape") for ln in h.added]
+        removed = [ln.encode("utf-8", "surrogateescape") for ln in h.removed]
+        at = h.new_start - 1 if h.new_count else h.new_start
+        if lines[at:at + len(added)] != added:
+            raise ValueError(f"{h.file}:{h.new_start}: lines differ from the hunk's new side")
+        lines[at:at + len(added)] = removed
+    return b"\n".join(lines)
+
+
+def reverse_in_worktree(repo: Path, hunks: list[Hunk]) -> None:
+    """Undo hunks whose new side is in working-tree lines."""
+    by_file: dict[Path, list[Hunk]] = {}
+    for h in hunks:
+        by_file.setdefault(h.file, []).append(h)
+    for file, fh in by_file.items():
+        path = repo / file
+        path.write_bytes(reverse_bytes(path.read_bytes(), fh))
 
 
 def mirror_format(

@@ -543,3 +543,50 @@ def test_only_the_member_site_a_later_kind_touches_moves_with_its_source(tmp_pat
     assert "m_A(0)" not in head1 and "m_B(1)" in head1
     assert "m_B{ 1 }" not in git(r, "show", "HEAD~1:foo.h")
     assert git(r, "diff", "HEAD") == ""
+
+
+def test_reverting_an_insertion_above_a_pure_deletion_restores_the_file(tmp_path, monkeypatch):
+    src = ["F::F()", "{", "  int pad = 0;", "  m_A = 0;", "", "  m_B = 1;", "}", "int z = 0;"]
+    original = "\n".join(src) + "\n"
+    files = {"l.cxx": list(src)}
+    r = make_repo.init_repo(tmp_path, files, "DisableFormat: true\n")
+
+    def member(f):
+        f["l.cxx"][3:6] = []
+        f["l.cxx"][1:1] = ["  : m_A(0)", "  , m_B(1)"]
+
+    rec = make_repo.stage(r, files, "member-init", member, [("l.cxx", 2, 3), ("l.cxx", 5, 5)])
+    staged = (r / "l.cxx").read_text()
+    monkeypatch.setattr(gate, "run", lambda g, fs, root: GateResult(
+        False, {f: "error: x" for f in fs if f.name == "l.cxx"}))
+    [only] = plan(r, [rec])
+    assert sorted((h.old_count, h.new_count) for h in only.hunks) == [(0, 2), (3, 0)]
+    res = apply(r, only, tmp_path)
+    assert res.sha is None and {s.skipped for s in res.reverted} == {Reason.GATE_FAILED}
+    assert (r / "l.cxx").read_text() == original
+    assert staged != (r / "l.cxx").read_text()
+
+
+def test_reverse_bytes_checks_lines_and_keeps_crlf():
+    from ioa.patch import Hunk, reverse_bytes
+
+    data = b"a\r\nI\r\nb\r\nd\r\n"
+    ins = Hunk(Path("f"), 1, 0, 2, 1, ["+I\r"])
+    dele = Hunk(Path("f"), 3, 1, 3, 0, ["-c\r"])
+    assert reverse_bytes(data, [ins, dele]) == b"a\r\nb\r\nc\r\nd\r\n"
+    with pytest.raises(ValueError):
+        reverse_bytes(b"a\r\nX\r\n", [ins])
+
+
+def test_failed_worktree_reversal_restores_the_file_from_the_backup_tree(repo, fake_gate_fail_b, monkeypatch):
+    before = (repo.path / "b.cxx").read_bytes()
+
+    def boom(r, hunks):
+        if any(h.file.name == "b.cxx" for h in hunks):
+            raise ValueError("b.cxx:1: lines differ from the hunk's new side")
+
+    monkeypatch.setattr(partition, "reverse_in_worktree", boom)
+    res = apply(repo.path, plan(repo.path, [repo.s_local])[0], repo.graph)
+    assert res.sha is not None
+    assert (repo.path / "b.cxx").read_bytes() == before
+    assert any("restored the file from backup tree" in n for n in res.notes)

@@ -15,6 +15,7 @@ from ioa.patch import (
     index_sha,
     mirror_format,
     parse_diff,
+    reverse_bytes,
     reverse_in_worktree,
     write_index,
 )
@@ -213,9 +214,11 @@ def _skip(h: Hunk, reason: Reason, note: str, done: list[Site]) -> list[Site]:
 def _revert_cached(repo: Path, file: Path, old_starts: set[int] | None) -> None:
     staged, _ = parse_diff(diff(repo, "--cached", "-U0", "--", file.as_posix()))
     picked = [h for h in staged if old_starts is None or h.old_start in old_starts]
-    if picked:
-        patch = build_patch(picked, renumber=False)
-        git(repo, "apply", "-R", "--cached", "--unidiff-zero", "-", input=patch)
+    if old_starts is None and picked:
+        git(repo, "reset", "-q", "--", file.as_posix())
+    elif picked:
+        data = git_bytes(repo, "show", f":{file.as_posix()}")
+        write_index(repo, file, reverse_bytes(data, picked))
 
 
 def _format(repo: Path, file: Path, clang_format: str) -> list[tuple[int, int]]:
@@ -337,7 +340,14 @@ def apply(repo: Path, commit_plan: CommitPlan, graph: Path) -> CommitResult:
         for f, content in saved.items():
             (repo / f).write_bytes(content)
         for f in files:
-            reverse_in_worktree(repo, [h for h in gone if h.file == f])
+            try:
+                reverse_in_worktree(repo, [h for h in gone if h.file == f])
+            except ValueError as exc:
+                (repo / f).write_bytes(git_bytes(repo, "show", f"{backup}:{f.as_posix()}"))
+                whole.add(f)
+                notes.append(f"{f}: reverting dropped hunks failed ({exc}); restored the file "
+                             f"from backup tree {backup}")
+                continue
             if f not in whole and unformatted[f] != formatted[f]:
                 if not mirror_format(repo, f, unformatted[f], formatted[f], spans[f], clang_format):
                     notes.append(f"{f}: formatting reached another kind's lines; formatted them in place")
