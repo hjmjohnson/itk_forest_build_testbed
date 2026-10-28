@@ -49,7 +49,8 @@ def git(repo: Path, *args: str, input: str | None = None, env: dict | None = Non
 
 
 def diff(repo: Path, *args: str) -> str:
-    return git(repo, "diff", *DIFF_FLAGS, *args)
+    """git diff text decoded from bytes, so a CRLF file's lines keep their \\r."""
+    return git_bytes(repo, "diff", *DIFF_FLAGS, *args).decode("utf-8", "surrogateescape")
 
 
 def git_bytes(repo: Path, *args: str, input: bytes | None = None) -> bytes:
@@ -64,7 +65,7 @@ def parse_diff(text: str) -> tuple[list[Hunk], list[Path]]:
     skipped: list[Path] = []
     old = new = ""
     cur: Hunk | None = None
-    for raw in text.splitlines():
+    for raw in text.split("\n"):
         if raw.startswith("diff "):
             cur = None
         elif raw.startswith("--- ") and cur is None:
@@ -143,23 +144,34 @@ def write_index(repo: Path, file: Path, content: bytes) -> None:
     git(repo, "update-index", "--cacheinfo", f"{mode},{sha},{file.as_posix()}")
 
 
+def _side(h: Hunk, sign: str) -> list[bytes]:
+    """One side of a hunk as terminated lines; a `\\ No newline` marker drops the last."""
+    out: list[bytes] = []
+    prev = ""
+    for ln in h.body:
+        if ln.startswith(sign):
+            out.append(ln[1:].encode("utf-8", "surrogateescape") + b"\n")
+        elif ln.startswith("\\") and out and prev == sign:
+            out[-1] = out[-1][:-1]
+        prev = ln[:1]
+    return out
+
+
 def reverse_bytes(data: bytes, hunks: list[Hunk]) -> bytes:
     """Undo -U0 hunks whose new side is in data, bottom-up, checking every line.
 
     git apply -R places a zero-context pure deletion at its old-side line, which is wrong
     once an earlier hunk in the file changed the line count.
     """
-    lines = data.split(b"\n")
+    parts = data.split(b"\n")
+    lines = [x + b"\n" for x in parts[:-1]] + ([parts[-1]] if parts[-1] else [])
     for h in sorted(hunks, key=lambda h: h.new_start, reverse=True):
-        if any(ln.startswith("\\") for ln in h.body):
-            raise ValueError(f"{h.file}:{h.new_start}: hunk touches a missing final newline")
-        added = [ln.encode("utf-8", "surrogateescape") for ln in h.added]
-        removed = [ln.encode("utf-8", "surrogateescape") for ln in h.removed]
+        added, removed = _side(h, "+"), _side(h, "-")
         at = h.new_start - 1 if h.new_count else h.new_start
         if lines[at:at + len(added)] != added:
             raise ValueError(f"{h.file}:{h.new_start}: lines differ from the hunk's new side")
         lines[at:at + len(added)] = removed
-    return b"\n".join(lines)
+    return b"".join(lines)
 
 
 def reverse_in_worktree(repo: Path, hunks: list[Hunk]) -> None:

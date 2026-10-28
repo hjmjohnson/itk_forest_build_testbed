@@ -616,3 +616,42 @@ def test_constructor_move_stays_whole_when_a_later_kind_touches_one_removal(tmp_
     assert apply(r, only, tmp_path).sha
     assert git(r, "show", "HEAD:p.cxx").splitlines()[1:3] == ["  : m_A(0)", "  , m_B(1)"]
     assert git(r, "diff", "HEAD") == ""
+
+
+def _bytes_stage(tmp_path, name: str, before: bytes, after: bytes, sites):
+    r = make_repo.init_repo(tmp_path, {}, "DisableFormat: true\n")
+    git(r, "config", "core.autocrlf", "false")
+    (r / name).write_bytes(before)
+    git(r, "add", name)
+    git(r, "commit", "-qm", "bytes")
+    tree = snapshot(r)
+    (r / name).write_bytes(after)
+    manifest = Manifest("local-init", [make_repo.Site(Path(name), a, b, "local-init", "assign")
+                                       for a, b in sites])
+    return r, StageRecord("local-init", manifest, tree, snapshot(r))
+
+
+def test_crlf_file_survives_a_stranded_comment_revert_byte_exact(tmp_path, fake_gate_ok):
+    before = b"int a;\r\na = 1; // why\r\nint pad;\r\nint b;\r\nb = 2;\r\n"
+    after = b"int a = 1;\r\nint pad;\r\nint b = 2;\r\n"
+    r, rec = _bytes_stage(tmp_path, "c.cxx", before, after, [(1, 1), (3, 3)])
+    res = apply(r, plan(r, [rec])[0], tmp_path)
+    want = b"int a;\r\na = 1; // why\r\nint pad;\r\nint b = 2;\r\n"
+    assert res.sha is not None
+    assert [s.skipped for s in res.reverted] == [Reason.COMMENT_STRANDED]
+    assert subprocess.run(["git", "show", "HEAD:c.cxx"], cwd=r, capture_output=True).stdout == want
+    assert (r / "c.cxx").read_bytes() == want
+    assert not any("failed" in n for n in res.notes)
+
+
+def test_missing_final_newline_survives_a_stranded_comment_revert_byte_exact(tmp_path, fake_gate_ok):
+    before = b"int b;\nb = 2;\nint pad;\nint a;\na = 1; // why"
+    after = b"int b = 2;\nint pad;\nint a = 1;"
+    r, rec = _bytes_stage(tmp_path, "n.cxx", before, after, [(1, 1), (3, 3)])
+    res = apply(r, plan(r, [rec])[0], tmp_path)
+    want = b"int b = 2;\nint pad;\nint a;\na = 1; // why"
+    assert res.sha is not None
+    assert [s.skipped for s in res.reverted] == [Reason.COMMENT_STRANDED]
+    assert subprocess.run(["git", "show", "HEAD:n.cxx"], cwd=r, capture_output=True).stdout == want
+    assert (r / "n.cxx").read_bytes() == want
+    assert not any("failed" in n for n in res.notes)

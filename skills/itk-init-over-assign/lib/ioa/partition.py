@@ -211,14 +211,24 @@ def _skip(h: Hunk, reason: Reason, note: str, done: list[Site]) -> list[Site]:
     return [Site(h.file, lines.start, end, h.kind, "uncovered", reason, note)]
 
 
-def _revert_cached(repo: Path, file: Path, old_starts: set[int] | None) -> None:
+def _revert_cached(repo: Path, file: Path, old_starts: set[int] | None,
+                   notes: list[str] | None = None) -> bool:
+    """Unstage the picked hunks of file; False when that failed and the whole file was reset."""
     staged, _ = parse_diff(diff(repo, "--cached", "-U0", "--", file.as_posix()))
     picked = [h for h in staged if old_starts is None or h.old_start in old_starts]
     if old_starts is None and picked:
         git(repo, "reset", "-q", "--", file.as_posix())
     elif picked:
         data = git_bytes(repo, "show", f":{file.as_posix()}")
-        write_index(repo, file, reverse_bytes(data, picked))
+        try:
+            write_index(repo, file, reverse_bytes(data, picked))
+        except ValueError as exc:
+            git(repo, "reset", "-q", "--", file.as_posix())
+            if notes is not None:
+                notes.append(f"{file}: unstaging dropped hunks failed ({exc}); reset the file "
+                             "to HEAD in the index")
+            return False
+    return True
 
 
 def _format(repo: Path, file: Path, clang_format: str) -> list[tuple[int, int]]:
@@ -308,7 +318,8 @@ def apply(repo: Path, commit_plan: CommitPlan, graph: Path) -> CommitResult:
                 group = _site_group(h, selected)
                 for g in group:
                     if not any(g is x for x in gone):
-                        _revert_cached(repo, g.file, {g.old_start})
+                        if not _revert_cached(repo, g.file, {g.old_start}, notes):
+                            group += [x for x in selected if x.file == g.file and x not in group]
                 drop(group, Reason.COMMENT_STRANDED, s.text)
         unformatted = {f: index_sha(repo, f) for f in files}
         spans: dict[Path, list[tuple[int, int]]] = {}
@@ -344,10 +355,8 @@ def apply(repo: Path, commit_plan: CommitPlan, graph: Path) -> CommitResult:
                 reverse_in_worktree(repo, [h for h in gone if h.file == f])
             except ValueError as exc:
                 (repo / f).write_bytes(git_bytes(repo, "show", f"{backup}:{f.as_posix()}"))
-                whole.add(f)
                 notes.append(f"{f}: reverting dropped hunks failed ({exc}); restored the file "
-                             f"from backup tree {backup}")
-                continue
+                             f"from backup tree {backup}, so its dropped hunks stay unpartitioned")
             if f not in whole and unformatted[f] != formatted[f]:
                 if not mirror_format(repo, f, unformatted[f], formatted[f], spans[f], clang_format):
                     notes.append(f"{f}: formatting reached another kind's lines; formatted them in place")
