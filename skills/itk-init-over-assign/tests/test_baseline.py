@@ -119,3 +119,19 @@ def test_host_sdkroot_is_kept(monkeypatch, tmp_path):
     monkeypatch.setenv("CONDA_PREFIX", str(tmp_path / "conda"))
     monkeypatch.setenv("SDKROOT", "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk")
     assert baseline.forest_env(None)["SDKROOT"].startswith("/Library/")
+
+
+def test_conda_entries_are_stripped_in_either_spelling(monkeypatch, tmp_path):
+    real = tmp_path / "real" / "env"
+    (real / "bin").mkdir(parents=True)
+    link = tmp_path / "link"
+    link.symlink_to(tmp_path / "real")
+    monkeypatch.setenv("CONDA_PREFIX", str(link / "env"))
+    monkeypatch.setenv("SDKROOT", str(real / "sdk"))
+    monkeypatch.setenv("PATH", os.pathsep.join(
+        [str(real / "bin"), str(link / "env" / "bin"), str(link / "env" / "missing"), "/usr/bin"]))
+    env = baseline.forest_env(None)
+    assert env["PATH"] == "/usr/bin" and "SDKROOT" not in env
+    monkeypatch.setenv("CONDA_PREFIX", str(real))
+    monkeypatch.setenv("PATH", os.pathsep.join([str(link / "env" / "bin"), "/usr/bin"]))
+    assert baseline.forest_env(None)["PATH"] == "/usr/bin"

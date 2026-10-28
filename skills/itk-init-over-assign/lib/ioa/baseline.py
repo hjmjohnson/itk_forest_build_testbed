@@ -17,7 +17,11 @@ HOST_TOOLS = ("ninja", "ctest", "cmake", "pre-commit")
 
 
 def _under(path: str, prefix: str) -> bool:
-    return Path(path).is_relative_to(prefix) if path and Path(path).is_absolute() else False
+    """path lies under prefix, compared both as spelled and resolved (symlinks, /private/var)."""
+    if not path or not Path(path).is_absolute():
+        return False
+    p, root = Path(path), Path(prefix)
+    return p.is_relative_to(root) or p.resolve().is_relative_to(root.resolve())
 
 
 def host_env(env: dict[str, str]) -> dict[str, str]:
