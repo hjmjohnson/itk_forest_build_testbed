@@ -240,3 +240,11 @@ def test_conditional_directive_in_scope_is_skipped(fixture_graph):
         (7, Reason.PREPROCESSOR), (17, None)]
     text = out.read("a.cxx")
     assert "  int n = f();\n#if" in text and "  const int k = f();" in text
+
+
+def test_pipeline_const_stages_are_accepted_kinds():
+    from ioa import pipeline
+
+    from const_promote import KINDS
+
+    assert {s.const_after for s in pipeline.STAGES if s.const_after} <= set(KINDS)

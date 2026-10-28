@@ -37,7 +37,7 @@ OPTIONS = {
     "TransformReferences": True,
     "TransformPointersAsValues": False,
 }
-KINDS = ("local-const", "container-const", "itk-helpers-constexpr")
+KINDS = ("local-const", "container-const", "itk-helpers-constexpr", "narrow-const")
 CONST, CONSTEXPR = "const", "constexpr"
 MESSAGE = re.compile(r"^variable '([^']+)' of type '([^']*)'(?: \(aka '([^']*)'\))? can be declared 'const'")
 SOURCE_SUFFIXES = {".cxx", ".cpp", ".cc", ".c++", ".C"}

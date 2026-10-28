@@ -2,7 +2,7 @@
 name: itk-const-promote
 version: 1.0.0
 purpose: Promote the locals a prior init-over-assign stage initialized to const, and to constexpr when the initializer is a compile-time literal, using clang-tidy misc-const-correctness restricted to that stage's sites.
-description: Unattended stage of the init-over-assign refactor that runs after local-init, container-list-init, and itk-helpers. Runs clang-tidy misc-const-correctness over the translation units holding a prior manifest's files, inserts const on never-mutated locals within or next to that manifest's applied sites, promotes literal and constexpr-helper initializers to constexpr, records static locals as skipped, and writes a manifest of kind local-const, container-const, or itk-helpers-constexpr. Never commits.
+description: Unattended stage of the init-over-assign refactor that runs after local-init, container-list-init, itk-helpers, and narrow-init. Runs clang-tidy misc-const-correctness over the translation units holding a prior manifest's files, inserts const on never-mutated locals within or next to that manifest's applied sites, promotes literal and constexpr-helper initializers to constexpr, records static locals as skipped, and writes a manifest of kind local-const, container-const, itk-helpers-constexpr, or narrow-const. Never commits.
 triggers:
   - itk-const-promote
   - /itk-const-promote
@@ -11,7 +11,7 @@ triggers:
   - misc-const-correctness
 user_invocable: true
 cmd: false
-argument_hint: "--graph <build-dir> --repo <path> --manifest <path> --only-from <manifest> --kind <local-const|container-const|itk-helpers-constexpr> [--apply]"
+argument_hint: "--graph <build-dir> --repo <path> --manifest <path> --only-from <manifest> --kind <local-const|container-const|itk-helpers-constexpr|narrow-const> [--apply]"
 contract:
   inputs:
     - argument
@@ -82,7 +82,7 @@ Usage:
   --repo       repository root
   --manifest   JSON manifest written with --apply
   --only-from  manifest of the stage that initialized the locals
-  --kind       local-const | container-const | itk-helpers-constexpr
+  --kind       local-const | container-const | itk-helpers-constexpr | narrow-const
   --apply      edit the working tree; without it, print "<class> <file> <count>"
                lines and write nothing
 
