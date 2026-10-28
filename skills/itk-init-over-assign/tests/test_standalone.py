@@ -378,3 +378,12 @@ def test_non_git_repo_is_named(tmp_path):
     with pytest.raises(PreflightError) as e:
         preflight.check_standalone(plain, tmp_path, "origin/main", tmp_path)
     assert e.value.code == "not-a-repo" and "not a git" in e.value.message
+
+
+def test_standalone_pre_commit_runs_without_the_pixi_toolchain(sworld, monkeypatch):
+    monkeypatch.setenv("CC", "/conda/bin/clang")
+    monkeypatch.setenv("LIBRARY_PATH", "/conda/lib")
+    (sworld.repo / ".pre-commit-config.yaml").write_text("repos: []\n")
+    sworld.main()
+    envs = [e for c, e in zip(sworld.calls, sworld.envs) if c[0] == "pre-commit"]
+    assert envs and all(e is not None and "CC" not in e and "LIBRARY_PATH" not in e for e in envs)

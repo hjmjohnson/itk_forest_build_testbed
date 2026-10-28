@@ -64,6 +64,9 @@ class ForestHarness:
     def post_commands(self, repo: Path, coords) -> list[str]:
         return pipeline.post_commands(repo, coords.repo_slug)
 
+    def env(self) -> dict[str, str] | None:
+        return None
+
 
 class StandaloneHarness:
     """Build with ninja and run ctest directly in the checkout's own build tree."""
@@ -85,6 +88,9 @@ class StandaloneHarness:
 
     def post_commands(self, repo: Path, coords) -> list[str]:
         return pipeline.post_commands_standalone(repo, coords.graph)
+
+    def env(self) -> dict[str, str] | None:
+        return baseline.forest_env(None)
 
 
 def _refuse(code: str, message: str) -> int:
@@ -207,7 +213,7 @@ def _run(repo, coords, selected, branch, run_dir, base, harness, notes, before_w
         step = "unpartitioned check"
         left = pipeline.leftover(repo)
         step = "pre-commit"
-        pc = pipeline.pre_commit(repo)
+        pc = pipeline.pre_commit(repo, harness.env())
         step = "build"
         build = harness.build(coords, pc)
         build.new_warnings, build.touched_warnings = pipeline.classify_warnings(

@@ -90,3 +90,32 @@ def test_new_failures_excludes_baseline_failures(tmp_path):
     b = write(tmp_path, "b.json", {"x"})
     a = write(tmp_path, "a.json", {"x", "y"})
     assert baseline.new_failures(b, a) == ["y"]
+
+
+def test_standalone_env_drops_the_pixi_toolchain(monkeypatch, tmp_path):
+    prefix = tmp_path / "pixi" / "envs" / "default"
+    stripped = {
+        "CC": f"{prefix}/bin/clang", "CXX": f"{prefix}/bin/clang++", "LD": "ld", "AR": "ar",
+        "RANLIB": "ranlib", "CFLAGS": "-O2", "CXXFLAGS": "-O2", "CPPFLAGS": f"-I{prefix}/include",
+        "LDFLAGS": f"-L{prefix}/lib", "LIBRARY_PATH": f"{prefix}/lib", "CPATH": f"{prefix}/include",
+        "CMAKE_PREFIX_PATH": str(prefix), "CONDA_BUILD_SYSROOT": "/sdk", "CONDA_DEFAULT_ENV": "default",
+        "CONDA_SHLVL": "1", "PIXI_PROJECT_ROOT": "/kit", "PIXI_ENVIRONMENT_NAME": "default",
+        "SDKROOT": f"{prefix}/sdk",
+    }
+    for k, v in stripped.items():
+        monkeypatch.setenv(k, v)
+    monkeypatch.setenv("CONDA_PREFIX", str(prefix))
+    monkeypatch.setenv("HOME", "/home/me")
+    monkeypatch.setenv("PATH", os.pathsep.join([f"{prefix}/bin", f"{prefix}/sbin", "/usr/bin", "/bin"]))
+    env = baseline.forest_env(None)
+    assert not set(stripped) & set(env)
+    assert env["CONDA_PREFIX"] == str(prefix) and env["HOME"] == "/home/me"
+    assert env["PATH"] == os.pathsep.join(["/usr/bin", "/bin"])
+    forest = baseline.forest_env("itk-main")
+    assert forest["CC"] == stripped["CC"] and forest["PATH"].startswith(f"{prefix}/bin")
+
+
+def test_host_sdkroot_is_kept(monkeypatch, tmp_path):
+    monkeypatch.setenv("CONDA_PREFIX", str(tmp_path / "conda"))
+    monkeypatch.setenv("SDKROOT", "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk")
+    assert baseline.forest_env(None)["SDKROOT"].startswith("/Library/")

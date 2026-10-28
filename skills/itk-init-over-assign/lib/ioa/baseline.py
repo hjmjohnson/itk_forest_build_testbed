@@ -2,18 +2,55 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
 
+TOOLCHAIN_VARS = {
+    "CC", "CXX", "LD", "AR", "RANLIB", "CFLAGS", "CXXFLAGS", "CPPFLAGS", "LDFLAGS",
+    "LIBRARY_PATH", "CPATH", "CMAKE_PREFIX_PATH", "CONDA_BUILD_SYSROOT",
+}
+HOST_TOOLS = ("ninja", "ctest", "cmake", "pre-commit")
+
+
+def _under(path: str, prefix: str) -> bool:
+    return Path(path).is_relative_to(prefix) if path and Path(path).is_absolute() else False
+
+
+def host_env(env: dict[str, str]) -> dict[str, str]:
+    """env without the pixi/conda toolchain, so a standalone build links the host's libraries.
+
+    CONDA_PREFIX stays, so ioa.tidy.tool still finds the clang tools by absolute path.
+    """
+    prefix = env.get("CONDA_PREFIX", "")
+    out = {
+        k: v for k, v in env.items()
+        if k not in TOOLCHAIN_VARS and not k.startswith("PIXI_")
+        and not (k.startswith("CONDA_") and k != "CONDA_PREFIX")
+        and not (k == "SDKROOT" and prefix and _under(v, prefix))
+    }
+    if prefix and "PATH" in out:
+        out["PATH"] = os.pathsep.join(p for p in out["PATH"].split(os.pathsep) if not _under(p, prefix))
+    for name in HOST_TOOLS:
+        found = shutil.which(name, path=env.get("PATH"))
+        if found and not shutil.which(name, path=out.get("PATH", "")):
+            out["PATH"] = os.pathsep.join(filter(None, [out.get("PATH", ""), str(Path(found).parent)]))
+    return out
+
+
 def forest_env(suffix: str | None) -> dict[str, str]:
-    """The environment for kit tools, pinned to one forest; inherited overrides dropped."""
+    """The environment for kit tools, pinned to one forest; inherited overrides dropped.
+
+    Without a suffix (standalone mode) the pixi toolchain is removed as well.
+    """
     env = {k: v for k, v in os.environ.items() if k not in ("FOREST", "BUILD_FOREST_ROOT")}
     if suffix:
         env["FOREST_REFERENCE_SUFFIX"] = suffix
-    return env
+        return env
+    return host_env(env)
 
 
 def suffix_of(forest_name: str) -> str:

@@ -227,7 +227,11 @@ subject in `ioa.partition.SUBJECTS`.
    report's notes. The baseline, the build, and the ctest step run
    `ctest --test-dir <build> -j<N> --timeout 300 --output-on-failure` and
    `ninja -C <build>` directly, without inherited `FOREST` or
-   `BUILD_FOREST_ROOT`; the `T:<passed>/<total>` token is built from
+   `BUILD_FOREST_ROOT` and without the pixi toolchain (`CC`, `CXX`, the
+   flag and search-path variables, `CMAKE_PREFIX_PATH`, `CONDA_*` except
+   `CONDA_PREFIX`, `PIXI_*`, a conda `SDKROOT`, and conda `PATH` entries),
+   so relinked binaries bind the host's libraries; standalone pre-commit
+   uses the same environment; the `T:<passed>/<total>` token is built from
    ctest's summary line, so the same green rule applies, and a ctest run
    past 1800 s counts as not run. Standalone baselines are keyed on the SHA
    and the build directory.

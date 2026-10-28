@@ -215,13 +215,13 @@ def _dirty(repo: Path) -> set[str]:
     return {ln[3:] for ln in out.splitlines() if len(ln) > 3}
 
 
-def pre_commit(repo: Path) -> PreCommit:
+def pre_commit(repo: Path, env: dict[str, str] | None = None) -> PreCommit:
     """Run the hooks, then restore any file they rewrote so the build sees the branch tip."""
     if not (repo / ".pre-commit-config.yaml").exists():
         return PreCommit("no .pre-commit-config.yaml", True, [])
     before = _dirty(repo)
     done = subprocess.run(["pre-commit", "run", "--all-files"], cwd=repo,
-                          capture_output=True, text=True, check=False)
+                          capture_output=True, text=True, check=False, env=env)
     changed = sorted(_dirty(repo) - before)
     if changed:
         _git(repo, "checkout", "--", *changed)
