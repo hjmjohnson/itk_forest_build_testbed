@@ -213,3 +213,41 @@ def test_declined_note_is_the_check_and_reason_matches_the_table(note, reason):
     lines = ["  int x;\n", "  Prep();\n", "  x = 1;\n"]
     found = f.declined_finding("a.cxx", 0, 2, "int", "x", "assign", note)
     assert f.skip_reason(found, lines) == (reason, note)
+
+
+def test_elem_diff_declines_non_aggregate_itk_types(tree):
+    only = tree / "only"
+    only.mkdir()
+    (only / "C.cxx").write_text(
+        "void\nH()\n{\n  PointType p;\n  p[0] = 1.0;\n  p[1] = 2.0;\n"
+        "  ImageType::IndexType idx;\n  idx[0] = size[0];\n  idx[1] = size[1];\n"
+        "  SizeType s;\n  s[0] = 1;\n  s[1] = 2;\n}\n"
+    )
+    m = run_manifest(tree, "--classes", "elem_diff", "--apply", "-r", "only")
+    assert [(s.skipped, s.note) for s in m.sites] == [
+        (Reason.INIT_LIST_CTOR, "non-aggregate"),
+        (Reason.NARROWING, "narrowing"),
+        (None, ""),
+    ]
+    text = (only / "C.cxx").read_text()
+    assert "PointType p;" in text and "idx[0] = size[0];" in text
+    assert "SizeType s{ 1, 2 };" in text
+
+
+def test_forward_ref_check_sees_direct_init_and_array_declarations():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("finder", FINDER)
+    finder = importlib.util.module_from_spec(spec)
+    sys.modules["finder"] = finder
+    spec.loader.exec_module(finder)
+    lines = [
+        "  IndexType idx;",
+        "  ConstNIterType it(radius, image, region);",
+        "  double buf[3];",
+        "  it.SetLocation(index); // center",
+        "  idx = it.GetIndex();",
+    ]
+    assert finder.check_gap_forward_refs(lines, 0, 4, "it.GetIndex()") == ["it"]
+    assert finder.check_gap_forward_refs(lines, 0, 4, "Sum(buf)") == ["buf"]
+    assert finder.check_gap_forward_refs(lines, 0, 4, "index") == []

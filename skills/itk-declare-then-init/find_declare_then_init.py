@@ -101,6 +101,27 @@ def line_uses_var(line: str, varname: str) -> bool:
     return bool(re.search(rf"\b{re.escape(varname)}\b", stripped))
 
 
+AGGREGATE_LAST = re.compile(r"^(?:Index|Size|Offset)(?:Type)?$")
+"""itk::Index, Size, and Offset are aggregates, so `T v{ a, b, c }` works; Point, Vector,
+ContinuousIndex, FixedArray, and Array have no matching constructor."""
+
+
+def _last_type_component(vartype: str) -> str:
+    t = re.sub(r"<[^>]*>", "", vartype)
+    t = re.sub(r"\b(?:const|typename|static|volatile)\b", "", t).strip()
+    return t.split("::")[-1].strip()
+
+
+def is_brace_aggregate(vartype: str) -> bool:
+    if re.match(r"^\s*(?:const\s+)?std::array\b", vartype):
+        return True
+    return bool(AGGREGATE_LAST.match(_last_type_component(vartype)))
+
+
+def is_index_type(vartype: str) -> bool:
+    return _last_type_component(vartype) in {"Index", "IndexType"}
+
+
 def is_zero_value(value: str) -> bool:
     """Check if a value is zero (0, 0.0, 0.0f, etc.)."""
     return bool(re.match(r"^0(\.0+)?[fFlL]?$", value.strip()))
@@ -231,8 +252,16 @@ def check_gap_forward_refs(
         # Check for variable/type declarations in gap that define identifiers used in init
         for ident in used_ids:
             # Look for patterns like: Type ident; / Type ident{ / constexpr Type ident / using ident =
-            if re.search(rf"\b{re.escape(ident)}\s*[;={{]", gap_line) or re.search(
-                rf"\busing\s+{re.escape(ident)}\s*=", gap_line
+            # and direct-init or array declarations: Type ident(args); / Type ident[n];
+            name = re.escape(ident)
+            if (
+                re.search(rf"\b{name}\s*[;={{]", gap_line)
+                or re.search(rf"\busing\s+{name}\s*=", gap_line)
+                or re.search(
+                    rf"^(?:(?:const|typename|static|auto|constexpr)\s+)*"
+                    rf"[\w:]+(?:<[^>]*>)?(?:\s*[*&])*\s+{name}\s*[\(\[]",
+                    gap_line,
+                )
             ):
                 forward_refs.append(ident)
     return forward_refs
@@ -419,6 +448,13 @@ def analyze_elem_assign(
         return declined_finding(
             filepath, i, j, vartype, varname, f"elem_{want}", "indent-mismatch"
         )
+    if want == "diff":
+        if not is_brace_aggregate(vartype):
+            return declined_finding(
+                filepath, i, j, vartype, varname, "elem_diff", "non-aggregate"
+            )
+        if is_index_type(vartype) and any(re.search(r"[Ss]ize", v) for v in values):
+            return declined_finding(filepath, i, j, vartype, varname, "elem_diff", "narrowing")
 
     if all_zero:
         suggestion = f"{indent}{vartype} {varname}{{}};"
@@ -698,6 +734,8 @@ def apply_findings(
 
 DECLINE_REASONS = {
     "vector-bool": "init-list-ctor",
+    "non-aggregate": "init-list-ctor",
+    "narrowing": "narrowing",
     "comment-stranded": "comment-stranded",
     "auto-type": "narrowing",
 }

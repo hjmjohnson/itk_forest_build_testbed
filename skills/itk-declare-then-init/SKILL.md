@@ -113,7 +113,7 @@ commit methodology where each commit targets one regex pattern class.
 | `fill_zero` | `Type v; v.Fill(0);` | `Type v{};` |
 | `fill_nonzero` | `Type v; v.Fill(N);` | `auto v = MakeFilled<Type>(N);` |
 | `elem_same` | `Type v; v[0]=x; v[1]=x; v[2]=x;` | `auto v = Type::Filled(x);` |
-| `elem_diff` | `Type v; v[0]=x; v[1]=y; v[2]=z;` | `Type v{ x, y, z };` |
+| `elem_diff` | `Type v; v[0]=x; v[1]=y; v[2]=z;` | `Type v{ x, y, z };` (aggregates only: `Index`, `Size`, `Offset`, `std::array`) |
 | `elem_zero` | `Type v; v[0]=0; v[1]=0;` | `Type v{};` |
 | `assign` | `Type v; v = expr;` | `Type v = expr;` |
 | `setsize_fill` | `Type v; v.SetSize(N); v.Fill(V);` | `Type v(N, V);` |
@@ -149,8 +149,10 @@ the report's skip list reads `loop-carried (later-write)`.
 | Note | Reason | When |
 |------|--------|------|
 | `gap-statement` | `loop-carried` (`preprocessor` if a gap line is a directive) | a statement sits between declaration and init |
-| `forward-ref: a,b` | `try-read-after`, `preprocessor`, else `loop-carried` | the init reads a name declared in the gap |
+| `forward-ref: a,b` | `try-read-after`, `preprocessor`, else `loop-carried` | the init reads a name declared in the gap, including `Type name(args);` and `Type name[n];` |
 | `indent-mismatch` | `loop-carried` | the init line is indented differently |
+| `non-aggregate` | `init-list-ctor` | `elem_diff`: the type has no brace constructor (`Point`, `Vector`, `ContinuousIndex`, `FixedArray`, `Array`) |
+| `narrowing` | `narrowing` | `elem_diff`: an `Index` built from size values |
 | `else-branch` | `loop-carried` | `bool_branch`: the `if` has an `else` |
 | `later-write` | `loop-carried` | `bool_branch`: the variable is written after the `if` |
 | `by-ref-arg` | `loop-carried` | `bool_branch`: the variable is a bare call argument after the `if` |

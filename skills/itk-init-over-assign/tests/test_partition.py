@@ -692,3 +692,22 @@ def test_index_revert_fallback_drops_cross_file_group_mates(tmp_path, fake_gate_
     assert git(r, "show", "HEAD:bar.cxx") == "int b{};\n"
     assert any("foo.cxx" in n and "foo.h" in n and "fell back to HEAD" in n for n in res.notes)
     assert git(r, "diff", "HEAD", "--", "foo.cxx", "foo.h") == ""
+
+
+def test_header_error_in_unstaged_tu_is_attributed_to_the_staged_file(repo, monkeypatch):
+    msg = "z.cxx: In function 'f':\nb.cxx:20:5: error: no matching constructor"
+    monkeypatch.setattr(gate, "run", lambda g, files, r: GateResult(False, {Path("z.cxx"): msg}))
+    res = apply(repo.path, plan(repo.path, [repo.s_local])[0], repo.graph)
+    assert {s.file.name for s in res.reverted} == {"b.cxx"}
+    assert res.sha is not None
+    assert "int a10 = 10;" in git(repo.path, "show", "HEAD:a.cxx")
+    assert "b.cxx" not in git(repo.path, "show", "--name-only", "--format=", "HEAD")
+    assert not any("not attributed" in n for n in res.notes)
+
+
+def test_blamed_files_matches_relative_and_absolute_error_paths():
+    files = [Path("Mod/Sub/x.h"), Path("Mod/y.cxx")]
+    assert partition._blamed_files("/abs/repo/Mod/Sub/x.h:12:3: error: boom", files) == {files[0]}
+    assert partition._blamed_files("Mod/Sub/../y.cxx:1:1: error: boom", files) == {files[1]}
+    assert partition._blamed_files("Other/x.h:1:1: error: boom", files) == set()
+    assert partition._blamed_files("Mod/Sub/x.h:12:3: warning: boom", files) == set()

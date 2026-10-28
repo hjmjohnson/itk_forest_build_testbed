@@ -1,4 +1,6 @@
 import dataclasses
+import os
+import re
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -267,13 +269,36 @@ def _sync_from_index(repo: Path, files) -> None:
         (repo / f).write_bytes(git_bytes(repo, "show", f":{f.as_posix()}"))
 
 
+ERROR_PATH = re.compile(r"(\S+?\.(?:h|hxx|hpp|txx|cxx|cpp|cc)):\d+(?::\d+)?:\s*(?:fatal )?error\b")
+
+
+def _blamed_files(msg: str, files: list[Path]) -> set[Path]:
+    """Staged files whose path ends an `path:line:col: error` reference in a gate message."""
+    hits: set[Path] = set()
+    for m in ERROR_PATH.finditer(msg):
+        p = os.path.normpath(m.group(1)).replace(os.sep, "/")
+        for f in files:
+            s = f.as_posix()
+            if p == s or p.endswith("/" + s) or s.endswith("/" + p):
+                hits.add(f)
+    return hits
+
+
 def _gate_failures(repo: Path, graph: Path, files: list[Path]) -> tuple[set[Path], list[Path]]:
     """Staged files the gate blames, and failures it could not place on one."""
     res = gate.run(graph, files, repo)
     if res.ok:
         return set(), []
     bad = {f for f in res.failed if f in files}
-    unplaced = [f for f in res.failed if f not in files]
+    unplaced = []
+    for f, msg in res.failed.items():
+        if f in files:
+            continue
+        blamed = _blamed_files(msg or "", files)
+        if blamed:
+            bad |= blamed
+        else:
+            unplaced.append(f)
     headers = [f for f in files if gate.is_header(f) and f not in bad] if unplaced else []
     if headers:
         batch = gate.run(graph, headers, repo)

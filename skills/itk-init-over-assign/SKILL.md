@@ -209,6 +209,10 @@ subject in `ioa.partition.SUBJECTS`.
    `group` id (member-init gives a header insertion and the source edits
    of the same move one id), go to the latest kind that touches any of
    them, and a stranded comment or a gate failure on one reverts them all.
+   A gate failure reported against an unstaged translation unit is placed
+   on the staged file named in the compiler's `path:line:col: error`
+   message (usually a header); only when no staged file is named does
+   the whole plan revert.
    Changes no commit took are listed under "Unpartitioned changes"; the
    build and ctest still run, and the run exits 1.
 6. `pre-commit run --all-files` is reported, never fixed: files a hook
