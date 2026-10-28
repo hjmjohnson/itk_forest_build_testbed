@@ -7,7 +7,7 @@ from find_declare_then_init import (
     check_indent_match,
     declined_finding,
     find_next_use,
-    gap_is_blank_or_comment,
+    gap_is_side_effect_free,
     strip_comment,
 )
 
@@ -18,7 +18,7 @@ def analyze(
     if re.search(r"\bconst\b", vartype) and not re.search(r"\bauto\b", vartype):
         return None
     j = find_next_use(lines, i + 1, varname, indent, max_gap)
-    if j is None or not gap_is_blank_or_comment(lines, i, j):
+    if j is None or not gap_is_side_effect_free(lines, i, j):
         return None
     m = ASSIGN_PATTERN.match(strip_comment(lines[j]))
     if not m or m.group(1) != varname:

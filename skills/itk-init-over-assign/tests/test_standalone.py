@@ -179,7 +179,7 @@ def test_standalone_run_uses_ninja_and_ctest_after_the_stages(sworld, capsys):
     assert first == f"Repo: BRAINSTools (aaaaaaaaaaaa) | Standalone: {sworld.repo}, build {sworld.graph}"
     assert [r.kind for r in sworld.plan_args[0]] == KINDS
     assert sworld.applied == ["local-init", "narrow-scope"]
-    assert len(sworld.stage_calls()) == 11
+    assert len(sworld.stage_calls()) == 13
     assert not any(c[:2] == ["pixi", "run"] for c in sworld.calls)
     assert not any(any(a.endswith("run-matrix.sh") for a in c) for c in sworld.calls)
     ninja = max(i for i, c in enumerate(sworld.calls) if c == ["ninja", "-C", str(sworld.graph)])

@@ -33,6 +33,8 @@ SUBJECTS = {
     "itk-helpers": "STYLE: Use Filled, MakeFilled, and AllocateInitialized helpers",
     "itk-helpers-constexpr": "STYLE: Make Filled values with literal arguments constexpr",
     "narrow-scope": "STYLE: Declare variables in the narrowest scope that uses them",
+    "narrow-init": "STYLE: Initialize narrowed locals at declaration instead of assigning",
+    "narrow-const": "STYLE: Make narrowed locals const where never mutated",
 }
 
 

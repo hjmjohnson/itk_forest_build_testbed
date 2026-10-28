@@ -68,8 +68,10 @@ INIT_DECL_PATTERN = re.compile(
     r"((?:const\s+)?(?:[\w:]+(?:<[^>]*>)?(?:::[\w]+(?:<[^>]*>)?)*)(?:\s*[*&])*)"
     r"(?:\s+|(?<=[*&]))"
     r"(\w+)"
-    r"\s*=\s*(nullptr|NULL|true|false|[-+]?\d[\w.]*|\"\"|\{\})\s*;\s*$"
+    r"\s*=\s*(nullptr|NULL|true|false|NAN|INFINITY|[-+]?\d[\w.]*|\"\"|\{\})\s*;\s*$"
 )
+MAX_PASSES = 4
+"""Applying one class can make another site foldable; passes stop when one applies nothing."""
 INIT_DECL_CLASSES = {"bool_branch", "placeholder"}
 NOT_A_TYPE = {"return", "else", "delete", "throw", "goto", "case", "co_return", "new", "typedef"}
 
@@ -252,6 +254,23 @@ def gap_is_blank_or_comment(lines: list[str], i: int, j: int) -> bool:
     """True when every line strictly between indices i and j is blank or a comment."""
     return all(
         not (g := lines[k].strip()) or g.startswith(("//", "/*")) for k in range(i + 1, j)
+    )
+
+
+def gap_is_side_effect_free(lines: list[str], i: int, j: int) -> bool:
+    """True when the gap holds only blanks, comments, and sibling declarations.
+
+    A declaration with no initializer or a placeholder initializer runs no code, so an
+    init expression may move above it; check_gap_forward_refs still rejects a name it
+    declares.
+    """
+    def is_decl(line: str) -> bool:
+        m = DECL_PATTERN.match(line) or INIT_DECL_PATTERN.match(line)
+        return bool(m) and m.group(2).split()[0] not in NOT_A_TYPE
+
+    return all(
+        not (g := lines[k].strip()) or g.startswith(("//", "/*")) or is_decl(lines[k])
+        for k in range(i + 1, j)
     )
 
 
@@ -706,12 +725,13 @@ def skip_reason(f: Finding, lines: list[str]) -> tuple["Reason", str] | None:
 
 
 def record_sites(
-    sites: list, findings: list[Finding], repo_root: Path
+    sites: list, findings: list[Finding], repo_root: Path, kind: str = "local-init"
 ) -> dict[str, list[int]]:
     """Append a Site per finding, shifting earlier sites for lines this pass removes.
 
     Applies the findings; exits before any edit if a file is outside repo_root.
-    Returns the removed-line map keyed by resolved path.
+    A finding applied now supersedes a skipped site an earlier pass recorded at the
+    same declaration. Returns the removed-line map keyed by resolved path.
     """
     from ioa.manifest import Site
 
@@ -739,8 +759,10 @@ def record_sites(
         line = f.decl_line - sum(1 for n in gone if n < f.decl_line)
         # An applied site spans its gap so the removal hunk belongs to it.
         end = line if reason else line + f.init_line - f.decl_line - 1
+        if not reason:
+            sites[:] = [s for s in sites if not (s.skipped and s.file == rel and s.start == line)]
         sites.append(
-            Site(rel, line, end, "local-init", f.pattern,
+            Site(rel, line, end, kind, f.pattern,
                  reason[0] if reason else None, reason[1] if reason else "")
         )
     return removed
@@ -771,6 +793,9 @@ def main() -> None:
         "--classes", help="Comma-separated pattern classes, run in order in one invocation"
     )
     parser.add_argument("--manifest", type=Path, help="Write a local-init manifest here")
+    parser.add_argument(
+        "--kind", default="local-init", help="Transform kind recorded in the manifest"
+    )
     parser.add_argument(
         "--graph", type=Path, help="Build dir; scan compile_commands.json TUs plus their headers"
     )
@@ -842,28 +867,36 @@ def main() -> None:
 
     sites: list = []
     findings: list[Finding] = []
-    for cls in classes:
-        found = scan_paths(
-            args.paths,
-            recursive=args.recursive,
-            exclude_patterns=args.exclude,
-            tests_only=args.tests_only,
-            files=files,
-            pattern=cls,
-            varname_filter=args.varname,
-            vartype_filter=vartype_re,
-            max_gap=args.max_gap,
-            keep_declined=bool(args.manifest),
-            strict_gap=bool(args.manifest),
-        )
-        findings.extend(found)
-        if args.manifest:
-            from ioa.manifest import Manifest
+    editing = bool(args.manifest or args.apply)
+    for pass_no in range(MAX_PASSES if editing else 1):
+        applied = 0
+        for cls in classes:
+            found = scan_paths(
+                args.paths,
+                recursive=args.recursive,
+                exclude_patterns=args.exclude,
+                tests_only=args.tests_only,
+                files=files,
+                pattern=cls,
+                varname_filter=args.varname,
+                vartype_filter=vartype_re,
+                max_gap=args.max_gap,
+                keep_declined=bool(args.manifest),
+                strict_gap=bool(args.manifest),
+            )
+            if pass_no:
+                found = [f for f in found if not f.declined and not f.forward_refs]
+            findings.extend(found)
+            applied += sum(1 for f in found if not f.declined and not f.forward_refs)
+            if args.manifest:
+                from ioa.manifest import Manifest
 
-            record_sites(sites, found, repo_root)
-            Manifest("local-init", sites).write(args.manifest)
-        elif args.apply:
-            apply_findings(found)
+                record_sites(sites, found, repo_root, args.kind)
+                Manifest(args.kind, sites).write(args.manifest)
+            elif args.apply:
+                apply_findings(found)
+        if not applied:
+            break
 
     if args.manifest or args.apply:
         pass

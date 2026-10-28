@@ -51,17 +51,23 @@ class Stage:
     const_after: str | None
 
 
+def _dti(kind: str) -> Cmd:
+    return [
+        "{py}", str(SKILLS / "itk-declare-then-init" / "find_declare_then_init.py"),
+        "--classes", LOCAL_CLASSES, "--graph", "{graph}", "--repo-root", "{repo}",
+        "--apply", "--manifest", "{manifest}", "--kind", kind,
+    ]
+
+
 STAGES: list[Stage] = [
     Stage("member-init", _py("itk-member-init/member_init.py"), None),
     Stage("member-default-init", _sh("in-class-member-init"), None),
-    Stage("local-init", [
-        "{py}", str(SKILLS / "itk-declare-then-init" / "find_declare_then_init.py"),
-        "--classes", LOCAL_CLASSES, "--graph", "{graph}", "--repo-root", "{repo}",
-        "--apply", "--manifest", "{manifest}",
-    ], "local-const"),
+    Stage("local-init", _dti("local-init"), "local-const"),
     Stage("container-list-init", _py("itk-container-list-init/list_init.py"), "container-const"),
     Stage("itk-helpers", _helpers, "itk-helpers-constexpr"),
     Stage("narrow-scope", _py("itk-narrow-scope/narrow_scope.py"), None),
+    # Narrowing brings a declaration next to its first assignment; fold those too.
+    Stage("narrow-init", _dti("narrow-init"), "narrow-const"),
 ]
 
 

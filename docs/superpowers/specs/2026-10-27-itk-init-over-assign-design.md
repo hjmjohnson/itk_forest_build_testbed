@@ -80,6 +80,8 @@ a list entry and the sub-skill that implements it. The initial list:
 | 4 | ITK helpers | `itk-sizetype-filled` (refined), `itk-allocate-initialized` (refined), `fillbuffer-over-iterate` pattern | `Fill(k)` to `T::Filled(k)` / `MakeFilled<T>(k)`, `Allocate(true)` to `AllocateInitialized()`, iterator fill loops to `FillBuffer` |
 | 4c | constexpr after 4 | `itk-const-promote` | `Filled(k)` with a literal `k` becomes `constexpr` |
 | 5 | Narrow scope | `itk-narrow-scope` (new) | move a declaration to its first use, into the block, branch, loop body, or `for`/`if` init-statement that uses it |
+| 5b | Narrowed declare-then-init | `itk-declare-then-init`, kind `narrow-init` | stage 2 again: a move in stage 5 puts a declaration beside its first assignment, so `double d = NAN; d = pow(...);` folds to `double d = pow(...);` |
+| 5c | const after 5b | `itk-const-promote`, kind `narrow-const` | same as 2c |
 
 Stage 2 gains four classes, each a separate rule with its own detector,
 fixtures, and skip reasons, so the finder stays one-class-per-rule:
@@ -89,7 +91,12 @@ fixtures, and skip reasons, so the finder stays one-class-per-rule:
 | `sized_ctor` | `std::vector<T> v; v.resize(n);` (also `set_size`, `SetSize`) | `std::vector<T> v(n);` |
 | `stream_open` | `std::ofstream f; f.open(x);` | `std::ofstream f(x);` |
 | `bool_branch` | `bool b = false; if (c) { b = true; }` with no `else` and no other write | `const bool b = c;` |
-| `placeholder` | `T p = nullptr; p = f();` or `int n = 0; n = f();` with no read between | `T p = f();` |
+| `placeholder` | `T p = nullptr; p = f();`, `int n = 0; n = f();`, or `double d = NAN; d = f();` with nothing between but blanks, comments, and sibling declarations | `T p = f();` |
+
+The finder repeats its classes until a pass applies nothing: folding `d0`
+and `d1` leaves `dist = sqrt(d0 + d1)` with an empty gap, so the next pass
+folds it too. A site skipped in one pass and applied in a later one is
+recorded once, as applied.
 
 Stage 4 owns the `Fill` family. When the master runs stage 2 it passes
 `--classes assign,elem_diff,elem_zero` so the finder's `fill_*`,

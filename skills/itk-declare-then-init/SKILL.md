@@ -86,12 +86,15 @@ Usage:
   /itk-declare-then-init stream_open        ofstream f; f.open(x) -> ofstream f(x)
   /itk-declare-then-init bool_branch        bool b=false; if (c) b=true -> const bool b = c
   /itk-declare-then-init placeholder        T p = nullptr; p = f() -> T p = f()
+                                            (also 0, "", {}, NAN, INFINITY; sibling
+                                            declarations may sit between the two)
   /itk-declare-then-init <pat> --varname size   Filter by variable name
 
 Unattended modes:
   --classes a,b,c       Run the listed classes in order (instead of --pattern)
   --graph <build-dir>   Scan the TUs in compile_commands.json plus their headers
   --manifest <path>     Write a local-init manifest (applied and skipped sites)
+  --kind <kind>         Manifest kind (default local-init; the master passes narrow-init)
   --repo-root <dir>     Root that manifest paths are relative to (default: cwd)
 ```
 

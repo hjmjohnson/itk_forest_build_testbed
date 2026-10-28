@@ -14,13 +14,14 @@ from ioa.skip import Reason
 RUN_PY = Path(__file__).resolve().parents[1] / "run.py"
 KINDS = [
     "member-init", "member-default-init", "local-init", "local-const", "container-list-init",
-    "container-const", "itk-helpers", "itk-helpers-constexpr", "narrow-scope",
+    "container-const", "itk-helpers", "itk-helpers-constexpr", "narrow-scope", "narrow-init",
+    "narrow-const",
 ]
 SCRIPTS = [
     "member_init.py", "in-class-member-init/transform.sh", "find_declare_then_init.py",
     "const_promote.py", "list_init.py", "const_promote.py", "sizetype_filled.py",
     "allocate_initialized.py", "fillbuffer-over-iterate/transform.sh",
-    "const_promote.py", "narrow_scope.py",
+    "const_promote.py", "narrow_scope.py", "find_declare_then_init.py", "const_promote.py",
 ]
 
 
@@ -175,10 +176,11 @@ def _report(world) -> str:
 def test_stages_run_in_spec_order():
     assert [s.kind for s in pipeline.STAGES] == [
         "member-init", "member-default-init", "local-init", "container-list-init",
-        "itk-helpers", "narrow-scope",
+        "itk-helpers", "narrow-scope", "narrow-init",
     ]
     assert [s.const_after for s in pipeline.STAGES] == [
         None, None, "local-const", "container-const", "itk-helpers-constexpr", None,
+        "narrow-const",
     ]
     assert [k for k, _ in pipeline.select(None)] == KINDS
 
@@ -215,14 +217,17 @@ def test_run_partitions_once_after_all_stages(world, capsys):
     assert len(world.plan_args) == 1
     recs = world.plan_args[0]
     assert [r.kind for r in recs] == KINDS
-    assert len(recs) == 9
+    assert len(recs) == 11
     assert [(r.tree_before, r.tree_after) for r in recs][:2] == [("tree1", "tree2"), ("tree3", "tree4")]
     calls = world.stage_calls()
     seen = [next(a for a in c if a.endswith((".py", ".sh")) and "skills" in a) for c in calls]
-    assert len(seen) == 11
+    assert len(seen) == 13
     assert all(s.endswith(want) for s, want in zip(seen, SCRIPTS))
     kinds = [_flag(c, "--kind") for c in calls if _flag(c, "--kind")]
-    assert kinds == ["local-const", "container-const", "itk-helpers-constexpr"]
+    assert kinds == [
+        "local-init", "local-const", "container-const", "itk-helpers-constexpr", "narrow-init",
+        "narrow-const",
+    ]
     plan_at = max(i for i, c in enumerate(world.calls) if c[:2] == ["pixi", "run"])
     last_stage = world.calls.index(calls[-1])
     assert last_stage < plan_at
