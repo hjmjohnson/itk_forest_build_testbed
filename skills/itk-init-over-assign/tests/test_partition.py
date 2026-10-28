@@ -655,3 +655,40 @@ def test_missing_final_newline_survives_a_stranded_comment_revert_byte_exact(tmp
     assert subprocess.run(["git", "show", "HEAD:n.cxx"], cwd=r, capture_output=True).stdout == want
     assert (r / "n.cxx").read_bytes() == want
     assert not any("failed" in n for n in res.notes)
+
+
+def test_index_revert_fallback_drops_cross_file_group_mates(tmp_path, fake_gate_ok, monkeypatch):
+    files = {
+        "foo.h": ["class F", "{", "  int m_X; // count", "  int pad;", "  int m_A;", "};"],
+        "foo.cxx": ["F::F()", "  : m_A(0)", "{}"],
+        "bar.cxx": ["int b;"],
+    }
+    originals = {n: "\n".join(v) + "\n" for n, v in files.items()}
+    r = make_repo.init_repo(tmp_path, {n: list(v) for n, v in files.items()}, "DisableFormat: true\n")
+    files = {n: list(v) for n, v in files.items()}
+
+    def member(f):
+        f["foo.h"][2] = "  int m_X{};"
+        f["foo.h"][4] = "  int m_A{ 0 };"
+        del f["foo.cxx"][1]
+        f["bar.cxx"][0] = "int b{};"
+
+    rec = make_repo.stage(r, files, "member-init", member,
+                          [("foo.h", 3, 3), ("foo.h", 5, 5), ("foo.cxx", 1, 1), ("bar.cxx", 1, 1)])
+    for site, group in zip(rec.manifest.sites, ["a", "b", "b", ""]):
+        site.group = group
+    real = partition.reverse_bytes
+
+    def flaky(data, hunks):
+        if any(h.file.name == "foo.h" for h in hunks):
+            raise ValueError("foo.h:3: lines differ from the hunk's new side")
+        return real(data, hunks)
+
+    monkeypatch.setattr(partition, "reverse_bytes", flaky)
+    res = apply(r, plan(r, [rec])[0], tmp_path)
+    assert res.sha is not None
+    assert git(r, "show", "HEAD:foo.h") == originals["foo.h"]
+    assert git(r, "show", "HEAD:foo.cxx") == originals["foo.cxx"]
+    assert git(r, "show", "HEAD:bar.cxx") == "int b{};\n"
+    assert any("foo.cxx" in n and "foo.h" in n and "fell back to HEAD" in n for n in res.notes)
+    assert git(r, "diff", "HEAD", "--", "foo.cxx", "foo.h") == ""

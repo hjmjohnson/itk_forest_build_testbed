@@ -316,10 +316,19 @@ def apply(repo: Path, commit_plan: CommitPlan, graph: Path) -> CommitResult:
                 notes.append(f"{s.file}:{s.line}: stranded comment outside the plan: {s.text}")
             for h in hits:
                 group = _site_group(h, selected)
+                fell_back: set[Path] = set()
                 for g in group:
-                    if not any(g is x for x in gone):
+                    if not any(g is x for x in gone) and g.file not in fell_back:
                         if not _revert_cached(repo, g.file, {g.old_start}, notes):
-                            group += [x for x in selected if x.file == g.file and x not in group]
+                            fell_back.add(g.file)
+                if fell_back:
+                    closed = _close_files(fell_back, selected)
+                    for f in sorted(closed - fell_back):
+                        _revert_cached(repo, f, None)
+                    group += [x for x in selected
+                              if x.file in closed and not any(x is y for y in group)]
+                    notes.append("index revert fell back to HEAD; dropped every hunk of the site "
+                                 "groups in " + ", ".join(str(f) for f in sorted(closed)))
                 drop(group, Reason.COMMENT_STRANDED, s.text)
         unformatted = {f: index_sha(repo, f) for f in files}
         spans: dict[Path, list[tuple[int, int]]] = {}
