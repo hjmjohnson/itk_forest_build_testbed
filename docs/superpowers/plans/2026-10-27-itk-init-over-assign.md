@@ -701,8 +701,10 @@ git commit -m "ENH: Add manifest mode to the ITK helper refactor skills"
 - Consumes: `ioa.*`, `clang-query`.
 - Produces: CLI `narrow_scope.py --graph --repo --manifest [--apply]`,
   kind `narrow-scope`. Moves a local whose every use is inside one nested
-  block, into that block's first statement or into a `for`/`if`
-  init-statement when the first use is that statement's condition. Loop
+  block, into that block's first statement or into a `for`
+  init-statement when the first use is that statement's condition; for an
+  `if`/`switch` condition, a wrapping block or an `empty()` simplification
+  (rule amended 2026-10-28: no init-statements in `if`). Loop
   bodies only for trivially constructible types (`isTriviallyConstructible`
   via clang-query `hasType(isTrivial())` approximation: arithmetic,
   pointer, enum, and `FixedArray`-derived) never read before written in

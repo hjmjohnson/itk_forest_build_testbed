@@ -22,7 +22,7 @@ from ioa.manifest import Manifest, Site  # noqa: E402
 from ioa.query import run_query  # noqa: E402
 from ioa.skip import Reason  # noqa: E402
 from ioa.tidy import Doc, apply_edits, format_changed, in_scope, map_line, opcodes  # noqa: E402
-from scopes import Decl, Move, Source, accept, edits, plan, replacements, signature  # noqa: E402
+from scopes import Decl, Move, Source, accept, edits, plan, replacements, signature, wrap_signature  # noqa: E402
 
 KIND = "narrow-scope"
 CLS = "narrow-scope"
@@ -168,6 +168,9 @@ def run(graph: Path, root: Path, manifest: Path | None, apply: bool) -> int:
             continue
         start = map_line(ops, mv.lines[0], False) + 1
         found = locate(new, signature(sources[path], mv), start)
+        if found is not None and mv.target.form == "wrap":
+            inner = locate(new, wrap_signature(sources[path], mv), found[1])
+            found = (found[0], inner[1] + 1) if inner else None
         if found is None:
             bad[path] = (Reason.GATE_FAILED, "moved-declaration-not-found")
             placed.append((path, mv, None))

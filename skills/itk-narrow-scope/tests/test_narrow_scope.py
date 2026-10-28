@@ -117,15 +117,15 @@ def test_moves_into_single_using_block(fixture_graph):
 
 
 @needs_tools
-def test_moves_into_if_init_statement(fixture_graph):
+def test_wraps_if_and_switch_and_enters_for_init(fixture_graph):
     g = fixture_graph("init_statement")
     out = run_narrow(g)
     text = out.read()
-    assert "{\n  if (const auto n = f(); n > 0)\n" in text
+    assert "{\n  {\n    const auto n = f();\n    if (n > 0)\n    {\n      return n;\n    }\n  }\n  return 0;\n" in text
     assert "{\n  for (int i = 0; i < m; ++i)\n" in text
-    assert "{\n  switch (const int v = k * 2; v)\n" in text
-    assert out.sites() == [(7, 7, None, "init-statement"), (17, 17, None, "init-statement"),
-                           (27, 27, None, "init-statement")]
+    assert "{\n  {\n    const int v = k * 2;\n    switch (v)\n" in text
+    assert out.sites() == [(7, 13, None, "wrap"), (20, 20, None, "init-statement"),
+                           (30, 39, None, "wrap")]
     assert_formatted(g)
     assert_builds(g)
 

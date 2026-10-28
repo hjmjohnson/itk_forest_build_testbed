@@ -81,7 +81,7 @@ Usage:
   --apply      edit the working tree; without it, print "<class> <file> <count>"
                lines and write nothing
 
-Class:     narrow-scope (notes: block, init-statement, loop-body)
+Class:     narrow-scope (notes: block, wrap, simplify, init-statement, loop-body)
 Skips:     static-local, loop-carried (notes address-taken, escapes), costly-construct
            (notes call, non-trivial, nontrivial-dtor, side-effect), goto-or-case, try-read-after,
            preprocessor, comment-stranded, gate-failed
@@ -121,9 +121,17 @@ falling back to `PATH`. Run through `pixi run` so `CONDA_PREFIX` is set.
    refused, below). The descent passes through a `switch` body but never
    targets it; a braced case block inside it is a candidate that always
    crosses its case label, so it is recorded `goto-or-case`. When the first use is
-   in the condition of an `if`, `switch`, or `for` that holds every use, the
-   target is that statement's init-statement, if it has none yet (for a `for`,
-   the init slot is empty). Uses in two sibling statements end the descent;
+   in the condition of a `for` that holds every use and the init slot is
+   empty, the target is that `for`'s init-statement. When the first use is in
+   the condition of an `if` or `switch` that holds every use, the target is
+   `wrap`: a new block holding the declaration and the statement. An `if`
+   or `switch` never takes a C++17 init-statement; a declaration inside the
+   parentheses reads as a compound statement. Before the wrap is checked, a
+   `simplify` is tried: when the variable's initializer is `x.size()` (or
+   `x->size()`), its only use is the `if` condition, and that condition is an
+   emptiness test of it (`n == 0`, `!n`, `n > 0`, `n != 0`, ...), the
+   declaration is deleted and the condition becomes `x.empty()` or
+   `!x.empty()`. Uses in two sibling statements end the descent;
    with no target found, nothing is recorded.
 4. Each target, deepest first, is checked; the first that passes wins, and if
    none passes the deepest one's reason is recorded:
@@ -164,16 +172,20 @@ falling back to `PATH`. Run through `pixi run` so `CONDA_PREFIX` is set.
      mutates (`++`, `--`, assignment), or reads a variable while the target does not assign it first, may only
      move into the immediately following bare block or `if`/`switch`/`for`
      init-statement, since crossing code would reorder or skip the call:
-     `costly-construct`, note `side-effect`.
+     `costly-construct`, note `side-effect`. A `wrap` target is immediately
+     following by construction, so it passes this check. A `wrap` inside a
+     loop is `loop-carried` (the condition reads the value each iteration).
    - When uses span a `try` and the code after it, or the try block and a
      handler: `try-read-after`.
    - `static` or `thread_local` locals with a target: `static-local`.
 5. The declaration must sit alone on its lines. The comment block directly
    above it (contiguous `//` lines, a `/* */` or Doxygen block) and its
    trailing comment move with it. Into a block, the lines go first in the
-   block, re-indented; into an init-statement, the declaration is joined onto
-   one line inside the parentheses and its comments go on lines above the
-   statement. Only one declaration takes an init-statement per run, and a move
+   block, re-indented; into a `for` init-statement, the declaration is joined
+   onto one line inside the parentheses and its comments go on lines above the
+   statement; for a `wrap`, the comments, the declaration, and the statement
+   are re-indented one level inside new braces. Only one declaration takes an
+   init-statement, wrap, or simplify of a given statement per run, and a move
    whose edit overlaps an earlier move in the same file waits for the next run.
    Deletions that would leave a doubled blank line, or a blank line just inside
    a brace, take that blank line too.
@@ -192,7 +204,8 @@ Template code is matched through its definition and its instantiations.
 `kind` and `cls` are both `narrow-scope`. An applied site spans from the
 post-edit line where the declaration was removed to the last line of the new
 declaration, so the partitioner assigns both hunks to it; its note is the
-target form (`block`, `init-statement`, or `loop-body`). Skipped sites carry
+target form (`block`, `wrap`, `simplify`, `init-statement`, or `loop-body`). A wrap
+site extends to its closing brace. Skipped sites carry
 the original declaration lines.
 
 ## Limits

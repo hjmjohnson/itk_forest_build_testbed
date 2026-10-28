@@ -24,7 +24,10 @@ IDENT = re.compile(r"(?<![\w.])[A-Za-z_]\w*")
 LITERAL_WORDS = {"nullptr", "true", "false"}
 NOT_TYPES = {"return", "case", "throw", "delete", "else", "do", "co_return", "co_yield", "sizeof", "goto"}
 LAMBDA = re.compile(r"\[([^\[\]]*)\]\s*(?:\([^()]*\))?\s*(?:mutable\s*)?(?:noexcept\s*)?(?:->[^{};]*)?$")
-ENTRIES = {"block": {"{"}, "init-statement": {"if(", "ifconstexpr(", "switch(", "for("}}
+ENTRIES = {"block": {"{"}, "init-statement": {"for("}, "wrap": {""}}
+EMPTY_TESTS = {"{n} == 0": "", "0 == {n}": "", "!{n}": "", "{n} < 1": "", "{n} <= 0": "",
+               "{n} != 0": "!", "0 != {n}": "!", "{n}": "!", "{n} > 0": "!", "0 < {n}": "!", "{n} >= 1": "!"}
+SIZE_CALL = re.compile(r"\s*(?:=\s*|\(|\{)\s*((?:this->)?[A-Za-z_]\w*(?:(?:\.|->)[A-Za-z_]\w*)*)(\.|->)size\(\)\s*[)}]?\s*$")
 
 
 @dataclass
@@ -61,6 +64,7 @@ class Target:
     body: list[Stmt] = field(default_factory=list)
     stmt: Stmt | None = None
     in_try: bool = False
+    text: str = ""
 
 
 @dataclass
@@ -363,11 +367,12 @@ def _candidates(src: Source, level: list[Stmt], ms: list[int]) -> tuple[list[Tar
             level = _fill(src, s).body
             out.append(Target("block", s.open + 1, in_loop, level, in_try=in_try))
             continue
-        if s.kind in ("if", "switch", "for") and head:
-            init_free = (m[s.head[0]:s.head[1]].lstrip().startswith(";") if s.kind == "for"
-                         else not _top(m, s.head[0], s.head[1], ";"))
-            if init_free:
+        if s.kind == "for" and head:
+            if m[s.head[0]:s.head[1]].lstrip().startswith(";"):
                 out.append(Target("init-statement", s.head[0], in_loop, stmt=s, in_try=in_try))
+            return out, False
+        if s.kind in ("if", "switch") and head:
+            out.append(Target("wrap", s.start, in_loop, stmt=s, in_try=in_try))
             return out, False
         if s.kind == "try":
             block, entered, blocked = _try_entry(s, ms)
@@ -474,7 +479,9 @@ def call_argument(m: str, name: str, a: int, b: int, whole: bool = True, array: 
 
 
 def _end(src: Source, t: Target) -> int:
-    return t.stmt.end if t.form == "init-statement" else min(closing(src.masked, t.at - 1), len(src.masked))
+    if t.form in ("init-statement", "wrap"):
+        return t.stmt.end
+    return min(closing(src.masked, t.at - 1), len(src.masked))
 
 
 def _check(src: Source, mv: Move, t: Target, ms: list[int], init: str) -> tuple[Reason, str] | None:
@@ -493,7 +500,7 @@ def _check(src: Source, mv: Move, t: Target, ms: list[int], init: str) -> tuple[
     call = (bool(CALL.search(init)) or mv.decl.ctor
             or not mv.decl.trivial and init.lstrip().startswith(("(", "{")))
     mutates = bool(MUTATES.search(expr))
-    dead = t.form != "init-statement" and assigned_first(m, t.body, mv.decl.name)
+    dead = t.form not in ("init-statement", "wrap") and assigned_first(m, t.body, mv.decl.name)
     if t.in_loop:
         if call:
             return Reason.COSTLY_CONSTRUCT, "call"
@@ -547,9 +554,11 @@ def plan(src: Source, decl: Decl) -> Move | None:
     init = _initializer(m, s.start, s.end, decl.name)
     failure = None
     for target in reversed(targets):
+        if target.form == "wrap" and _simplify(src, mv, target, ms, init):
+            break
         if target.in_try:
             bad = (Reason.TRY_READ_AFTER, "")
-        elif target.form == "init-statement" and target.in_loop:
+        elif target.form in ("init-statement", "wrap") and target.in_loop:
             bad = (Reason.LOOP_CARRIED, "")
         elif target.form == "init-statement" and mask(t[s.start:s.end]) != t[s.start:s.end]:
             bad = (Reason.COMMENT_STRANDED, "comment-in-declaration")
@@ -565,6 +574,24 @@ def plan(src: Source, decl: Decl) -> Move | None:
     if not _comments(src, mv):
         return None
     return mv
+
+
+def _simplify(src: Source, mv: Move, target: Target, ms: list[int], init: str) -> bool:
+    """When the only use is an emptiness test of a size() value in an if condition, plan
+    replacing the condition with empty() and set mv.target; True on success."""
+    s = target.stmt
+    if s.kind != "if" or len(ms) != 1 or not (s.head[0] <= ms[0] < s.head[1]):
+        return False
+    x = SIZE_CALL.fullmatch(init)
+    if x is None:
+        return False
+    cond = " ".join(src.masked[s.head[0]:s.head[1]].split())
+    forms = {k.format(n=mv.decl.name): v for k, v in EMPTY_TESTS.items()}
+    if cond not in forms:
+        return False
+    mv.target = Target("simplify", s.head[0], target.in_loop, stmt=s, in_try=target.in_try,
+                       text=f"{forms[cond]}{x[1]}{x[2]}empty()")
+    return True
 
 
 def _comments(src: Source, mv: Move) -> bool:
@@ -605,6 +632,18 @@ def edits(src: Source, mv: Move) -> list[tuple[int, int, str]]:
     a, b = mv.stmt
     old = _indent(t, a)
     out = [(mv.removal[0], mv.removal[1], "")]
+    if tg.form == "simplify":
+        out.append((tg.stmt.head[0], tg.stmt.head[1], tg.text))
+        return out
+    if tg.form == "wrap":
+        s = tg.stmt
+        ind = _indent(t, s.start)
+        ls, le = _line_start(t, s.start), _line_end(t, s.end)
+        decl = _shift(mv.comments + t[_line_start(t, a):_line_end(t, b)].split("\n"), old, ind + "  ")
+        stmt = [ind + "  " + x[len(ind):] if x.startswith(ind) and x.strip() else x
+                for x in t[ls:le].split("\n")]
+        out.append((ls, le, ind + "{\n" + "\n".join(decl + stmt) + "\n" + ind + "}"))
+        return out
     if tg.form == "init-statement":
         s = tg.stmt
         single = one_line(t[a:b])
@@ -632,10 +671,19 @@ def signature(src: Source, mv: Move) -> str:
     """Whitespace-free text that locates the moved declaration after formatting."""
     t = src.text
     decl = t[mv.stmt[0]:mv.stmt[1]]
+    if mv.target.form == "simplify":
+        s = mv.target.stmt
+        decl = t[s.start:s.head[0]] + mv.target.text + t[s.head[1]:s.head[1] + 1]
     if mv.target.form == "init-statement":
         s = mv.target.stmt
         decl = t[s.start:mv.target.at] + one_line(decl)
     return "".join(decl.split())
+
+
+def wrap_signature(src: Source, mv: Move) -> str:
+    """Whitespace-free text of the statement a wrap move encloses."""
+    s = mv.target.stmt
+    return "".join(src.text[s.start:s.end].split())
 
 
 def _overlaps(e: tuple[int, int, str], f: tuple[int, int, str]) -> bool:
@@ -657,8 +705,8 @@ def accept(src: Source, moves: list[Move]) -> list[Move]:
         if any(_overlaps(e, f) for e in es for f in taken) or mv.target.at in heads:
             continue
         taken += es
-        if mv.target.form == "init-statement":
-            heads.add(mv.target.at)
+        if mv.target.form in ("init-statement", "wrap", "simplify"):
+            heads.add(mv.target.stmt.start)
         out.append(mv)
     return out
 

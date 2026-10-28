@@ -279,8 +279,12 @@ consumer worktree.
   element count preserved and verified by re-parsing the result).
 - `itk-narrow-scope`: Python over clang-query `varDecl` plus use sites;
   moves only when every use is inside one nested block and the
-  declaration has no side effects. Moving into a `for`/`if`
-  init-statement is allowed. Moving into a loop body is allowed only
+  declaration has no side effects. Moving into a `for` init-statement
+  is allowed. An `if` or `switch` never gets an init-statement (no
+  compound statements inside `if ()`, HJ 2026-10-28): the declaration
+  and the statement are wrapped in a new block instead, and an
+  emptiness test of a `size()` value becomes `empty()` with no
+  variable at all. Moving into a loop body is allowed only
   when the type is trivially constructible and the value is not read
   before it is written on any iteration; otherwise skipped with
   `loop-carried` or `costly-construct`.
@@ -306,8 +310,9 @@ naming rule; `agent-skills doctor` must pass before the kit commit.
 
 - No const pass after the member-init stage (reviewer check, item 1).
 - Stage 4 owns the `Fill` family; stage 2 runs with the fill classes off.
-- Narrow scope may enter init-statements and trivially constructed loop
-  locals, never a loop-carried or costly one.
+- Narrow scope may enter `for` init-statements and trivially constructed
+  loop locals, never a loop-carried or costly one; `if`/`switch` get a
+  wrapping block or an `empty()` simplification, never an init-statement.
 - The branch base is the catalog's floating upstream tip; the skill
   refuses a worktree that differs rather than rebuilding.
 - ctest passes when there is no new failure against a cached baseline on

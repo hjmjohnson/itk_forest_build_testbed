@@ -131,14 +131,34 @@ def test_two_moves_into_one_block_keep_their_order():
     assert apply_text(src, mvs) == "void f(int c)\n{\n  if (c)\n  {\n    int a = 0;\n    int b = 1;\n    g(a, b);\n  }\n}\n"
 
 
-def test_only_one_declaration_takes_an_init_statement():
+def test_only_one_declaration_wraps_an_if():
     code = "void f()\n{\n  double lo = 0.5;\n  double hi = 2.0;\n  if (g(lo, hi))\n  {\n  }\n}\n"
     src = Source(code)
     mvs = [plan(src, Decl(code.index("double lo"), "lo", True, False)),
            plan(src, Decl(code.index("double hi"), "hi", True, False))]
-    assert [mv.target.form for mv in mvs] == ["init-statement", "init-statement"]
+    assert [mv.target.form for mv in mvs] == ["wrap", "wrap"]
     assert accept(src, mvs) == mvs[:1]
-    assert "  double hi = 2.0;\n  if (double lo = 0.5; g(lo, hi))\n" in apply_text(src, mvs)
+    assert apply_text(src, mvs) == ("void f()\n{\n  double hi = 2.0;\n  {\n    double lo = 0.5;\n"
+                                    "    if (g(lo, hi))\n    {\n    }\n  }\n}\n")
+
+
+def test_if_condition_wraps_with_comments():
+    code = "void f()\n{\n  // why\n  @const auto n = g(); // trailing\n  if (n > 0)\n  {\n    h(n);\n  }\n}\n"
+    assert moved(code, "n") == ("void f()\n{\n  {\n    // why\n    const auto n = g(); // trailing\n"
+                                "    if (n > 0)\n    {\n      h(n);\n    }\n  }\n}\n")
+
+
+def test_size_test_in_if_becomes_empty():
+    code = "void f(const V & v)\n{\n  @const unsigned int n = v.size();\n  if (n == 0)\n  {\n    g();\n  }\n}\n"
+    assert moved(code, "n") == "void f(const V & v)\n{\n  if (v.empty())\n  {\n    g();\n  }\n}\n"
+    code = "void f(const V * v)\n{\n  @const int n = v->size();\n  if (n > 0)\n  {\n    g();\n  }\n}\n"
+    assert moved(code, "n") == "void f(const V * v)\n{\n  if (!v->empty())\n  {\n    g();\n  }\n}\n"
+
+
+def test_size_value_used_in_body_wraps_instead():
+    code = "void f(const V & v)\n{\n  @const int n = v.size();\n  if (n > 0)\n  {\n    g(n);\n  }\n}\n"
+    assert moved(code, "n") == ("void f(const V & v)\n{\n  {\n    const int n = v.size();\n    if (n > 0)\n"
+                                "    {\n      g(n);\n    }\n  }\n}\n")
 
 
 def test_removal_leaves_no_doubled_blank_line():
