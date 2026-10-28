@@ -155,6 +155,16 @@ def test_size_test_in_if_becomes_empty():
     assert moved(code, "n") == "void f(const V * v)\n{\n  if (!v->empty())\n  {\n    g();\n  }\n}\n"
 
 
+def test_wrap_that_would_reflow_a_comment_is_skipped():
+    long = "// " + "x" * 116
+    code = "void f()\n{\n  @const auto n = g();\n  if (n > 0)\n  {\n    " + long + "\n    h(n);\n  }\n}\n"
+    _, mv = move(code, "n")
+    assert (mv.skipped, mv.note) == (Reason.COMMENT_STRANDED, "reflow")
+    code = "void f()\n{\n  " + long + "\n  @const auto n = g();\n  if (n > 0)\n  {\n    h(n);\n  }\n}\n"
+    _, mv = move(code, "n")
+    assert (mv.skipped, mv.note) == (Reason.COMMENT_STRANDED, "reflow")
+
+
 def test_size_value_used_in_body_wraps_instead():
     code = "void f(const V & v)\n{\n  @const int n = v.size();\n  if (n > 0)\n  {\n    g(n);\n  }\n}\n"
     assert moved(code, "n") == ("void f(const V & v)\n{\n  {\n    const int n = v.size();\n    if (n > 0)\n"

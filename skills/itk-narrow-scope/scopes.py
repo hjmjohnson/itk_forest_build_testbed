@@ -25,6 +25,7 @@ LITERAL_WORDS = {"nullptr", "true", "false"}
 NOT_TYPES = {"return", "case", "throw", "delete", "else", "do", "co_return", "co_yield", "sizeof", "goto"}
 LAMBDA = re.compile(r"\[([^\[\]]*)\]\s*(?:\([^()]*\))?\s*(?:mutable\s*)?(?:noexcept\s*)?(?:->[^{};]*)?$")
 ENTRIES = {"block": {"{"}, "init-statement": {"for("}, "wrap": {""}}
+COLUMN_LIMIT = 120
 EMPTY_TESTS = {"{n} == 0": "", "0 == {n}": "", "!{n}": "", "{n} < 1": "", "{n} <= 0": "",
                "{n} != 0": "!", "0 != {n}": "!", "{n}": "!", "{n} > 0": "!", "0 < {n}": "!", "{n} >= 1": "!"}
 SIZE_CALL = re.compile(r"\s*(?:=\s*|\(|\{)\s*((?:this->)?[A-Za-z_]\w*(?:(?:\.|->)[A-Za-z_]\w*)*)(\.|->)size\(\)\s*[)}]?\s*$")
@@ -556,7 +557,9 @@ def plan(src: Source, decl: Decl) -> Move | None:
     for target in reversed(targets):
         if target.form == "wrap" and _simplify(src, mv, target, ms, init):
             break
-        if target.in_try:
+        if target.form == "wrap" and _reflows(src, mv, target):
+            bad = (Reason.COMMENT_STRANDED, "reflow")
+        elif target.in_try:
             bad = (Reason.TRY_READ_AFTER, "")
         elif target.form in ("init-statement", "wrap") and target.in_loop:
             bad = (Reason.LOOP_CARRIED, "")
@@ -574,6 +577,19 @@ def plan(src: Source, decl: Decl) -> Move | None:
     if not _comments(src, mv):
         return None
     return mv
+
+
+def _reflows(src: Source, mv: Move, target: Target) -> bool:
+    """True when re-indenting the wrapped lines would push a comment past the column limit,
+    where clang-format would reflow it and the stranded-comment check would revert the file."""
+    t, m = src.text, src.masked
+    s = target.stmt
+    a = mv.removal[0] if _comments(src, mv) else _line_start(t, mv.stmt[0])
+    b = _line_end(t, s.end)
+    for ln, ml in zip(t[a:b].split("\n"), m[a:b].split("\n")):
+        if len(ln) + 2 > COLUMN_LIMIT and ln != ml:
+            return True
+    return False
 
 
 def _simplify(src: Source, mv: Move, target: Target, ms: list[int], init: str) -> bool:
