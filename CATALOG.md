@@ -11,7 +11,7 @@ a tree to a fixed tag by editing its row in `bin/setup-itk-downstream-testbed.sh
 | Tree | Repository | Floating branch |
 |---|---|---|
 | ITK | https://github.com/InsightSoftwareConsortium/ITK | `main` |
-| ANTs | https://github.com/ANTsX/ANTs | `master` (**ITKv6-only** — see note) |
+| ANTs | https://github.com/ANTsX/ANTs | `main` (**ITKv6-only** — see note) |
 | BRAINSTools | https://github.com/BRAINSia/BRAINSTools | `main` |
 | Slicer | https://github.com/Slicer/Slicer | `main` |
 | SlicerExtensions (index) | https://github.com/Slicer/ExtensionsIndex | `main` |
@@ -35,10 +35,10 @@ ExtensionsIndex above.
 
 ### ANTs requires ITKv6 (no ITK5 variant)
 
-ANTs `master` builds **only against ITK v6+**. It dropped ITK5 in
+ANTs `main` builds **only against ITK v6+**. It dropped ITK5 in
 [PR #1933 "ITK 6"](https://github.com/ANTsX/ANTs/pull/1933) (merged **2026-03-15**:
 `SuperBuild/External_ITKv5.cmake` → `External_ITKv6.cmake`,
-`find_package(ITK 6 REQUIRED)`). The last ITK5-based ANTs `master` was ITK 5.4.3
+`find_package(ITK 6 REQUIRED)`). The last ITK5-based ANTs `main` was ITK 5.4.3
 (2025-04-02). So ANTs cannot be built in the ITK 5.4 forest
 (`build_forest-ITK-release-5-4`); use an ITKv6 forest
 (`build_forest-itkv6_main`). `bin/setup-itk-downstream-testbed.sh` enforces this:

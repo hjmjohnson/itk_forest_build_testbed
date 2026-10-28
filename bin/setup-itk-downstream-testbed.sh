@@ -394,9 +394,9 @@ forest_itk_major(){
   grep -oE 'ITK_VERSION_MAJOR[^0-9]*[0-9]+' "${FOREST}/ITK/CMake/itkVersion.cmake" 2>/dev/null \
     | grep -oE '[0-9]+$' | head -1; }
 
-# Hard requirement: ANTs master needs ITK v6+. ANTs dropped ITK5 in PR #1933
+# Hard requirement: ANTs main needs ITK v6+. ANTs dropped ITK5 in PR #1933
 # ("ITK 6", merged 2026-03-15: External_ITKv5.cmake -> External_ITKv6.cmake,
-# find_package(ITK 6 REQUIRED)). The last ITK5 ANTs master was ITK 5.4.3
+# find_package(ITK 6 REQUIRED)). The last ITK5 ANTs main was ITK 5.4.3
 # (2025-04-02). Fail fast on an ITK<6 forest rather than deep in the build.
 # ANTs builds against ITK v5 or v6 (ANTsX/ANTs#2005, merged 2026-07-15, restored
 # the v5 support #1933 had dropped). It expects ONE major and defaults to 6, so
