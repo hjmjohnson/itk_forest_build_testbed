@@ -191,7 +191,12 @@ def check(repo: Path, forest: Path, kit: Path) -> Coordinates:
         raise PreflightError(
             "tidy-series-mismatch", f"clang-tidy {have} but the forest compiler is {want}"
         )
-    return Coordinates(repo.name, sha, forest.name, graph, itk_version(graph), forest_local)
+    return Coordinates(repo.name, sha, forest.name, graph, itk_version(graph), forest_local,
+                       note=llvm_note())
+
+
+def llvm_note() -> str:
+    return f"llvm: {tidy.llvm_bin()} (clang-tidy {tidy_full_version()})"
 
 
 def _series(version: str) -> str:
@@ -241,7 +246,7 @@ def check_standalone(repo: Path, build: Path, upstream: str, kit: Path) -> Coord
     run = run_branch(datetime.now())
     if _git(repo, "branch", "--list", run):
         raise PreflightError("branch-exists", f"branch {run} already exists in {repo}; delete or rename it")
-    note = _standalone_tidy_note(build)
+    note = "; ".join(filter(None, [llvm_note(), _standalone_tidy_note(build)]))
     slug = _norm_url(_git(repo, "remote", "get-url", remote)).rsplit("/", 1)[-1]
     return Coordinates(slug, sha, "standalone", build, itk_version(build), forest_local,
                        repo=repo, note=note)

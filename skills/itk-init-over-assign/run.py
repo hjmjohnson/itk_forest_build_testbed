@@ -9,7 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
 
-from ioa import baseline, partition, pipeline, preflight, report  # noqa: E402
+from ioa import baseline, partition, pipeline, preflight, report, tidy  # noqa: E402
 
 KIT = Path(__file__).resolve().parents[2]
 
@@ -25,7 +25,9 @@ def _parse(argv: list[str] | None) -> argparse.Namespace:
     ap.add_argument("--upstream", help="standalone upstream tip <remote>/<branch> (default origin/main)")
     ap.add_argument("--stages", help="comma-separated stage kinds to run (default: all)")
     ap.add_argument("--dry-run", action="store_true", help="preflight, then print the run's commands")
+    tidy.add_llvm_bin_option(ap)
     args = ap.parse_args(argv)
+    tidy.use_llvm_bin(args)
     if args.standalone or args.build:
         if not (args.standalone and args.build):
             ap.error("--repo and --build go together")

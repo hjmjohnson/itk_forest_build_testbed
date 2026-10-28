@@ -17,14 +17,70 @@ EXCLUDED = ("ThirdParty", "build", "Utilities")
 KV = re.compile(r"^( *)(- )?(\w+):\s*(.*)$")
 
 
+CLANG_TOOLS = ("clang-tidy", "run-clang-tidy", "clang-format", "clang-query", "clang-apply-replacements")
+WELL_KNOWN = (Path("/opt/homebrew/opt/llvm/bin"), Path("/usr/local/opt/llvm/bin"))
+_CHOSEN: dict[tuple, Path] = {}
+
+
+def _complete(d: Path) -> bool:
+    return all((d / t).is_file() and os.access(d / t, os.X_OK) for t in CLANG_TOOLS)
+
+
+def _versioned(pattern: str) -> list[Path]:
+    found = Path("/usr/lib").glob(pattern)
+    return sorted(found, key=lambda d: int(re.sub(r"\D", "", d.parent.name) or 0), reverse=True)
+
+
+def llvm_bin() -> Path:
+    """The one directory every clang tool comes from.
+
+    Order: IOA_LLVM_BIN (set by --llvm-bin), LLVM_BIN, PATH, the Homebrew prefixes,
+    /usr/lib/llvm-*/bin (highest version first), then $CONDA_PREFIX/bin.
+    """
+    env = os.environ
+    key = tuple(env.get(k, "") for k in ("IOA_LLVM_BIN", "LLVM_BIN", "PATH", "CONDA_PREFIX"))
+    if key in _CHOSEN:
+        return _CHOSEN[key]
+    explicit = env.get("IOA_LLVM_BIN") or env.get("LLVM_BIN")
+    if explicit:
+        d = Path(explicit)
+        missing = [t for t in CLANG_TOOLS if not (d / t).is_file()]
+        if missing:
+            raise SystemExit(f"ioa: {', '.join(missing)} not found in {d} (from --llvm-bin, "
+                             "IOA_LLVM_BIN, or LLVM_BIN)")
+        _CHOSEN[key] = d
+        return d
+    dirs = [Path(x) for x in env.get("PATH", "").split(os.pathsep) if x]
+    dirs += [*WELL_KNOWN, *_versioned("llvm-*/bin")]
+    if env.get("CONDA_PREFIX"):
+        dirs.append(Path(env["CONDA_PREFIX"]) / "bin")
+    for d in dirs:
+        if _complete(d):
+            _CHOSEN[key] = d
+            return d
+    raise SystemExit(f"ioa: no directory holds all of {', '.join(CLANG_TOOLS)}; "
+                     "pass --llvm-bin <dir> or set LLVM_BIN")
+
+
 def tool(name: str) -> str:
-    prefix = os.environ.get("CONDA_PREFIX")
-    if prefix and (Path(prefix) / "bin" / name).exists():
-        return str(Path(prefix) / "bin" / name)
+    if name in CLANG_TOOLS:
+        return str(llvm_bin() / name)
     found = shutil.which(name)
     if found is None:
-        raise SystemExit(f"ioa: {name} not found in $CONDA_PREFIX/bin or on PATH")
+        raise SystemExit(f"ioa: {name} not found on PATH")
     return found
+
+
+def add_llvm_bin_option(parser) -> None:
+    parser.add_argument("--llvm-bin", type=Path, metavar="DIR",
+                        help="directory holding clang-tidy, run-clang-tidy, clang-format, "
+                             "clang-query, and clang-apply-replacements")
+
+
+def use_llvm_bin(args) -> None:
+    """Export --llvm-bin as IOA_LLVM_BIN, so this process and its children use it."""
+    if getattr(args, "llvm_bin", None):
+        os.environ["IOA_LLVM_BIN"] = str(args.llvm_bin.resolve())
 
 
 @dataclass(frozen=True)

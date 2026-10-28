@@ -273,7 +273,11 @@ def main(argv: list[str] | None = None) -> int:
                     help="manifest of the stage whose applied sites this run may promote")
     ap.add_argument("--kind", required=True, choices=KINDS, help="manifest kind for this run")
     ap.add_argument("--apply", action="store_true", help="edit the working tree")
+    from ioa.tidy import add_llvm_bin_option, use_llvm_bin
+
+    add_llvm_bin_option(ap)
     args = ap.parse_args(argv)
+    use_llvm_bin(args)
     root = args.repo.resolve()
     if not root.is_dir():
         ap.error(f"--repo {args.repo} is not a directory")

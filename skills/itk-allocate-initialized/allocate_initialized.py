@@ -139,7 +139,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--repo", required=True, type=Path, help="repository root")
     ap.add_argument("--manifest", type=Path, help="manifest path (written only with --apply)")
     ap.add_argument("--apply", action="store_true", help="edit the working tree")
+    from ioa.tidy import add_llvm_bin_option, use_llvm_bin
+
+    add_llvm_bin_option(ap)
     args = ap.parse_args(argv)
+    use_llvm_bin(args)
     if args.apply and args.manifest is None:
         ap.error("--apply needs --manifest")
     root = args.repo.resolve()

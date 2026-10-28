@@ -54,7 +54,7 @@ dependencies:
     - itk-narrow-scope
   external_tools:
     - git
-    - pixi
+    - pixi  # forest mode only
     - clang-tidy
     - clang-query
     - clang-apply-replacements
@@ -93,10 +93,12 @@ If invoked without arguments, print this and ask which consumer to run:
 ```
 itk-init-over-assign: one unattended run, one local branch, one commit per kind
 
-Usage (from the kit root, under pixi):
-  pixi run python skills/itk-init-over-assign/run.py <repo> [options]
-  pixi run python skills/itk-init-over-assign/run.py \
-      --repo <path> --build <dir> [--upstream <remote/branch>] [options]
+Usage:
+  standalone, from any plain shell (Python >= 3.11, no pixi):
+    python3 skills/itk-init-over-assign/run.py \
+        --repo <path> --build <dir> [--upstream <remote/branch>] [options]
+  forest, from the kit root:
+    pixi run python skills/itk-init-over-assign/run.py <repo> [options]
 
   <repo>        consumer directory in the forest, e.g. BRAINSTools
   --forest S    forest suffix; the forest is build_forest-S (default itk-main)
@@ -105,6 +107,11 @@ Usage (from the kit root, under pixi):
   --build D     its inner build tree, holding compile_commands.json
   --upstream U  standalone upstream tip (default origin/main)
   --stages K    comma-separated kinds to run; a const kind needs its parent
+  --llvm-bin D  directory holding all five clang tools (also LLVM_BIN);
+                otherwise the first directory holding all five among PATH,
+                /opt/homebrew/opt/llvm/bin, /usr/local/opt/llvm/bin,
+                /usr/lib/llvm-*/bin (highest first), then $CONDA_PREFIX/bin;
+                the choice and its clang-tidy version are in the report notes
   --dry-run     preflight and branch check, then print every stage,
                 pre-commit, build, and ctest command and stop
 

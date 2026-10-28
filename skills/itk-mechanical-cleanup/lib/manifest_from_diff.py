@@ -83,7 +83,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--manifest", required=True, type=Path)
     ap.add_argument("--skips", type=Path, help="rows of REL<TAB>START<TAB>END<TAB>REASON<TAB>NOTE, pre-edit lines")
     ap.add_argument("pairs", nargs="*", metavar="ORIG=REL")
+    from ioa.tidy import add_llvm_bin_option, use_llvm_bin
+
+    add_llvm_bin_option(ap)
     args = ap.parse_args(argv)
+    use_llvm_bin(args)
     pairs = [(Path(o), r) for o, _, r in (p.partition("=") for p in args.pairs)]
     m = build(args.repo.resolve(), args.cls, pairs, args.skips, args.kind)
     m.write(args.manifest)

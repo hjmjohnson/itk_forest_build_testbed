@@ -19,6 +19,7 @@ while [ $# -gt 0 ]; do
     --all-files) TRACKED_ONLY=0 ;;
     --manifest) MANIFEST="${2:-}"; shift ;;
     --graph) shift ;;
+    --llvm-bin) export IOA_LLVM_BIN="${2:-}"; shift ;;
     *) REPO="$1" ;;
   esac
   shift

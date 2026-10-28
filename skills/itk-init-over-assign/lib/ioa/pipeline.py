@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from ioa import baseline, stages
+from ioa import baseline, stages, tidy
 from ioa.manifest import Manifest
 from ioa.patch import DIFF_FLAGS, parse_diff
 from ioa.report import Build, Commit, Ctest, Failure
@@ -131,6 +131,10 @@ def run_stage(
     before = stages.snapshot(repo)
     pairs = commands(stage, ctx)
     env = {**os.environ, "PYTHON": sys.executable}
+    try:
+        env["IOA_LLVM_BIN"] = str(tidy.llvm_bin())
+    except SystemExit:
+        pass
     for argv, _ in pairs:
         done = subprocess.run(argv, cwd=repo, capture_output=True, text=True, check=False, env=env)
         if done.returncode != 0:

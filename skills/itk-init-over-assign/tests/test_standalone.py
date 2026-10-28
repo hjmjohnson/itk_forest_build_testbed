@@ -58,7 +58,7 @@ def test_standalone_preflight_passes_on_main_at_tip(checkout):
     assert c.repo_slug == "BRAINSTools" and c.forest_name == "standalone"
     assert c.graph == build and c.repo == repo
     assert c.itk_version == "6.0.0" and len(c.sha) == 40
-    assert c.note == APPLE_NOTE and c.forest_local == []
+    assert c.note == f"{preflight.llvm_note()}; {APPLE_NOTE}" and c.forest_local == []
 
 
 def test_standalone_preflight_passes_on_any_branch(checkout):
@@ -112,7 +112,7 @@ def test_llvm_clang_still_checks_the_tidy_series(checkout):
         preflight.check_standalone(repo, build, "origin/main", kit)
     assert e.value.code == "tidy-series-mismatch"
     _compiler(build, "Clang", "19.1.7")
-    assert preflight.check_standalone(repo, build, "origin/main", kit).note == ""
+    assert preflight.check_standalone(repo, build, "origin/main", kit).note == preflight.llvm_note()
 
 
 @pytest.mark.parametrize("text, token", [

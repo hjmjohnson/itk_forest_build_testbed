@@ -795,7 +795,14 @@ def main() -> None:
         "--exclude", action="append", default=[], help="Exclude paths matching regex"
     )
 
+    from ioa.tidy import add_llvm_bin_option, use_llvm_bin
+
+
+    add_llvm_bin_option(parser)
+
     args = parser.parse_args()
+
+    use_llvm_bin(args)
     if args.pattern and args.classes:
         parser.error("--pattern and --classes are mutually exclusive")
     if args.classes:
