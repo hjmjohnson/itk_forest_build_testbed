@@ -554,9 +554,17 @@ def plan(src: Source, decl: Decl) -> Move | None:
         return mv
     init = _initializer(m, s.start, s.end, decl.name)
     failure = None
-    for target in reversed(targets):
+    for i in reversed(range(len(targets))):
+        target = targets[i]
         if target.form == "wrap" and _simplify(src, mv, target, ms, init):
             break
+        if _no_narrower(src, stmts, k, target):
+            return None
+        outer = targets[i - 1].body if i else []
+        if target.form == "wrap" and outer and target.stmt is not None and (
+                outer[-1].start == target.stmt.start
+                and all(_is_decl(src, s) for s in outer if s.start < target.stmt.start)):
+            continue
         if target.form == "wrap" and _reflows(src, mv, target):
             bad = (Reason.COMMENT_STRANDED, "reflow")
         elif target.in_try:
@@ -577,6 +585,26 @@ def plan(src: Source, decl: Decl) -> Move | None:
     if not _comments(src, mv):
         return None
     return mv
+
+
+DECL_STMT = re.compile(r"^\s*(?:(?:const|constexpr|static)\s+)*(?!(?:return|delete|throw|goto|case|co_return|else)\b)"
+                       r"(?:[A-Za-z_][\w:]*(?:<[^;]*>)?(?:\s*[*&])*\s+)+[A-Za-z_]\w*\s*(?:[=({\[;]|$)")
+
+
+def _is_decl(src: Source, s: Stmt) -> bool:
+    return s.kind == "simple" and bool(DECL_STMT.match(src.masked[s.start:s.end]))
+
+
+def _no_narrower(src: Source, stmts: list[Stmt], k: int, target: Target) -> bool:
+    """True when only other declarations separate the declaration at stmts[k] from the
+    last statement of its block, and that statement is the plain block or wrapped
+    if/switch the target would use: the move would change no statement's view of it."""
+    if k + 2 > len(stmts) or not all(_is_decl(src, s) for s in stmts[k + 1:-1]):
+        return False
+    nxt = stmts[-1]
+    if target.form == "wrap":
+        return target.stmt is not None and target.stmt.start == nxt.start
+    return target.form == "block" and nxt.kind == "block" and target.at == nxt.open + 1
 
 
 def _reflows(src: Source, mv: Move, target: Target) -> bool:

@@ -70,8 +70,8 @@ def test_call_initializer_may_not_cross_code():
 
 
 def test_call_initializer_enters_immediately_following_bare_block():
-    code = "void f()\n{\n  @auto p = make();\n  {\n    use(p);\n  }\n}\n"
-    assert moved(code, "p") == "void f()\n{\n  {\n    auto p = make();\n    use(p);\n  }\n}\n"
+    code = "void f()\n{\n  @auto p = make();\n  {\n    use(p);\n  }\n  k();\n}\n"
+    assert moved(code, "p") == "void f()\n{\n  {\n    auto p = make();\n    use(p);\n  }\n  k();\n}\n"
 
 
 def test_dead_initial_value_may_read_state():
@@ -132,20 +132,20 @@ def test_two_moves_into_one_block_keep_their_order():
 
 
 def test_only_one_declaration_wraps_an_if():
-    code = "void f()\n{\n  double lo = 0.5;\n  double hi = 2.0;\n  if (g(lo, hi))\n  {\n  }\n}\n"
+    code = "void f()\n{\n  double lo = 0.5;\n  double hi = 2.0;\n  if (g(lo, hi))\n  {\n  }\n  k();\n}\n"
     src = Source(code)
     mvs = [plan(src, Decl(code.index("double lo"), "lo", True, False)),
            plan(src, Decl(code.index("double hi"), "hi", True, False))]
     assert [mv.target.form for mv in mvs] == ["wrap", "wrap"]
     assert accept(src, mvs) == mvs[:1]
     assert apply_text(src, mvs) == ("void f()\n{\n  double hi = 2.0;\n  {\n    double lo = 0.5;\n"
-                                    "    if (g(lo, hi))\n    {\n    }\n  }\n}\n")
+                                    "    if (g(lo, hi))\n    {\n    }\n  }\n  k();\n}\n")
 
 
 def test_if_condition_wraps_with_comments():
-    code = "void f()\n{\n  // why\n  @const auto n = g(); // trailing\n  if (n > 0)\n  {\n    h(n);\n  }\n}\n"
+    code = "void f()\n{\n  // why\n  @const auto n = g(); // trailing\n  if (n > 0)\n  {\n    h(n);\n  }\n  k();\n}\n"
     assert moved(code, "n") == ("void f()\n{\n  {\n    // why\n    const auto n = g(); // trailing\n"
-                                "    if (n > 0)\n    {\n      h(n);\n    }\n  }\n}\n")
+                                "    if (n > 0)\n    {\n      h(n);\n    }\n  }\n  k();\n}\n")
 
 
 def test_size_test_in_if_becomes_empty():
@@ -157,18 +157,18 @@ def test_size_test_in_if_becomes_empty():
 
 def test_wrap_that_would_reflow_a_comment_is_skipped():
     long = "// " + "x" * 116
-    code = "void f()\n{\n  @const auto n = g();\n  if (n > 0)\n  {\n    " + long + "\n    h(n);\n  }\n}\n"
+    code = "void f()\n{\n  @const auto n = g();\n  if (n > 0)\n  {\n    " + long + "\n    h(n);\n  }\n  k();\n}\n"
     _, mv = move(code, "n")
     assert (mv.skipped, mv.note) == (Reason.COMMENT_STRANDED, "reflow")
-    code = "void f()\n{\n  " + long + "\n  @const auto n = g();\n  if (n > 0)\n  {\n    h(n);\n  }\n}\n"
+    code = "void f()\n{\n  " + long + "\n  @const auto n = g();\n  if (n > 0)\n  {\n    h(n);\n  }\n  k();\n}\n"
     _, mv = move(code, "n")
     assert (mv.skipped, mv.note) == (Reason.COMMENT_STRANDED, "reflow")
 
 
 def test_size_value_used_in_body_wraps_instead():
-    code = "void f(const V & v)\n{\n  @const int n = v.size();\n  if (n > 0)\n  {\n    g(n);\n  }\n}\n"
+    code = "void f(const V & v)\n{\n  @const int n = v.size();\n  if (n > 0)\n  {\n    g(n);\n  }\n  k();\n}\n"
     assert moved(code, "n") == ("void f(const V & v)\n{\n  {\n    const int n = v.size();\n    if (n > 0)\n"
-                                "    {\n      g(n);\n    }\n  }\n}\n")
+                                "    {\n      g(n);\n    }\n  }\n  k();\n}\n")
 
 
 def test_removal_leaves_no_doubled_blank_line():
@@ -259,3 +259,36 @@ def test_template_call_takes_its_parenthesized_argument():
     code = "int f(int c)\n{\n  @T t;\n  if (c)\n  {\n    return g<int>(t);\n  }\n  return 0;\n}\n"
     _, mv = move(code, "t", trivial=False)
     assert (mv.skipped, mv.note) == (Reason.LOOP_CARRIED, "escapes")
+
+
+def test_wrap_is_skipped_when_it_would_repeat_the_enclosing_block():
+    code = "void f()\n{\n  {\n    @const auto n = g();\n    if (n > 0)\n    {\n      h(n);\n    }\n  }\n  k();\n}\n"
+    src, mv = move(code, "n")
+    assert mv is None
+    code = "void f(int d)\n{\n  @constexpr int D = 3;\n  switch (d - D)\n  {\n    default:\n      h();\n  }\n}\n"
+    _, mv = move(code, "D")
+    assert mv is None
+
+
+def test_move_into_a_trailing_plain_block_is_skipped():
+    code = "void f()\n{\n  @const int i = g();\n  {\n    h(i);\n  }\n}\n"
+    _, mv = move(code, "i")
+    assert mv is None
+    code = "void f()\n{\n  @const int i = g();\n  {\n    h(i);\n  }\n  k();\n}\n"
+    assert moved(code, "i") == "void f()\n{\n  {\n    const int i = g();\n    h(i);\n  }\n  k();\n}\n"
+
+
+def test_wrap_of_a_blocks_last_statement_enters_the_block_instead():
+    code = ("void f(int c)\n{\n  @const int m = 7;\n  k();\n  if (c)\n  {\n    const int n = 1;\n"
+            "    if (m > n)\n    {\n      h();\n    }\n  }\n  k();\n}\n")
+    assert moved(code, "m") == ("void f(int c)\n{\n  k();\n  if (c)\n  {\n    const int m = 7;\n"
+                                "    const int n = 1;\n    if (m > n)\n    {\n      h();\n    }\n  }\n  k();\n}\n")
+
+
+def test_narrowing_only_past_sibling_declarations_is_skipped():
+    code = "void f()\n{\n  @unsigned short hi;\n  unsigned short bits;\n  if (g(bits) || g(hi))\n  {\n    h();\n  }\n}\n"
+    _, mv = move(code, "hi")
+    assert mv is None
+    code = ("void f()\n{\n  @unsigned short hi;\n  unsigned short bits;\n  k();\n"
+            "  if (g(bits) || g(hi))\n  {\n    h();\n  }\n}\n")
+    assert moved(code, "hi").count("{") == 3

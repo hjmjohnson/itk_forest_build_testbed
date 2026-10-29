@@ -32,6 +32,7 @@ pick(int k)
     case 0:
       return 1;
     default:
-      return v;
+      break;
   }
+  return k;
 }
