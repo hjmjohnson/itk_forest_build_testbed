@@ -109,12 +109,16 @@ falling back to `PATH`. Run through `pixi run` so `CONDA_PREFIX` is set.
    skipped.
 2. `runs.py` scans the statements after the declaration at the same indent:
    a run of only `v.push_back(e)` / `v.emplace_back(e)` (push_back_run), or of
-   only `v[i] = e;` with an integer-literal `i` (index_assign_run). A blank
+   only `v[i] = e;` with an integer-literal `i` (index_assign_run). An index
+   run may also follow `std::vector<T> v(N);` with an integer-literal `N`;
+   the size is dropped from the rewrite, and an append ends such a run. A blank
    line, a comment line, a different indent, any other statement, a second
    statement on a line, or any read of `v` ends the run. A run with no element
    is not a site.
 3. Guards, in order (the first that fails for any instantiation decides):
    - `vnl_vector`: `init-list-ctor`, note `no-init-list`.
+   - a literal-sized declaration of anything but `std::vector`:
+     `init-list-ctor`, note `sized-non-vector`.
    - `emplace_back` with several arguments when the declaration does not spell
      the element type (a typedef such as `PairVec`): `init-list-ctor`, note
      `element-type-unknown`. Otherwise the element becomes `Elem(a, b)`.
@@ -122,7 +126,8 @@ falling back to `PATH`. Run through `pixi run` so `CONDA_PREFIX` is set.
      require automatic storage; the text check is a backstop), because brace
      initialization would run once instead of appending on every call.
    - index runs whose indices are not exactly `0..n-1`, or whose count differs
-     from a `std::array` size: `narrowing`, note `partial-coverage`. Indices out
+     from a `std::array` size or a literal `std::vector` size: `narrowing`,
+     note `partial-coverage`. Indices out
      of order are sorted only when every element is a literal (integer,
      floating, character, or string); any identifier or expression gives `order-violation`, note `index-order`.
    - `narrowing`: an integer element type receiving a floating literal or

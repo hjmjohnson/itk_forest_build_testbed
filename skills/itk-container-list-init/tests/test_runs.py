@@ -221,3 +221,49 @@ def test_count_elements_detects_a_wrong_rendering():
     assert count_elements(body("std::vector<int> v{ 1, f(2, 3) };"), 0, "v")[0] == 2
     assert count_elements(body("std::vector<int> v{};"), 0, "v")[0] == 0
     assert count_elements(body("std::vector<int> v;"), 0, "v") is None
+
+
+def sized_run(text: str, canonical: str, name: str = "v"):
+    line = next(i for i, s in enumerate(text.splitlines(), 1) if f" {name}(" in s)
+    run = find_run(text, line, 3, name)
+    if run is not None:
+        judge(run, [canonical], text[: run.begin])
+    return run
+
+
+def test_literal_sized_vector_with_full_index_run_drops_the_size():
+    run = sized_run(body("std::vector<double> v(4);", "v[0] = 0.00005;", "v[1] = 0.005;", "v[2] = 0.005;",
+                         "v[3] = 0.005;", "g(v);"), "std::vector<double>")
+    assert (run.cls, run.size, run.skipped) == ("index_assign_run", 4, None)
+    assert render(run) == "std::vector<double> v{0.00005, 0.005, 0.005, 0.005};"
+
+
+def test_literal_sized_string_vector_is_a_site():
+    run = sized_run(body('std::vector<std::string> v(2);', 'v[0] = "Rigid";', 'v[1] = "Affine";'),
+                    "std::vector<std::string>")
+    assert run.skipped is None
+    assert render(run) == 'std::vector<std::string> v{"Rigid", "Affine"};'
+
+
+def test_literal_sized_vector_partly_assigned_is_declined():
+    run = sized_run(body("std::vector<double> v(3);", "v[0] = 1.5;", "v[1] = 2.5;"), "std::vector<double>")
+    assert (run.skipped, run.note) == (Reason.NARROWING, "partial-coverage")
+
+
+def test_literal_sized_vector_then_push_back_is_not_a_site():
+    assert sized_run(body("std::vector<double> v(2);", "v.push_back(1.5);"), "std::vector<double>") is None
+
+
+def test_literal_sized_int_vector_with_one_element_keeps_the_init_list_guard():
+    run = sized_run(body("std::vector<int> v(1);", "v[0] = 1500;"), "std::vector<int>")
+    assert run.skipped == Reason.INIT_LIST_CTOR
+
+
+def test_literal_sized_itk_array_is_declined():
+    run = sized_run(body("itk::Array<double> v(2);", "v[0] = 1.5;", "v[1] = 2.5;"), "itk::Array<double>")
+    assert (run.skipped, run.note) == (Reason.INIT_LIST_CTOR, "sized-non-vector")
+
+
+def test_sized_by_variable_is_not_a_site():
+    text = body("std::vector<double> v(n);", "v[0] = 1.5;")
+    assert find_run(text, 3, 3, "v") is None

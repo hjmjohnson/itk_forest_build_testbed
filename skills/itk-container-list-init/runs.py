@@ -35,6 +35,7 @@ class Run:
     args: list[list[str]]
     comments: list[str] = field(default_factory=list)
     indices: list[int] = field(default_factory=list)
+    size: int | None = None
     skipped: Reason | None = None
     note: str = ""
 
@@ -192,13 +193,16 @@ def find_run(text: str, line: int, col: int, name: str) -> Run | None:
     if semi < 0:
         return None
     decl = code[begin:semi]
-    head = re.match(rf"^(.*[\w>*&])\s+{re.escape(name)}\s*$", decl, re.S)
+    head = re.match(rf"^(.*[\w>*&])\s+{re.escape(name)}\s*(?:\(\s*(\d+)[uUlLzZ]*\s*\))?\s*$", decl, re.S)
     if head is None or len(split_top(head[1])) > 1 or code[begin:semi] != text[begin:semi]:
         return None
     first_comment = _trailing(text, code, semi + 1, _line_end(text, semi))
     if first_comment is None:
         return None
-    run = Run("", begin, _line_end(text, semi), line, line, prefix, _squash(text[begin:semi]), [])
+    named = _squash(f"{text[begin:begin + len(head[1])]} {name}")
+    run = Run("", begin, _line_end(text, semi), line, line, prefix, named, [])
+    if head[2] is not None:
+        run.size = int(head[2])
     if first_comment:
         run.comments.append(first_comment)
     pos = run.end + 1
@@ -223,7 +227,7 @@ def find_run(text: str, line: int, col: int, name: str) -> Run | None:
         if found is None:
             break
         cls, args, index, semi, end, comment = found
-        if run.cls and cls != run.cls:
+        if (run.cls and cls != run.cls) or (run.size is not None and cls == PUSH):
             break
         if commentless[pos:semi] != text[pos:semi]:
             run.skipped, run.note = Reason.COMMENT_STRANDED, "comment-in-element"
@@ -340,9 +344,13 @@ def _verdict(run: Run, container: str, targs: list[str], before: str) -> tuple[R
         return Reason.INIT_LIST_CTOR, "no-init-list"
     if any(len(a) > 1 for a in run.args) and element_type(run.head) is None:
         return Reason.INIT_LIST_CTOR, "element-type-unknown"
+    if run.size is not None and container != "std::vector":
+        return Reason.INIT_LIST_CTOR, "sized-non-vector"
     if run.cls == INDEX:
         n = len(run.indices)
         size = targs[1] if container == "std::array" and len(targs) > 1 else None
+        if run.size is not None:
+            size = str(run.size)
         if sorted(run.indices) != list(range(n)) or (size is not None and size.isdigit() and int(size) != n):
             return Reason.NARROWING, "partial-coverage"
         if run.indices != sorted(run.indices) and not all(_inert(a[0]) for a in run.args):

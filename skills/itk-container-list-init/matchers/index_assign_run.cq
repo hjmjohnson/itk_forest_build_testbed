@@ -1,4 +1,4 @@
-# A default-constructed container local whose block holds a subscript assignment.
+# A default-constructed or literal-sized container local whose block holds a subscript assignment.
 set output dump
 set bind-root false
 match varDecl(
@@ -8,6 +8,7 @@ match varDecl(
     cxxOperatorCallExpr(hasOverloadedOperatorName("="), hasArgument(0, ignoringParenImpCasts(
       cxxOperatorCallExpr(hasOverloadedOperatorName("[]"))))))))))))),
   hasAutomaticStorageDuration(),
-  hasInitializer(cxxConstructExpr(argumentCountIs(0))),
+  hasInitializer(cxxConstructExpr(anyOf(argumentCountIs(0),
+    hasArgument(0, ignoringImplicit(integerLiteral()))))),
   hasType(hasUnqualifiedDesugaredType(recordType(hasDeclaration(namedDecl(
     hasAnyName("::std::vector", "::std::array", "::itk::Array", "::vnl_vector"))))))).bind("index_assign_run")
