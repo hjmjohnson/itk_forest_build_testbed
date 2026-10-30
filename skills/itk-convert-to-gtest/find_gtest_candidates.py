@@ -2,7 +2,8 @@
 """Find no-argument ITK CTests that are candidates for GoogleTest conversion.
 
 A candidate is an ``itk_add_test(NAME <n> COMMAND <driver> <fn>)`` whose test
-function name equals the test NAME, takes no trailing arguments after the
+function name equals the test NAME (a stray ``.cxx`` suffix on NAME is
+accepted), takes no trailing arguments after the
 driver function, has an on-disk ``<fn>.cxx``, and has no existing
 ``<fn-with-Test->GTest>.cxx``.
 
@@ -35,7 +36,7 @@ from pathlib import Path
 
 # itk_add_test(NAME <name> COMMAND <driver> <fn>) with nothing after <fn>.
 # \s matches newlines, so multi-line blocks are handled.
-_BLOCK_RE = re.compile(r"itk_add_test\s*\(\s*NAME\s+(\w+)\s+COMMAND\s+(\w+)\s+(\w+)\s*\)")
+_BLOCK_RE = re.compile(r"itk_add_test\s*\(\s*NAME\s+(\w+)(?:\.cxx)?\s+COMMAND\s+(\w+)\s+(\w+)\s*\)")
 _ANY_ADD_TEST_RE = re.compile(r"itk_add_test\s*\((.*?)\)", re.S)
 _DISABLED_IF_RE = re.compile(r"^\s*if\s*\(\s*(?:0|FALSE|OFF|NO)\s*\)", re.I | re.M)
 _FACTORY_RE = re.compile(
