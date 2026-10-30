@@ -1,6 +1,6 @@
 ---
 name: itk-convert-to-gtest
-version: 1.8.0
+version: 1.9.0
 purpose: Mechanically convert no-argument ITK CTests in one module to GoogleTest, one test per commit, preserving behavior and git history, following N-Dekker's "one commit, one change" reviewer standard.
 description: Convert no-argument ITK CTests (itk_add_test with no trailing args) to GoogleTest format. Strictly mechanical, one test per git-mv-tracked commit, with assertion-macro mapping, CMakeLists rewiring, and mandatory per-commit build+test. Use when migrating an ITK module's legacy CTest functions to the GTest driver.
 triggers:
@@ -51,6 +51,7 @@ dependencies:
   python_packages: []
   scripts:
     - find_gtest_candidates.py
+    - check_gtest_asserts.py
     - coverage/configure_coverage_build.sh
     - coverage/run_coverage_tests.sh
     - coverage/export_per_driver.sh
@@ -208,6 +209,8 @@ Translate output/return-code checks into the **most specific** macro:
 | `if (ptr == nullptr) return EXIT_FAILURE` | `EXPECT_NE(ptr, nullptr)` |
 | `if (ptr != nullptr) return EXIT_FAILURE` | `EXPECT_EQ(ptr, nullptr)` |
 | `ITK_TRY_EXPECT_EXCEPTION(expr)`, or a try/catch expecting an exception (printed or not) | `EXPECT_THROW(expr, ExceptionType)` / `ASSERT_THROW` |
+| `ITK_TRY_EXPECT_NO_EXCEPTION(expr)` with more code after it | `ASSERT_NO_THROW(expr)` (see below) |
+| `ITK_TRY_EXPECT_NO_EXCEPTION(expr)` as the last statement | `EXPECT_NO_THROW(expr)` |
 | comparing ITK array-like objects | `ITK_EXPECT_VECTOR_NEAR(v1, v2, rmsError)` |
 
 #### Reseed `vnl_sample` like the legacy driver
@@ -254,6 +257,29 @@ auto field = clone->GetDisplacementField();
 With `EXPECT_*` there, a null clone records a failure and then segfaults,
 turning a readable failure into a crash. Matching the original's early
 `return EXIT_FAILURE` is not by itself a reason for `ASSERT_*`.
+
+The same holds for a call that produces what the rest of the test reads.
+`EXPECT_NO_THROW(filter->Update())` followed by checks on
+`filter->GetOutput()` keeps running after the throw and checks an output that
+was never produced: the real failure is buried under follow-on failures or a
+crash. Write `ASSERT_NO_THROW` whenever any statement follows in the same
+function; `ITK_TRY_EXPECT_NO_EXCEPTION` returned `EXIT_FAILURE`, so this is
+the faithful conversion. Keep `EXPECT_NO_THROW` only as the last statement.
+
+`ASSERT_*` compiles only where `return;` does: a `TEST` body or a `void`
+function or lambda. In a helper that returns a value, make the helper `void`
+with an output parameter, or move the check into the `TEST` body.
+
+Run the packaged checker on every converted file before committing (2g); it
+finds both patterns, and `--fix` promotes the sites that compile:
+
+```bash
+python3 check_gtest_asserts.py Modules/Group/Name/test/itkFooGTest.cxx
+python3 check_gtest_asserts.py --fix Modules/Group/Name/test/itkFooGTest.cxx
+```
+
+`LEFTOVER` lines are sites in non-void helpers; rewrite those by hand. The
+checker exits non-zero while any site remains.
 
 #### `EXPECT_TRUE` is the assertion of last resort
 
@@ -396,9 +422,11 @@ reformat staged files, re-stage and commit again.
 ### 2g. Build and test (MANDATORY)
 
 After **each** commit, build and run the converted test before the next
-candidate. Do not batch verification to the end.
+candidate. Do not batch verification to the end. First confirm the checker
+reports nothing:
 
 ```bash
+python3 check_gtest_asserts.py Modules/Group/Name/test/itkFooGTest.cxx
 cmake --build build --target ITKThisModuleGTestDriver -j"$(getconf _NPROCESSORS_ONLN)"
 ctest --test-dir build -R "itkFooGTest" --output-on-failure
 ```
@@ -509,6 +537,8 @@ then follow steps 2c–2e.
 - Do **not** add a `main()` — GTest provides its own.
 - Do **not** use `EXIT_SUCCESS`/`EXIT_FAILURE` returns — use `EXPECT_*`/`ASSERT_*`.
 - Do **not** wrap a comparison in `EXPECT_TRUE` — use the matching binary macro.
+- `ASSERT_NO_THROW`, not `EXPECT_NO_THROW`, when code follows; `ASSERT_*` for
+  a null check before a dereference (`check_gtest_asserts.py`).
 - Match literal signedness in `EXPECT_EQ`/`ASSERT_EQ` against unsigned getters
   (`size()`, counts, dimensions): write `0u`/`3u`, or
   `static_cast<std::decay_t<decltype(expr)>>` in mixed-signedness template
