@@ -29,9 +29,8 @@
 #   forests = ["itk-main"]
 
 [itk.v6]
-# ITK #6985 (ObjectFactoryBase::SetAutoloadPath/GetAutoloadPath): Slicer's
-# in-process autoload-path registration (hjmjohnson/Slicer branch
-# itk-autoload-path-api) is validated against it. Drop once it merges.
-# #6884 (VariationalRegistration wrapping fix) merged upstream 2026-10-22 and
-# was removed; re-enable Module_VariationalRegistration on the next refresh.
-prs = ["pr/6985"]
+# #6884 (VariationalRegistration wrapping) and #6985 (SetAutoloadPath) merged
+# upstream; re-enable Module_VariationalRegistration on the next refresh.
+# ITK #7028 (itkIndent.h without itkMacro.h, issue #7025): header-order change
+# in Core/Common; downstream regression test requested 2026-10-28.
+prs = ["pr/7028"]
