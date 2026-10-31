@@ -1,6 +1,6 @@
 ---
 name: itk-convert-to-gtest
-version: 1.10.0
+version: 1.11.0
 purpose: Mechanically convert no-argument ITK CTests in one module to GoogleTest, one test per commit, preserving behavior and git history, following N-Dekker's "one commit, one change" reviewer standard.
 description: Convert no-argument ITK CTests (itk_add_test with no trailing args) to GoogleTest format. Strictly mechanical, one test per git-mv-tracked commit, with assertion-macro mapping, CMakeLists rewiring, and mandatory per-commit build+test. Use when migrating an ITK module's legacy CTest functions to the GTest driver.
 triggers:
@@ -52,6 +52,7 @@ dependencies:
   scripts:
     - find_gtest_candidates.py
     - check_gtest_asserts.py
+    - check_gtest_silent_checks.py
     - coverage/configure_coverage_build.sh
     - coverage/run_coverage_tests.sh
     - coverage/export_per_driver.sh
@@ -433,11 +434,12 @@ reformat staged files, re-stage and commit again.
 ### 2g. Build and test (MANDATORY)
 
 After **each** commit, build and run the converted test before the next
-candidate. Do not batch verification to the end. First confirm the checker
-reports nothing:
+candidate. Do not batch verification to the end. First confirm the checkers
+report nothing:
 
 ```bash
 python3 check_gtest_asserts.py Modules/Group/Name/test/itkFooGTest.cxx
+python3 check_gtest_silent_checks.py Modules/Group/Name/test/itkFooGTest.cxx
 cmake --build build --target ITKThisModuleGTestDriver -j"$(getconf _NPROCESSORS_ONLN)"
 ctest --test-dir build -R "itkFooGTest" --output-on-failure
 ```
@@ -550,6 +552,27 @@ The defect is the reason to upstream that file now. Record it on the staging
 branch too: rewrite that test's staging conversion to match commit 2, and drop
 it from staging once the PR merges. Examples: #7008 (fix) then #7040
 (conversion) for `itkBinaryThresholdImageFilterTest`; #7009 for `itkDOMTest6`.
+
+Find the never-failing checks before converting, on the legacy file, and
+again on the converted file:
+
+```bash
+python3 check_gtest_silent_checks.py Modules/Group/Name/test/itkFooTest.cxx
+```
+
+| Hit | Legacy fix (commit 1) | GoogleTest form (commit 2) |
+|---|---|---|
+| `swallowed`: catch prints an unexpected exception and carries on | `return EXIT_FAILURE;` in the catch | `ASSERT_NO_THROW` (`EXPECT_NO_THROW` as the last statement) |
+| `expected-not-failed`: nothing fails when the call does not throw | `return EXIT_FAILURE;` after the call in the try | `EXPECT_THROW` |
+| `silent-if`: an error branch prints but records no failure | `return EXIT_FAILURE;` (or the file's status flag) | the matching binary `EXPECT_*` |
+
+Each hit is a candidate. A flag checked later, a helper that falls through to
+`return false`, or a failure deliberately commented out with a tracker
+reference needs reading, not a mechanical fix. Build and run the fixed legacy
+test: if it now fails, the defect was hiding a real failure, which is a
+separate finding to report. A test already converted to GoogleTest gets a
+single `BUG:` commit with the GoogleTest form. Examples: #7046, #7048, #7050,
+#7051, #7052.
 
 ## Step 3: Augmenting existing GTest files
 
