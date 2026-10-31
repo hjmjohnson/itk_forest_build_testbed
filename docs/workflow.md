@@ -17,8 +17,16 @@ ITK_REF=pr/6251          pixi run repoint-itk   # move an existing forest's ITK
 pixi run build-ITK
 pixi run build-elastix
 pixi run build-Slicer
-# 3. Full sweep, scored by artifact:
+# 3. Full sweep, scored by artifact (build-only by default):
 pixi run bash bin/run-matrix.sh
+# 4. Add tests: a target with a failing test outside its accepted failures
+#    (ctest-baselines/<forest>/<target>.failures, else its previous run)
+#    scores REGRESS; every run is kept in <forest>/logs/ctest-history/ and
+#    <forest>/logs/ctest-results-<suffix>.tsv:
+RUN_CTEST=1 pixi run bash bin/run-matrix.sh
+pixi run bash bin/run-matrix.sh --run-ctest BRAINSTools     # one target
+pixi run bash bin/run-matrix.sh --record-baseline BRAINSTools  # accept its failures
+pixi run bash bin/run-matrix.sh --ctest-history BRAINSTools
 ```
 
 Prefer a guided flow? `pixi run tui` walks the same steps interactively

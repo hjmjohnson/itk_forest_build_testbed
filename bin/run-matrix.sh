@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# Build every downstream against the ITK ref under test; record PASS/FAIL
-# by artifact (not exit code), then run each built target's ctest suite and
-# record pass/fail counts as a separate column. Continues past failures.
-#   pixi run bash bin/run-matrix.sh            # build + test
-#   RUN_CTEST=0 pixi run bash bin/run-matrix.sh   # build-only
-#   bin/run-matrix.sh --list-targets|--list-deferred|--check-artifact <X>|--ctest-dir <X>|--run-ctest <X>
+# Build every downstream against the ITK ref under test and record PASS/FAIL
+# by artifact (not exit code). With RUN_CTEST=1, also run each built target's
+# ctest suite, keep its history, and score REGRESS when a test fails that is
+# not an accepted failure. Continues past failures.
+#   pixi run bash bin/run-matrix.sh               # build-only (default)
+#   RUN_CTEST=1 pixi run bash bin/run-matrix.sh   # build + test + REGRESS scoring
+#   bin/run-matrix.sh --list-targets|--list-deferred|--check-artifact <X>|--ctest-dir <X>
+#   bin/run-matrix.sh --run-ctest <X>|--record-baseline <X>|--ctest-history [<X>]
 #
 # Slicer note: Slicer never consumes the system ITK. It always builds a
 # dedicated Slicer-vendored ITK branch (hjmjohnson/ITK @ slicer-itk-<...>) via
@@ -29,19 +31,19 @@ LOG_TAG="${FOREST_REFERENCE_SUFFIX:+-${FOREST_REFERENCE_SUFFIX}}"
 TB="${FOREST}"
 LOGDIR="${FOREST}/logs"
 case "${1:-}" in
-  --list-targets|--list-deferred|--check-artifact|--ctest-dir) : ;;
+  --list-targets|--list-deferred|--check-artifact|--ctest-dir|--ctest-history|--record-baseline) : ;;
   *) mkdir -p "${LOGDIR}" ;;
 esac
 SUMMARY=""
 
 # --- ctest layer -----------------------------------------------------------
 # Tests are expensive; bound each target's wall-clock and allow scope/skip:
-#   RUN_CTEST=0             build-only matrix (default: 1, run tests)
+#   RUN_CTEST=1             also run tests (default: 0, build-only)
 #   CTEST_JOBS=N            parallel test jobs (default: ncpu/2, min 2)
 #   CTEST_TIMEOUT=S         per-test timeout seconds (default 300)
 #   CTEST_TARGET_TIMEOUT=S  overall per-target wall-clock cap (default 1800)
 #   CTEST_INCLUDE=regex     only run tests matching it (ctest -R) to scope long suites
-RUN_CTEST="${RUN_CTEST:-1}"
+RUN_CTEST="${RUN_CTEST:-0}"
 # Slicer extension self-tests stay off independently of RUN_CTEST: the extension
 # dashboard driver's own ctest_test launches Slicer.app per extension, and a crash
 # there leaves a modal macOS dialog that blocks an unattended build. The engine
@@ -83,8 +85,54 @@ ctest_dir(){
     | head -1 | xargs -r dirname
 }
 
+# --- ctest history and REGRESS scoring ---------------------------------------
+# Each run keeps logs/ctest-history/<target><tag>-<stamp>.{log,failed} and adds a
+# row to logs/ctest-results<tag>.tsv. Accepted failures live in the kit, so they
+# are reviewed and versioned: ctest-baselines/<forest>/<target>.failures (one test
+# name per line; an empty file means every test must pass). Without that file the
+# previous run's failures are the reference. A failing test outside the reference
+# is a regression.
+HISTDIR="${LOGDIR}/ctest-history"
+RESULTS_TSV="${LOGDIR}/ctest-results${LOG_TAG}.tsv"
+baseline_file(){ echo "${ROOT}/ctest-baselines/$(basename "${FOREST}")/${1}.failures"; }
+
+# Failing test names from a ctest log's "The following tests FAILED:" section.
+ctest_failed_tests(){
+  sed -n '/The following tests FAILED:/,$p' "$1" \
+    | sed -nE 's/^[[:space:]]*[0-9]+ - ([^ ]+) \(.*/\1/p' | sort -u
+}
+
+# Record one run in the history; echo the scoring suffix for its token.
+record_ctest_run(){
+  local n="$1" log="$2" passed="$3" total="$4" stamp ref refsrc new fixed sha
+  stamp="$(date +%Y%m%d_%H%M%S)"
+  mkdir -p "${HISTDIR}"
+  local hist="${HISTDIR}/${n}${LOG_TAG}-${stamp}"
+  cp "${log}" "${hist}.log"
+  ctest_failed_tests "${log}" >"${hist}.failed"
+  if [ -f "$(baseline_file "$n")" ]; then
+    ref="$(grep -v '^#' "$(baseline_file "$n")" | sed '/^[[:space:]]*$/d' | sort -u)"; refsrc=baseline
+  else
+    local prev; prev="$(ls -1 "${HISTDIR}/${n}${LOG_TAG}-"*.failed 2>/dev/null | grep -v "${stamp}" | tail -1)"
+    if [ -n "${prev}" ]; then ref="$(sort -u "${prev}")"; refsrc=previous; else ref=""; refsrc=none; fi
+  fi
+  new="$(comm -13 <(printf '%s\n' "${ref}" | sed '/^$/d') "${hist}.failed" | sed '/^$/d' | wc -l | tr -d ' ')"
+  fixed="$(comm -23 <(printf '%s\n' "${ref}" | sed '/^$/d') "${hist}.failed" | sed '/^$/d' | wc -l | tr -d ' ')"
+  [ "${refsrc}" = none ] && new=0
+  sha="$(git -C "${FOREST}/ITK" rev-parse --short=12 HEAD 2>/dev/null || echo unknown)"
+  [ -f "${RESULTS_TSV}" ] || printf 'stamp\ttarget\titk_sha\tpassed\ttotal\tnew_failures\tfixed\treference\tlog\n' >"${RESULTS_TSV}"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "${stamp}" "${n}" "${sha}" "${passed}" "${total}" \
+    "${new}" "${fixed}" "${refsrc}" "${hist}.log" >>"${RESULTS_TSV}"
+  local suffix=""
+  [ "${new}" -gt 0 ] && suffix=" new-fail:${new}"
+  [ "${fixed}" -gt 0 ] && suffix="${suffix} fixed:${fixed}"
+  [ "${refsrc}" = none ] && suffix="${suffix} (no reference yet)"
+  echo "${suffix}"
+}
+
 # Run the test suite for $1; echo a compact token:
 #   T:142/150 (8 of 150 failed) | T:0/0:no-tests | T:skip:no-harness | T:timeout
+#   followed by " new-fail:N" (regressions) and " fixed:M" when the reference says so.
 run_ctest(){
   local n="$1" d log line failed total inc=()
   d="$(ctest_dir "$n")"
@@ -112,7 +160,18 @@ run_ctest(){
   fi
   failed="$(echo "$line" | sed -E 's/.* ([0-9]+) tests failed.*/\1/')"
   total="$(echo "$line" | sed -E 's/.* out of ([0-9]+).*/\1/')"
-  echo "T:$((total - failed))/${total}"
+  echo "T:$((total - failed))/${total}$(record_ctest_run "$n" "$log" "$((total - failed))" "${total}")"
+}
+
+# Accept the latest run's failures for $1 as its baseline.
+record_baseline(){
+  local n="$1" latest f
+  latest="$(ls -1 "${HISTDIR}/${n}${LOG_TAG}-"*.failed 2>/dev/null | tail -1)"
+  [ -n "${latest}" ] || { echo "no ctest history for ${n}; run --run-ctest ${n} first" >&2; return 1; }
+  f="$(baseline_file "$n")"
+  mkdir -p "$(dirname "$f")"
+  cp "${latest}" "$f"
+  echo "${f}: $(wc -l <"$f" | tr -d ' ') accepted failure(s) from $(basename "${latest}" .failed)"
 }
 
 artifact_ok(){
@@ -214,7 +273,12 @@ build_target(){
       tstat="$(run_ctest "${n}")"
       echo "RESULT ${n}: ${tstat}  (${LOGDIR}/ctest-${n}${LOG_TAG}.log)"
     fi
-    SUMMARY="${SUMMARY}$(printf 'PASS  %-20s %s' "${n}" "${tstat}")"$'\n'
+    if [[ "${tstat}" == *new-fail:* ]]; then
+      SUMMARY="${SUMMARY}$(printf 'REGRESS %-18s %s' "${n}" "${tstat}")"$'\n'
+      echo "RESULT ${n}: REGRESS -- tests failing that are not accepted failures (see ${RESULTS_TSV})"
+    else
+      SUMMARY="${SUMMARY}$(printf 'PASS  %-20s %s' "${n}" "${tstat}")"$'\n'
+    fi
   else
     SUMMARY="${SUMMARY}$(printf 'FAIL  %-20s %s' "${n}" '(build failed)')"$'\n'
     echo "RESULT ${n}: build FAIL  (${LOGDIR}/matrix-${n}${LOG_TAG}.log)"
@@ -256,6 +320,10 @@ case "${1:-}" in
   --check-artifact) artifact_ok "${2:?usage: --check-artifact <target>}"; exit $? ;;
   --ctest-dir)      ctest_dir "${2:?usage: --ctest-dir <target>}"; exit 0 ;;
   --run-ctest)      run_ctest "${2:?usage: --run-ctest <target>}"; exit 0 ;;
+  --record-baseline) record_baseline "${2:?usage: --record-baseline <target>}"; exit $? ;;
+  --ctest-history)  [ -f "${RESULTS_TSV}" ] || { echo "no ctest history in ${LOGDIR}" >&2; exit 1; }
+                    if [ -n "${2:-}" ]; then awk -F'\t' -v t="$2" 'NR==1 || $2==t' "${RESULTS_TSV}"; else cat "${RESULTS_TSV}"; fi
+                    exit 0 ;;
 esac
 
 for t in "${TARGETS[@]}"; do

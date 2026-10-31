@@ -45,7 +45,7 @@ export FOREST_DIR="$TESTBED/build_forest"
 ```bash
 forest build ITK                  # build the ITK under test (root of the forest)
 fbuild elastix                    # build one consumer (auto-builds ITK first via pixi deps)
-fmatrix                           # full sweep -> PASS/FAIL per target  (RUN_CTEST=0 fmatrix = build-only)
+fmatrix                           # full sweep -> PASS/FAIL per target, build-only  (RUN_CTEST=1 fmatrix adds tests + REGRESS)
 fstatus                           # ccache hit rate + what's checked out
 forest list                       # every component + build order
 ```
