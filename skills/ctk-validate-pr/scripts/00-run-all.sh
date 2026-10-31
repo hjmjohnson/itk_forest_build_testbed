@@ -76,8 +76,41 @@ save_to_cache() {
   date -u +%Y-%m-%dT%H:%M:%SZ > "${dest}/timestamp.txt"
   uname -srm > "${dest}/platform.txt"
 
-  # Mark as complete
-  touch "${dest}/validate-complete"
+  # A partial run must not be marked complete, or cache_exists() reuses it.
+  MANIFEST="${dest}/validate-manifest.txt"
+  : > "${MANIFEST}"
+  INCOMPLETE=false
+  for artifact in ctk-qt5-build.log ctk-qt5-test-summary.txt \
+                  ctk-qt6-build.log ctk-qt6-test-summary.txt; do
+    if [ -s "${dest}/${artifact}" ]; then
+      echo "present ${artifact}" >> "${MANIFEST}"
+    else
+      echo "MISSING ${artifact}" >> "${MANIFEST}"
+      INCOMPLETE=true
+    fi
+  done
+  if [ -d "${SLICER_BLD}" ]; then
+    for artifact in slicer-build-summary.txt slicer-test-summary.txt; do
+      if [ -s "${dest}/${artifact}" ]; then
+        echo "present ${artifact}" >> "${MANIFEST}"
+      else
+        echo "MISSING ${artifact}" >> "${MANIFEST}"
+        INCOMPLETE=true
+      fi
+    done
+  else
+    echo "skipped slicer (no build tree at ${SLICER_BLD})" >> "${MANIFEST}"
+  fi
+
+  if [ "${INCOMPLETE}" = true ]; then
+    rm -f "${dest}/validate-complete"
+    touch "${dest}/validate-partial"
+    echo "WARNING: results are PARTIAL and were NOT marked complete:"
+    { grep '^MISSING' "${MANIFEST}" || true; } | sed 's/^/  /'
+  else
+    rm -f "${dest}/validate-partial"
+    touch "${dest}/validate-complete"
+  fi
   echo "Results cached: ${dest}"
 }
 
