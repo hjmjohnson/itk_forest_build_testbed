@@ -520,6 +520,26 @@ check helper with a different type, prefer one TEST that makes all the
 calls. N-Dekker calls it "a matter of taste, no show-stopper" (ITK PR
 #6956).
 
+## Defects found in a legacy test: fix first, then convert
+
+Converting to GoogleTest is a long-term, one-file-at-a-time effort, and a
+mechanical conversion reproduces the legacy test's defects faithfully: a check
+joined with `&&` that should be `||`, an inverted comparison, an "expected
+exception" block that prints but never fails. Do not fix such a defect inside
+the conversion commit, and do not leave it in the converted file.
+
+Instead, take that one test to `main` as its own PR with two commits:
+
+1. `BUG:` fix the defect in the legacy test (the reviewable change, small and
+   testable on its own);
+2. `ENH: Convert itkFooTest to GoogleTest`, the mechanical conversion of the
+   fixed file, written so that the fix is carried over.
+
+The defect is the reason to upstream that file now. Record it on the staging
+branch too: rewrite that test's staging conversion to match commit 2, and drop
+it from staging once the PR merges. Examples: #7008 (fix) then #7040
+(conversion) for `itkBinaryThresholdImageFilterTest`; #7009 for `itkDOMTest6`.
+
 ## Step 3: Augmenting existing GTest files
 
 If a `*GTest.cxx` already exists, **append** new `TEST()` blocks rather than
