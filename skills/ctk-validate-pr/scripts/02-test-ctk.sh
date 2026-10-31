@@ -27,7 +27,19 @@ echo ""
 # Reconfigure to pick up any CMakeLists.txt changes
 cmake --build "${BLD_DIR}" --target rebuild_cache > /dev/null 2>&1 || true
 
-DISPLAY="${DISPLAY_VAR}" ctest --test-dir "${BLD_DIR}" \
+# Headless sessions inherit an unusable DISPLAY; GUI tests then abort.
+DISPLAY_LAUNCHER=()
+if [ -n "${DISPLAY_VAR}" ] && xset -q -display "${DISPLAY_VAR}" > /dev/null 2>&1; then
+  echo "Display: ${DISPLAY_VAR} (usable)"
+elif command -v xvfb-run > /dev/null 2>&1; then
+  DISPLAY_LAUNCHER=(xvfb-run -a --server-args="-screen 0 1920x1080x24")
+  echo "Display: none usable at '${DISPLAY_VAR}' - running tests under xvfb-run"
+else
+  echo "WARNING: no usable X display at '${DISPLAY_VAR}' and xvfb-run not installed."
+  echo "WARNING: GUI tests will abort; results are NOT a valid regression signal."
+fi
+
+DISPLAY="${DISPLAY_VAR}" ${DISPLAY_LAUNCHER[@]+"${DISPLAY_LAUNCHER[@]}"} ctest --test-dir "${BLD_DIR}" \
   --timeout 60 \
   --output-on-failure \
   --output-junit "${JUNIT_XML}" \

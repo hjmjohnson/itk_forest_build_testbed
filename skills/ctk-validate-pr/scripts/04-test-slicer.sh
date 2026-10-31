@@ -22,7 +22,19 @@ echo "=== Testing Slicer (${SLICER_INNER}) ==="
 echo "Log: ${TEST_LOG}"
 echo ""
 
-DISPLAY="${DISPLAY_VAR}" ctest --test-dir "${SLICER_INNER}" \
+# Headless sessions inherit an unusable DISPLAY; GUI tests then abort.
+DISPLAY_LAUNCHER=()
+if [ -n "${DISPLAY_VAR}" ] && xset -q -display "${DISPLAY_VAR}" > /dev/null 2>&1; then
+  echo "Display: ${DISPLAY_VAR} (usable)"
+elif command -v xvfb-run > /dev/null 2>&1; then
+  DISPLAY_LAUNCHER=(xvfb-run -a --server-args="-screen 0 1920x1080x24")
+  echo "Display: none usable at '${DISPLAY_VAR}' - running tests under xvfb-run"
+else
+  echo "WARNING: no usable X display at '${DISPLAY_VAR}' and xvfb-run not installed."
+  echo "WARNING: GUI tests will abort; results are NOT a valid regression signal."
+fi
+
+DISPLAY="${DISPLAY_VAR}" ${DISPLAY_LAUNCHER[@]+"${DISPLAY_LAUNCHER[@]}"} ctest --test-dir "${SLICER_INNER}" \
   --timeout 120 \
   --output-on-failure \
   --output-junit "${JUNIT_XML}" \
