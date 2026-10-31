@@ -1,6 +1,6 @@
 ---
 name: itk-convert-to-gtest
-version: 1.9.0
+version: 1.10.0
 purpose: Mechanically convert no-argument ITK CTests in one module to GoogleTest, one test per commit, preserving behavior and git history, following N-Dekker's "one commit, one change" reviewer standard.
 description: Convert no-argument ITK CTests (itk_add_test with no trailing args) to GoogleTest format. Strictly mechanical, one test per git-mv-tracked commit, with assertion-macro mapping, CMakeLists rewiring, and mandatory per-commit build+test. Use when migrating an ITK module's legacy CTest functions to the GTest driver.
 triggers:
@@ -295,6 +295,17 @@ operands. Apply during the initial conversion, not as review feedback.
 | `EXPECT_TRUE(ptr == nullptr)` | `EXPECT_EQ(ptr, nullptr)` |
 | `EXPECT_TRUE(itk::Math::ExactlyEquals(a, b))` | `EXPECT_EQ(a, b)` |
 | `EXPECT_TRUE(itk::Math::AlmostEquals(a, b))` | `EXPECT_DOUBLE_EQ(a, b)` (or `EXPECT_FLOAT_EQ`) |
+| `EXPECT_TRUE(itk::Math::FloatAlmostEqual(a, b, ulps, tol))`, values small | `EXPECT_NEAR(a, b, tol)` |
+
+`FloatAlmostEqual` passes when `|a - b| <= tol` **or** `a` and `b` are within
+`ulps` floating-point steps. `EXPECT_NEAR` checks only the first, so it is
+stricter, and the two agree only while the step test cannot pass where the
+tolerance fails: roughly `|a| < tol / (ulps * epsilon)`, about 1e9 for doubles
+with the usual `4, 1e-6`. Prefer `EXPECT_NEAR` when the values are known to be
+that small (pixel values, index-derived coordinates, unit-spacing points):
+the failure then prints both operands and the difference. Keep
+`EXPECT_TRUE(FloatAlmostEqual(...))` when the values can be large or are not
+known, and drop `#include "itkMath.h"` once nothing else uses it.
 
 `EXPECT_TRUE` is reserved for genuinely-boolean predicates
 (`EXPECT_TRUE(ptr->IsValid())`, `EXPECT_TRUE(container.empty())`). The same
