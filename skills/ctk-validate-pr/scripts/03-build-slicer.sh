@@ -44,6 +44,20 @@ for DIR_CHECK in "${CTK_SRC}" "${SLICER_BLD}" "${SLICER_CTK_BLD}" "${SLICER_INNE
   fi
 done
 
+# A moved build tree makes CMake reconfigure silently at the cached old path.
+SLICER_CACHE="${SLICER_BLD}/CMakeCache.txt"
+if [ -f "${SLICER_CACHE}" ]; then
+  CACHED_DIR=$(sed -n 's/^CMAKE_CACHEFILE_DIR:INTERNAL=//p' "${SLICER_CACHE}" | head -1)
+  if [ -n "${CACHED_DIR}" ] && [ "${CACHED_DIR}" != "${SLICER_BLD}" ]; then
+    echo "FAIL: Slicer build tree has been moved and its CMake cache is stale."
+    echo "      tree is at:      ${SLICER_BLD}"
+    echo "      cache points to: ${CACHED_DIR}"
+    echo "      Building would reconfigure at the stale path and yield no results."
+    echo "      Fix: move the tree back to the cached path, or reconfigure from scratch."
+    exit 1
+  fi
+fi
+
 CTK_BRANCH=$(cd "${CTK_SRC}" && git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "detached")
 CTK_HASH=$(cd "${CTK_SRC}" && git rev-parse --short HEAD)
 
