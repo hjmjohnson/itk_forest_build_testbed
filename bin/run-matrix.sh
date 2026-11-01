@@ -41,6 +41,8 @@ SUMMARY=""
 #   RUN_CTEST=1             also run tests (default: 0, build-only)
 #   CTEST_JOBS=N            parallel test jobs (default: ncpu/2, min 2)
 #   CTEST_TIMEOUT=S         per-test timeout seconds (default 300)
+#   CTEST_TIMEOUT_<target>=S  per-test timeout for one target (SphinxExamples: 60)
+#   SPHINX_RUN_GUI_TESTS=1  also run SphinxExamples that open interactive windows
 #   CTEST_TARGET_TIMEOUT=S  overall per-target wall-clock cap (default 1800)
 #   CTEST_INCLUDE=regex     only run tests matching it (ctest -R) to scope long suites
 RUN_CTEST="${RUN_CTEST:-0}"
@@ -143,15 +145,24 @@ run_ctest(){
   # `${Python3_EXECUTABLE} Code.py` with no ctest ENVIRONMENT, so `import itk`
   # resolves only from sys.path. Point it at the wrapping tree of the ITK
   # under test, or the tests would silently exercise some other itk.
-  local envp=() _itkpy
+  local envp=() _itkpy exc=() _gui _tvar="CTEST_TIMEOUT_${n}" tmo
+  tmo="${!_tvar:-${CTEST_TIMEOUT}}"
   if [ "$n" = SphinxExamples ]; then
     _itkpy="$(bdir ITK)/Wrapping/Generators/Python"
     [ -d "${_itkpy}/itk" ] || { echo "T:skip:itk-python-missing"; return; }
     envp=(env "PYTHONPATH=${_itkpy}${PYTHONPATH:+:${PYTHONPATH}}")
+    # Display examples block until a person closes their window.
+    tmo="${!_tvar:-60}"
+    if [ "${SPHINX_RUN_GUI_TESTS:-0}" != 1 ]; then
+      ctest --test-dir "$d" --show-only=json-v1 >"${LOGDIR}/ctest-${n}${LOG_TAG}.json" 2>/dev/null
+      _gui="$("${FOREST_PYTHON:-python3}" "${BIN_DIR}/sphinx-gui-tests.py" "${LOGDIR}/ctest-${n}${LOG_TAG}.json")" \
+        || { echo "T:skip:gui-filter-failed"; return; }
+      [ -n "${_gui}" ] && exc=(-E "${_gui}")
+    fi
   fi
   timeout "${CTEST_TARGET_TIMEOUT}" "${envp[@]}" \
-    ctest --test-dir "$d" -j"${CTEST_JOBS}" --timeout "${CTEST_TIMEOUT}" \
-      --output-on-failure "${inc[@]}" >"$log" 2>&1
+    ctest --test-dir "$d" -j"${CTEST_JOBS}" --timeout "${tmo}" \
+      --output-on-failure "${inc[@]}" "${exc[@]}" >"$log" 2>&1
   [ $? -eq 124 ] && { echo "T:timeout"; return; }
   line="$(grep -E 'tests passed,.*tests failed out of' "$log" | tail -1)"
   if [ -z "$line" ]; then
