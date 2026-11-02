@@ -43,6 +43,8 @@ SUMMARY=""
 #   CTEST_TIMEOUT=S         per-test timeout seconds (default 300)
 #   CTEST_TIMEOUT_<target>=S  per-test timeout for one target (SphinxExamples: 60)
 #   SPHINX_RUN_GUI_TESTS=1  also run SphinxExamples that open interactive windows
+#   CTEST_RUNS_LONG_JOBS=N / CTEST_RUNS_LONG_TIMEOUT=S  second pass for RUNS_LONG tests (3, 3600)
+#   ITK_CTEST_KEEP_FOREIGN_WRAPPING=1  run ITK's tests with consumers' wrapping left in its package
 #   CTEST_TARGET_TIMEOUT=S  overall per-target wall-clock cap (default 1800)
 #   CTEST_INCLUDE=regex     only run tests matching it (ctest -R) to scope long suites
 RUN_CTEST="${RUN_CTEST:-0}"
@@ -160,17 +162,50 @@ run_ctest(){
       [ -n "${_gui}" ] && exc=(-E "${_gui}")
     fi
   fi
+  # Consumers built against ITK's build tree install their wrapping into ITK's
+  # Python package; ITK's whole-package tests must not see it.
+  local _quar="" _cfg _m
+  if [ "$n" = ITK ] && [ "${ITK_CTEST_KEEP_FOREIGN_WRAPPING:-0}" != 1 ]; then
+    _cfg="$(bdir ITK)/Wrapping/Generators/Python/itk/Configuration"
+    _quar="${LOGDIR}/itk-wrap-quarantine"
+    mkdir -p "${_quar}"
+    for _m in $("${FOREST_PYTHON:-python3}" "${BIN_DIR}/itk-foreign-wrapping.py" "${FOREST}/ITK" "$(bdir ITK)" 2>/dev/null); do
+      mv -f "${_cfg}/${_m}Config.py" "${_quar}/" 2>/dev/null
+      mv -f "${_cfg}/${_m}_snake_case.py" "${_quar}/" 2>/dev/null
+    done
+  fi
+  # RUNS_LONG tests run after the rest, few at a time with a long timeout, so
+  # machine load does not turn them into timeouts.
+  local _long="${log%.log}-runslong.log" rc
   timeout "${CTEST_TARGET_TIMEOUT}" "${envp[@]}" \
-    ctest --test-dir "$d" -j"${CTEST_JOBS}" --timeout "${tmo}" \
+    ctest --test-dir "$d" -j"${CTEST_JOBS}" --timeout "${tmo}" -LE RUNS_LONG \
       --output-on-failure "${inc[@]}" "${exc[@]}" >"$log" 2>&1
-  [ $? -eq 124 ] && { echo "T:timeout"; return; }
-  line="$(grep -E 'tests passed,.*tests failed out of' "$log" | tail -1)"
-  if [ -z "$line" ]; then
+  rc=$?
+  if [ "${rc}" -ne 124 ]; then
+    timeout "${CTEST_TARGET_TIMEOUT}" "${envp[@]}" \
+      ctest --test-dir "$d" -j"${CTEST_RUNS_LONG_JOBS:-3}" --timeout "${CTEST_RUNS_LONG_TIMEOUT:-3600}" -L RUNS_LONG \
+        --output-on-failure "${inc[@]}" "${exc[@]}" >"${_long}" 2>&1
+    rc=$?
+  fi
+  if [ -n "${_quar}" ]; then
+    mv -f "${_quar}"/*.py "${_cfg}/" 2>/dev/null
+  fi
+  [ "${rc}" -eq 124 ] && { echo "T:timeout"; return; }
+  local _pass _sum_failed=0 _sum_total=0
+  for _pass in "$log" "${_long}"; do
+    [ -f "${_pass}" ] || continue
+    line="$(grep -E 'tests passed,.*tests failed out of' "${_pass}" | tail -1)"
+    [ -n "$line" ] || continue
+    _sum_failed=$((_sum_failed + $(echo "$line" | sed -E 's/.* ([0-9]+) tests failed.*/\1/')))
+    _sum_total=$((_sum_total + $(echo "$line" | sed -E 's/.* out of ([0-9]+).*/\1/')))
+  done
+  [ -f "${_long}" ] && cat "${_long}" >>"$log"
+  if [ "${_sum_total}" -eq 0 ]; then
     grep -qE 'No tests were found' "$log" && { echo "T:0/0:no-tests"; return; }
     echo "T:unknown"; return
   fi
-  failed="$(echo "$line" | sed -E 's/.* ([0-9]+) tests failed.*/\1/')"
-  total="$(echo "$line" | sed -E 's/.* out of ([0-9]+).*/\1/')"
+  failed="${_sum_failed}"
+  total="${_sum_total}"
   echo "T:$((total - failed))/${total}$(record_ctest_run "$n" "$log" "$((total - failed))" "${total}")"
 }
 
