@@ -35,6 +35,7 @@ case "${1:-}" in
   *) mkdir -p "${LOGDIR}" ;;
 esac
 SUMMARY=""
+RUNSLONG_PENDING="${LOGDIR}/.runslong-pending${LOG_TAG}"
 
 # --- ctest layer -----------------------------------------------------------
 # Tests are expensive; bound each target's wall-clock and allow scope/skip:
@@ -44,9 +45,17 @@ SUMMARY=""
 #   CTEST_TIMEOUT_<target>=S  per-test timeout for one target (SphinxExamples: 60)
 #   SPHINX_RUN_GUI_TESTS=1  also run SphinxExamples that open interactive windows
 #   CTEST_RUNS_LONG_JOBS=N / CTEST_RUNS_LONG_TIMEOUT=S  second pass for RUNS_LONG tests (3, 3600)
+#   CTEST_RUNS_LONG_BACKGROUND=0  run that pass in place instead of niced beside the next builds
+#   CTEST_RUNS_LONG_NICE=N  nice level of the background RUNS_LONG pass (10)
 #   ITK_CTEST_KEEP_FOREIGN_WRAPPING=1  run ITK's tests with consumers' wrapping left in its package
 #   CTEST_TARGET_TIMEOUT=S  overall per-target wall-clock cap (default 1800)
 #   CTEST_INCLUDE=regex     only run tests matching it (ctest -R) to scope long suites
+# Scheduling: after ITK, independent targets build side by side.
+#   MATRIX_PARALLEL=N       targets building at once (default 3; 1 = serial)
+#   MATRIX_MAX_LOAD=N       start a target only while fewer than N cores are busy (default ncpu)
+#   MATRIX_START_SPACING=S  seconds between target starts, for a new build to register (default 180)
+#   MATRIX_TARGETS="A B"    run only these targets (default: all)
+#   JOBS=N                  build jobs per target (default ncpu*1.5/MATRIX_PARALLEL when parallel)
 RUN_CTEST="${RUN_CTEST:-0}"
 # Slicer extension self-tests stay off independently of RUN_CTEST: the extension
 # dashboard driver's own ctest_test launches Slicer.app per extension, and a crash
@@ -174,39 +183,77 @@ run_ctest(){
       mv -f "${_cfg}/${_m}_snake_case.py" "${_quar}/" 2>/dev/null
     done
   fi
-  # RUNS_LONG tests run after the rest, few at a time with a long timeout, so
-  # machine load does not turn them into timeouts.
   local _long="${log%.log}-runslong.log" rc
+  rm -f "${_long}" "${_long}.rc"
   timeout "${CTEST_TARGET_TIMEOUT}" "${envp[@]}" \
     ctest --test-dir "$d" -j"${CTEST_JOBS}" --timeout "${tmo}" -LE RUNS_LONG \
       --output-on-failure "${inc[@]}" "${exc[@]}" >"$log" 2>&1
   rc=$?
-  if [ "${rc}" -ne 124 ]; then
-    timeout "${CTEST_TARGET_TIMEOUT}" "${envp[@]}" \
-      ctest --test-dir "$d" -j"${CTEST_RUNS_LONG_JOBS:-3}" --timeout "${CTEST_RUNS_LONG_TIMEOUT:-3600}" -L RUNS_LONG \
-        --output-on-failure "${inc[@]}" "${exc[@]}" >"${_long}" 2>&1
-    rc=$?
-  fi
+  # No RUNS_LONG test imports itk, so consumers may reclaim the package now.
   if [ -n "${_quar}" ]; then
     mv -f "${_quar}"/*.py "${_cfg}/" 2>/dev/null
   fi
   [ "${rc}" -eq 124 ] && { echo "T:timeout"; return; }
-  local _pass _sum_failed=0 _sum_total=0
-  for _pass in "$log" "${_long}"; do
-    [ -f "${_pass}" ] || continue
-    line="$(grep -E 'tests passed,.*tests failed out of' "${_pass}" | tail -1)"
+  # RUNS_LONG tests run few at a time with a long timeout, so machine load does
+  # not turn them into timeouts; by default niced in the background so the
+  # downstream builds proceed, and folded in by finish_runslong.
+  local runlong=(timeout "${CTEST_TARGET_TIMEOUT}" "${envp[@]}"
+    ctest --test-dir "$d" -j"${CTEST_RUNS_LONG_JOBS:-3}" --timeout "${CTEST_RUNS_LONG_TIMEOUT:-3600}" -L RUNS_LONG
+    --output-on-failure "${inc[@]}" "${exc[@]}")
+  if [ "${CTEST_RUNS_LONG_BACKGROUND:-1}" = 1 ] && [ -n "$(ctest --test-dir "$d" -N -L RUNS_LONG "${inc[@]}" "${exc[@]}" 2>/dev/null | grep -E '^ +Test +#')" ]; then
+    ( nice -n "${CTEST_RUNS_LONG_NICE:-10}" "${runlong[@]}" >"${_long}" 2>&1; echo $? >"${_long}.rc" ) \
+      </dev/null >/dev/null 2>&1 &
+    echo "${n}" >>"${RUNSLONG_PENDING}"
+    echo "$(ctest_tally "$log" | awk '{print "T:" $2-$1 "/" $2}') runslong:pending"
+    return
+  fi
+  "${runlong[@]}" >"${_long}" 2>&1
+  [ $? -eq 124 ] && { echo "T:timeout"; return; }
+  ctest_result "$n" "$log" "${_long}"
+}
+
+# "<failed> <total>" summed over the ctest logs given.
+ctest_tally(){
+  local f line failed=0 total=0
+  for f in "$@"; do
+    [ -f "$f" ] || continue
+    line="$(grep -E 'tests passed,.*tests failed out of' "$f" | tail -1)"
     [ -n "$line" ] || continue
-    _sum_failed=$((_sum_failed + $(echo "$line" | sed -E 's/.* ([0-9]+) tests failed.*/\1/')))
-    _sum_total=$((_sum_total + $(echo "$line" | sed -E 's/.* out of ([0-9]+).*/\1/')))
+    failed=$((failed + $(echo "$line" | sed -E 's/.* ([0-9]+) tests failed.*/\1/')))
+    total=$((total + $(echo "$line" | sed -E 's/.* out of ([0-9]+).*/\1/')))
   done
-  [ -f "${_long}" ] && cat "${_long}" >>"$log"
-  if [ "${_sum_total}" -eq 0 ]; then
+  echo "${failed} ${total}"
+}
+
+# Fold the RUNS_LONG log into the main log and score both passes as one run.
+ctest_result(){
+  local n="$1" log="$2" long="$3" failed total
+  read -r failed total <<<"$(ctest_tally "$log" "$long")"
+  [ -f "${long}" ] && cat "${long}" >>"$log"
+  if [ "${total}" -eq 0 ]; then
     grep -qE 'No tests were found' "$log" && { echo "T:0/0:no-tests"; return; }
     echo "T:unknown"; return
   fi
-  failed="${_sum_failed}"
-  total="${_sum_total}"
   echo "T:$((total - failed))/${total}$(record_ctest_run "$n" "$log" "$((total - failed))" "${total}")"
+}
+
+# Wait for background RUNS_LONG passes and report each target's combined result.
+finish_runslong(){
+  [ -s "${RUNSLONG_PENDING}" ] || return 0
+  local n log long tstat
+  while read -r n; do
+    log="${LOGDIR}/ctest-${n}${LOG_TAG}.log"; long="${log%.log}-runslong.log"
+    echo "-------------------- CTEST ${n} RUNS_LONG (waiting) --------------------"
+    until [ -f "${long}.rc" ]; do sleep 30; done
+    if [ "$(cat "${long}.rc")" = 124 ]; then tstat="T:timeout"; else tstat="$(ctest_result "$n" "$log" "${long}")"; fi
+    echo "RESULT ${n} (with RUNS_LONG): ${tstat}  (${log})"
+    if [[ "${tstat}" == *new-fail:* ]]; then
+      SUMMARY="${SUMMARY}$(printf 'REGRESS %-18s %s' "${n}" "${tstat} (with RUNS_LONG)")"$'\n'
+    else
+      SUMMARY="${SUMMARY}$(printf 'PASS  %-20s %s' "${n}" "${tstat} (with RUNS_LONG)")"$'\n'
+    fi
+  done <"${RUNSLONG_PENDING}"
+  rm -f "${RUNSLONG_PENDING}"
 }
 
 # Accept the latest run's failures for $1 as its baseline.
@@ -365,24 +412,119 @@ case "${1:-}" in
   --list-deferred)  printf '%s\n' "${DEFERRED_TARGETS[@]}"; exit 0 ;;
   --check-artifact) artifact_ok "${2:?usage: --check-artifact <target>}"; exit $? ;;
   --ctest-dir)      ctest_dir "${2:?usage: --ctest-dir <target>}"; exit 0 ;;
-  --run-ctest)      run_ctest "${2:?usage: --run-ctest <target>}"; exit 0 ;;
+  --run-ctest)      CTEST_RUNS_LONG_BACKGROUND=0 run_ctest "${2:?usage: --run-ctest <target>}"; exit 0 ;;
   --record-baseline) record_baseline "${2:?usage: --record-baseline <target>}"; exit $? ;;
   --ctest-history)  [ -f "${RESULTS_TSV}" ] || { echo "no ctest history in ${LOGDIR}" >&2; exit 1; }
                     if [ -n "${2:-}" ]; then awk -F'\t' -v t="$2" 'NR==1 || $2==t' "${RESULTS_TSV}"; else cat "${RESULTS_TSV}"; fi
                     exit 0 ;;
 esac
 
-for t in "${TARGETS[@]}"; do
+run_target(){
+  local t="$1"
   # VkFFTBackend is GPU-gated: build with CUDA/Metal/OpenCL where available,
   # skip (not fail) on hosts with no GPU backend.
   if [ "$t" = VkFFTBackend ] && [ -z "$(bash "${ENG}" vkfft-backend 2>/dev/null)" ]; then
     SUMMARY="${SUMMARY}$(printf 'SKIP  %-20s %s' "${t}" '(no GPU backend)')"$'\n'
-    echo "RESULT ${t}: SKIP (no CUDA/Metal/OpenCL backend)"; continue
+    echo "RESULT ${t}: SKIP (no CUDA/Metal/OpenCL backend)"; return
   fi
   if [ "$t" = ITK ] || [ -d "${TB}/${t}" ]; then build_target "$t"
   else SUMMARY="${SUMMARY}SKIP  ${t}"$'\n'; echo "RESULT ${t}: SKIP (not checked out)"; fi
-  if [ "$t" = ITK ] && ! artifact_ok ITK; then echo "ITK FAILED — aborting"; break; fi
-done
+}
+
+# Busy cores, from summed process CPU. The load average overstates it: a
+# thread-pooled ITK test keeps dozens of threads runnable on a few cores.
+_busy(){ ps -A -o %cpu= 2>/dev/null | awk '{s += $1} END {printf "%d\n", s / 100}'; }
+
+# Take one of MATRIX_PARALLEL build slots, first come first served: a lane
+# queues a ticket and only the oldest ticket may start. While another target
+# is building, also wait for the busy cores to fall below MATRIX_MAX_LOAD and
+# for MATRIX_START_SPACING seconds since the last start, so a new build
+# registers. mkdir is the atomic lock; an idle matrix always starts, so
+# outside load cannot stall it.
+slot_acquire(){
+  local k last busy ticket
+  mkdir -p "${SLOTDIR}/.queue"
+  ticket="$(mktemp "${SLOTDIR}/.queue/$(date +%s).XXXXXX")"
+  while :; do
+    if mkdir "${SLOTDIR}/.lock" 2>/dev/null; then
+      busy="$(find "${SLOTDIR}" -mindepth 1 -maxdepth 1 -type d ! -name .lock ! -name .queue | wc -l | tr -d ' ')"
+      last="$(cat "${SLOTDIR}/.last-start" 2>/dev/null || echo 0)"
+      if [ "$(ls "${SLOTDIR}/.queue" | sort | head -1)" = "$(basename "${ticket}")" ] \
+         && { [ "${busy}" -eq 0 ] || { [ "${busy}" -lt "${MATRIX_PARALLEL}" ] \
+           && [ $(( $(date +%s) - last )) -ge "${MATRIX_START_SPACING:-180}" ] \
+           && [ "$(_busy)" -lt "${MATRIX_MAX_LOAD}" ]; }; }; then
+        for ((k = 1; k <= MATRIX_PARALLEL; k++)); do
+          if mkdir "${SLOTDIR}/${k}" 2>/dev/null; then
+            date +%s >"${SLOTDIR}/.last-start"; rm -f "${ticket}"; rmdir "${SLOTDIR}/.lock"
+            echo "${k}"; return
+          fi
+        done
+      fi
+      rmdir "${SLOTDIR}/.lock"
+    fi
+    sleep "${MATRIX_LOAD_POLL:-30}"
+  done
+}
+
+# A lane builds its targets in order; lanes run side by side.
+run_lane(){
+  local t k
+  for t in "$@"; do
+    k="$(slot_acquire)"
+    echo "## $(date '+%H:%M:%S') start ${t} (slot ${k}, busy cores $(_busy))"
+    SUMMARY=""
+    run_target "$t" >"${SUMDIR}/${t}.out" 2>&1
+    cat "${SUMDIR}/${t}.out"
+    printf '%s' "${SUMMARY}" >"${SUMDIR}/${t}.summary"
+    rmdir "${SLOTDIR}/${k}"
+  done
+}
+
+# Targets that write into ITK's build tree (wrapping into its Python package,
+# libraries into its lib/) share one lane, and SphinxExamples, which imports
+# that package, runs last in it. The Slicer chain is ordered: Slicer brings
+# the VTK that OpenIGTLinkIO/vtkAddon/IGSIO/PlusLib need.
+ITK_TREE_LANE=(RTK Cleaver PerformanceBenchmarking SimpleITKFilters TractographyTRX VkFFTBackend Impact)
+SLICER_LANE=(OpenIGTLink Slicer SlicerExtensions OpenIGTLinkIO vtkAddon IGSIO PlusLib)
+MATRIX_PARALLEL="${MATRIX_PARALLEL:-3}"
+MATRIX_MAX_LOAD="${MATRIX_MAX_LOAD:-$(_ncpu)}"
+# Concurrent builds share the cores: default each to its share, rounded up.
+[ "${MATRIX_PARALLEL}" -gt 1 ] && export JOBS="${JOBS:-$(( ($(_ncpu) * 3 / 2 + MATRIX_PARALLEL - 1) / MATRIX_PARALLEL ))}"
+[ -n "${MATRIX_TARGETS:-}" ] && read -r -a TARGETS <<<"${MATRIX_TARGETS}"
+
+_in(){ local x="$1" y; shift; for y in "$@"; do [ "$x" = "$y" ] && return 0; done; return 1; }
+
+rm -f "${RUNSLONG_PENDING}"
+SLOTDIR="${LOGDIR}/.matrix-slots${LOG_TAG}"; SUMDIR="${LOGDIR}/.matrix-results${LOG_TAG}"
+rm -rf "${SLOTDIR}" "${SUMDIR}"; mkdir -p "${SLOTDIR}" "${SUMDIR}"
+
+if _in ITK "${TARGETS[@]}"; then
+  run_target ITK
+  artifact_ok ITK || { echo "ITK FAILED -- aborting"; printf '%s' "${SUMMARY}"; exit 1; }
+fi
+if [ "${MATRIX_PARALLEL}" -le 1 ]; then
+  for t in "${TARGETS[@]}"; do [ "$t" = ITK ] || run_target "$t"; done
+else
+  itk_lane=() slicer_lane=() solo=() sphinx=()
+  for t in "${TARGETS[@]}"; do
+    [ "$t" = ITK ] && continue
+    if [ "$t" = SphinxExamples ]; then sphinx=(SphinxExamples)
+    elif _in "$t" "${SLICER_LANE[@]}"; then slicer_lane+=("$t")
+    elif _in "$t" "${ITK_TREE_LANE[@]}" || { [ -d "${TB}/${t}" ] && _wraps_into_itk "$t"; }; then itk_lane+=("$t")
+    else solo+=("$t"); fi
+  done
+  pids=()
+  [ ${#itk_lane[@]} -gt 0 ] || [ ${#sphinx[@]} -gt 0 ] && { run_lane "${itk_lane[@]}" "${sphinx[@]}" & pids+=($!); }
+  [ ${#slicer_lane[@]} -gt 0 ] && { run_lane "${slicer_lane[@]}" & pids+=($!); }
+  for t in "${solo[@]}"; do run_lane "$t" & pids+=($!); done
+  wait "${pids[@]}"
+  for t in "${TARGETS[@]}"; do
+    [ "$t" = ITK ] && continue
+    [ -f "${SUMDIR}/${t}.summary" ] && SUMMARY="${SUMMARY}$(cat "${SUMDIR}/${t}.summary")"$'\n'
+  done
+fi
+
+finish_runslong
 
 echo; echo "==================== MATRIX ===================="
 printf '%s' "${SUMMARY}"
