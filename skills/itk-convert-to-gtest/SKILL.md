@@ -1,6 +1,6 @@
 ---
 name: itk-convert-to-gtest
-version: 1.11.0
+version: 1.13.0
 purpose: Mechanically convert no-argument ITK CTests in one module to GoogleTest, one test per commit, preserving behavior and git history, following N-Dekker's "one commit, one change" reviewer standard.
 description: Convert no-argument ITK CTests (itk_add_test with no trailing args) to GoogleTest format. Strictly mechanical, one test per git-mv-tracked commit, with assertion-macro mapping, CMakeLists rewiring, and mandatory per-commit build+test. Use when migrating an ITK module's legacy CTest functions to the GTest driver.
 triggers:
@@ -53,6 +53,8 @@ dependencies:
     - find_gtest_candidates.py
     - check_gtest_asserts.py
     - check_gtest_silent_checks.py
+    - scoped_trace_progress.py
+    - vector_near_checks.py
     - coverage/configure_coverage_build.sh
     - coverage/run_coverage_tests.sh
     - coverage/export_per_driver.sh
@@ -186,7 +188,8 @@ first, then the content edits as a fixup.
   helpers: in a shared GoogleTest driver, external linkage risks an ODR clash
   with another test's helper of the same name.
 - Preserve `std::cout` diagnostics **only** when they call functions that would
-  otherwise not be exercised; otherwise minimize redundant output on pass.
+  otherwise not be exercised (`std::cout << *filter` runs `PrintSelf`).
+  Progress and status lines become `SCOPED_TRACE` or go; see below.
 - Preserve all comments, especially scope-explaining ones.
 - Legacy-API tests: wrap in `#ifndef ITK_FUTURE_LEGACY_REMOVE` / `#endif`.
 
@@ -212,7 +215,7 @@ Translate output/return-code checks into the **most specific** macro:
 | `ITK_TRY_EXPECT_EXCEPTION(expr)`, or a try/catch expecting an exception (printed or not) | `EXPECT_THROW(expr, ExceptionType)` / `ASSERT_THROW` |
 | `ITK_TRY_EXPECT_NO_EXCEPTION(expr)` with more code after it | `ASSERT_NO_THROW(expr)` (see below) |
 | `ITK_TRY_EXPECT_NO_EXCEPTION(expr)` as the last statement | `EXPECT_NO_THROW(expr)` |
-| comparing ITK array-like objects | `ITK_EXPECT_VECTOR_NEAR(v1, v2, rmsError)` |
+| comparing ITK array-like objects | `ITK_EXPECT_VECTOR_NEAR(v1, v2, rmsError)` (see below) |
 
 #### Reseed `vnl_sample` like the legacy driver
 
@@ -225,6 +228,65 @@ random inputs: it still passes, but exercises different branches. Make the
 first statement of each such `TEST` `vnl_sample_reseed(8775070);` and include
 `"vnl/vnl_sample.h"`. Find library users with
 `git grep -l vnl_sample -- 'Modules/*' ':!*/test/*' ':!Modules/ThirdParty/*'`.
+
+#### Progress output becomes `SCOPED_TRACE`; status output goes
+
+A passing GoogleTest should print nothing. A legacy heading such as
+`std::cout << "Creating an image" << std::endl;` becomes
+`SCOPED_TRACE("Creating an image");`, which prints the text only when a
+check in the same scope fails (N-Dekker, ITK PR #7063). A line that repeats
+what GoogleTest reports (`"[PASSED]"`, `"OK"`, `"Test finished"`, a `=====`
+rule) is deleted, as is a heading with nothing after it in its block.
+Replace a local `println("...")` helper the same way and delete the helper.
+
+Leave these prints alone:
+
+- inside `if`/`else`/`catch`/`switch` or an unbraced body: they already
+  print only on failure;
+- failure wording ("error", "exception", "wrong");
+- a `"Label:"` header, or a line without a newline, completed by the next
+  print;
+- any print that streams a value: it may exercise `operator<<` or
+  `PrintSelf`, which the coverage check counts.
+
+Traces in one scope stack: a failure lists every earlier heading, newest
+first. That is accepted; do not add braces to narrow a trace, since it
+restructures the test. A trace in a helper that returns before the caller's
+`EXPECT_*` is never shown; the heading is lost, which is acceptable.
+
+The packaged script applies exactly these rules:
+
+```bash
+python3 scoped_trace_progress.py -v Modules/Group/Name/test/itkFooGTest.cxx
+python3 scoped_trace_progress.py --fix Modules/Group/Name/test/itkFooGTest.cxx
+```
+
+Then run `pre-commit` (clang-format folds the blank lines a deleted print
+leaves) and delete any helper the fix left unused.
+
+#### Compare whole vectors with `ITK_EXPECT_VECTOR_NEAR`
+
+One `ITK_EXPECT_VECTOR_NEAR(a, b, tol)` replaces an `EXPECT_NEAR` per
+component, written out or in a loop (ITK PR #7090). On failure it prints both
+objects. Keep a streamed message that is the same for every component; drop
+one that names the index. The test is RMS, so one component may differ by up
+to sqrt(n) times `tol`.
+
+- Both operands must be ITK array-like objects (`Point`, `Vector`,
+  `FixedArray`, `Array`, `Index`, `OptimizerParameters`, ...). A C array
+  does not compile: declare it as `itk::MakeVector(2.0, -2.0)` instead.
+- The macro compares every element, so the checks being replaced must cover
+  every element too. Skip a run where one component is checked in another
+  form, such as `EXPECT_NEAR(n[2], -n_known[2], tol)`.
+- Before ITK commit "BUG: Compare every element in ITK_EXPECT_VECTOR_NEAR",
+  the macro compared only element 0 of a type without a `NumericTraits`
+  specialization (`Index`, `Offset`, `Size`, `OptimizerParameters`). On a
+  branch without that fix, keep the per-component checks for those types.
+
+```bash
+python3 vector_near_checks.py Modules/Group/Name/test/itkFooGTest.cxx
+python3 vector_near_checks.py --fix Modules/Group/Name/test/itkFooGTest.cxx
+```
 
 #### Do not print caught exceptions
 
@@ -440,6 +502,8 @@ report nothing:
 ```bash
 python3 check_gtest_asserts.py Modules/Group/Name/test/itkFooGTest.cxx
 python3 check_gtest_silent_checks.py Modules/Group/Name/test/itkFooGTest.cxx
+python3 scoped_trace_progress.py Modules/Group/Name/test/itkFooGTest.cxx
+python3 vector_near_checks.py Modules/Group/Name/test/itkFooGTest.cxx
 cmake --build build --target ITKThisModuleGTestDriver -j"$(getconf _NPROCESSORS_ONLN)"
 ctest --test-dir build -R "itkFooGTest" --output-on-failure
 ```
@@ -599,6 +663,10 @@ then follow steps 2c–2e.
   bodies, so converted tests do not re-introduce `-Wsign-compare`.
 - Do **not** assert tautologies (`EXPECT_THROW(throw e, E)`); every check must
   be able to fail for a defect in the code under test.
+- Progress headings become `SCOPED_TRACE("...")`; success markers
+  (`"[PASSED]"`, `"Test finished"`) are deleted (`scoped_trace_progress.py`).
+- Compare whole vectors with `ITK_EXPECT_VECTOR_NEAR`, not one `EXPECT_NEAR`
+  per component (`vector_near_checks.py`).
 - One condition per `static_assert`, never `A && B`.
 - A literal used twice (input and expectation) becomes a named constant.
 - Template parameters name their role (`TExpectedBaseClass`, not `TParent`).
