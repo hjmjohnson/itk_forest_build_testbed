@@ -1,6 +1,6 @@
 ---
 name: gh-triage-pr
-version: 1.1.0
+version: 1.2.0
 purpose: 'Triage one or more GitHub pull requests in a strict priority order: (1) address human reviewer comments first, (2) fix CI failures second, (3) address the AI-reviewer findings for the repo (greptile or coderabbit) third — only after all CI builds are green, (4) finally recommend marking the PR ready for review.'
 description: >-
   Triage one or more GitHub pull requests in a strict priority order:
@@ -16,7 +16,10 @@ description: >-
   rebase --autosquash), replies to individual inline comments so the
   GitHub "Resolved" status is visible, resolves threads via GraphQL when
   a reply is posted, and always re-checks the PR title and body for
-  accuracy after the final set of fixups.
+  accuracy after the final set of fixups. For the user's own PRs; review
+  judgement (an Opus 5.5 /code-review max gate before Greptile and before
+  ready) comes from gh-review-pr, which this skill calls and then fixes
+  what it finds. Other people's PRs go to gh-review-pr alone.
 triggers:
   - gh-triage-pr
   - /gh-triage-pr
@@ -48,7 +51,8 @@ contract:
     has_ai_derived_layer: false
     derivation_version: 0
 dependencies:
-  skills: []
+  skills:
+    - gh-review-pr
   external_tools: []
   python_packages: []
   scripts: []
@@ -68,6 +72,30 @@ resolved" with minimum wasted effort — don't ask bots for another round
 of review until the humans and CI are happy, and never leave a force-push
 without also replying to the threads that motivated it.
 
+## Relationship to gh-review-pr
+
+This skill is for the **user's own PRs** and changes code: fixups,
+autosquash, force-push, CI fixes. **`gh-review-pr`** is for other people's
+PRs and never changes code. The two split the work without overlap:
+
+- **gh-review-pr owns review judgement**: the `/code-review max` run on
+  Opus 5.5 (`claude-opus-5-5`), how to run it (axis sub-agents with
+  `model: "opus"`, prior-findings ledger), and the max-review gate that
+  must pass on the current head before Greptile is requested and before
+  the PR leaves draft. Follow its "Running the max review on Opus 5.5"
+  section; do not restate it here.
+- **This skill owns the fixes**: each finding from that review is handled
+  like a human comment in Phase 1 (fixup into the introducing commit), then
+  the gate is re-run on the new head.
+
+The gate check, from any checkout:
+
+```bash
+R=~/.claude/skills/gh-review-pr/scripts/review_state.py
+python3 $R --repo OWNER/NAME --gate N                       # exit 0 = PASS
+python3 $R --repo OWNER/NAME --record-review N:<sha> --model claude-opus-5-5
+```
+
 ## Quick reference (print when invoked without arguments)
 
 If the user invokes `/gh-triage-pr` with no arguments or an ambiguous
@@ -86,8 +114,9 @@ Usage:
 Phases (strict order — do not skip):
   1. Human comments    Address reviewer feedback, fixup commits
   2. CI failures       Fix red checks on HEAD
-  3. AI review         Address P1/P2 from greptile / coderabbit
-  4. Metadata + ready  Check title/body, recommend gh pr ready
+  3. Review gate + AI  Opus 5.5 /code-review max via gh-review-pr, fix,
+                       then Greptile / CodeRabbit P1/P2
+  4. Metadata + ready  Gate PASS on HEAD, check title/body, recommend ready
 ```
 
 ## When to use
@@ -119,10 +148,11 @@ humans and CI are settled.
 │          Red checks on the current HEAD commit.             │
 │          Do not proceed to Phase 3 with any red check.      │
 ├─────────────────────────────────────────────────────────────┤
-│ Phase 3  AI REVIEW                                          │
-│          Whichever provider the repo runs (greptile,        │
-│          coderabbit, ...). Request or force a review, then  │
-│          address every P1/P2. Iterate until clean.          │
+│ Phase 3  REVIEW GATE + AI REVIEW                            │
+│          First pass the gh-review-pr gate: Opus 5.5         │
+│          /code-review max on HEAD, findings fixed. Then     │
+│          request Greptile / CodeRabbit and address every    │
+│          P1/P2. Iterate until clean.                        │
 ├─────────────────────────────────────────────────────────────┤
 │ Phase 4  PR METADATA + READY-FOR-REVIEW RECOMMENDATION      │
 │          Re-read PR title + body + final diff. Recommend    │
@@ -552,6 +582,12 @@ a real finding gets lost.
 
 **Procedure**
 
+0. **Pass the gh-review-pr gate first.** Run `/code-review max` on
+   Opus 5.5 against HEAD as gh-review-pr describes. Fix every finding with
+   the Phase 1 fixup pattern, push, and re-run on the new HEAD until it
+   finds nothing open. Then `--record-review` that head and confirm
+   `--gate` passes. A Greptile request on a head that has not passed the
+   gate wastes a review on code that is about to change.
 1. **Get a review for the current HEAD.**
    - *Greptile*: post the request comment, then poll `ghtp_fetch.py`
      until it responds (typically 1-3 minutes).
@@ -614,6 +650,10 @@ There is no local-review equivalent for CodeRabbit.
 3. Verify all threads are resolved (`ghtp_fetch.py` will show any
    stragglers).
 4. Verify CI is green on the current HEAD.
+4a. Verify the gh-review-pr gate passes on the current HEAD
+   (`review_state.py --gate N`). Any push after Phase 3, including the
+   AI-review fixups, moved HEAD, so re-run the Opus 5.5 max review on it
+   first.
 5. **Recommend** marking ready for review:
    ```
    All phases clean. Recommend:
