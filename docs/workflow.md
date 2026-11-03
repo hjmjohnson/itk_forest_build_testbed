@@ -21,7 +21,8 @@ pixi run build-Slicer
 pixi run bash bin/run-matrix.sh
 # 4. Add tests: a target with a failing test outside its accepted failures
 #    (ctest-baselines/<forest>/<target>.failures, else its previous run)
-#    scores REGRESS; every run is kept in <forest>/logs/ctest-history/ and
+#    scores REGRESS, and a target with tests that never ran (executable not
+#    built: "notrun:N") scores FAIL; every run is kept in <forest>/logs/ctest-history/ and
 #    <forest>/logs/ctest-results-<suffix>.tsv:
 RUN_CTEST=1 pixi run bash bin/run-matrix.sh
 pixi run bash bin/run-matrix.sh --run-ctest BRAINSTools     # one target
@@ -111,6 +112,27 @@ python3 bin/config.py compare build_forest-itk-release-5.4 build_forest-itk-pr62
 
 reports the `## forest` identity and per-component `ref`/`slug`/`sha` deltas —
 that is how you check which ITK is in which forest before trusting a result.
+It also lists the two differences a SHA delta hides: **local commits on no
+remote** that one forest's consumers carry and the other's lack, and **ITK
+build options** (`Module_*`/`ITK_*` cache BOOLs) that differ. A forest with a
+built VTK selects the `vtkglue` ITK preset, for example, and a hand-set cache
+value never reaches the manifest.
+
+A new forest starts every consumer from upstream, without the local patches an
+older forest needed to build against current ITK. Compare a new ref against an
+existing baseline forest by seeding from it:
+
+```bash
+FOREST_REFERENCE_SUFFIX=itk-pr7084 FOREST_SEED=itk-main ITK_REF=pr/7084 pixi run checkout
+python3 bin/config.py compare build_forest-itk-main build_forest-itk-pr7084
+```
+
+`FOREST_SEED` (a forest directory or suffix) cherry-picks each consumer's
+commits that are on no remote onto the newly created worktree. ITK, the ref
+under test, and scenario-overridden components are not seeded; a commit that
+does not apply is left out with a warning. Then run `compare`: anything left in
+its local-commit or ITK-option sections makes the two forests' results
+incomparable until it is resolved.
 
 Worktree branch names are suffixed (`itk-downstream-pr6250`) since git allows a
 branch in only one worktree. Cross-forest ccache hits are enabled by

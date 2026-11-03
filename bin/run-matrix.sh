@@ -145,7 +145,8 @@ record_ctest_run(){
 
 # Run the test suite for $1; echo a compact token:
 #   T:142/150 (8 of 150 failed) | T:0/0:no-tests | T:skip:no-harness | T:timeout
-#   followed by " new-fail:N" (regressions) and " fixed:M" when the reference says so.
+#   followed by " new-fail:N" (regressions) and " fixed:M" when the reference says so,
+#   and " notrun:K" when K tests had no executable (scored FAIL).
 run_ctest(){
   local n="$1" d log line failed total inc=()
   d="$(ctest_dir "$n")"
@@ -234,7 +235,17 @@ ctest_result(){
     grep -qE 'No tests were found' "$log" && { echo "T:0/0:no-tests"; return; }
     echo "T:unknown"; return
   fi
-  echo "T:$((total - failed))/${total}$(record_ctest_run "$n" "$log" "$((total - failed))" "${total}")"
+  local notrun; notrun="$(grep -cE '\*\*\*Not Run' "$log")"
+  echo "T:$((total - failed))/${total}$(record_ctest_run "$n" "$log" "$((total - failed))" "${total}")$([ "${notrun}" -gt 0 ] && echo " notrun:${notrun}")"
+}
+
+# Summary line for a built target's test token: a test that never ran (missing
+# executable) proves nothing, so it scores FAIL even when no reference flags it.
+ctest_summary_line(){
+  local n="$1" tstat="$2"
+  if [[ "${tstat}" == *notrun:* ]]; then printf 'FAIL  %-20s %s' "${n}" "${tstat} (tests not run)"
+  elif [[ "${tstat}" == *new-fail:* ]]; then printf 'REGRESS %-18s %s' "${n}" "${tstat}"
+  else printf 'PASS  %-20s %s' "${n}" "${tstat}"; fi
 }
 
 # Wait for background RUNS_LONG passes and report each target's combined result.
@@ -247,11 +258,7 @@ finish_runslong(){
     until [ -f "${long}.rc" ]; do sleep 30; done
     if [ "$(cat "${long}.rc")" = 124 ]; then tstat="T:timeout"; else tstat="$(ctest_result "$n" "$log" "${long}")"; fi
     echo "RESULT ${n} (with RUNS_LONG): ${tstat}  (${log})"
-    if [[ "${tstat}" == *new-fail:* ]]; then
-      SUMMARY="${SUMMARY}$(printf 'REGRESS %-18s %s' "${n}" "${tstat} (with RUNS_LONG)")"$'\n'
-    else
-      SUMMARY="${SUMMARY}$(printf 'PASS  %-20s %s' "${n}" "${tstat} (with RUNS_LONG)")"$'\n'
-    fi
+    SUMMARY="${SUMMARY}$(ctest_summary_line "${n}" "${tstat} (with RUNS_LONG)")"$'\n'
   done <"${RUNSLONG_PENDING}"
   rm -f "${RUNSLONG_PENDING}"
 }
@@ -366,12 +373,9 @@ build_target(){
       tstat="$(run_ctest "${n}")"
       echo "RESULT ${n}: ${tstat}  (${LOGDIR}/ctest-${n}${LOG_TAG}.log)"
     fi
-    if [[ "${tstat}" == *new-fail:* ]]; then
-      SUMMARY="${SUMMARY}$(printf 'REGRESS %-18s %s' "${n}" "${tstat}")"$'\n'
-      echo "RESULT ${n}: REGRESS -- tests failing that are not accepted failures (see ${RESULTS_TSV})"
-    else
-      SUMMARY="${SUMMARY}$(printf 'PASS  %-20s %s' "${n}" "${tstat}")"$'\n'
-    fi
+    SUMMARY="${SUMMARY}$(ctest_summary_line "${n}" "${tstat}")"$'\n'
+    [[ "${tstat}" == *notrun:* ]] && echo "RESULT ${n}: FAIL -- tests not run; their executables were not built"
+    [[ "${tstat}" == *new-fail:* ]] && echo "RESULT ${n}: REGRESS -- tests failing that are not accepted failures (see ${RESULTS_TSV})"
   else
     SUMMARY="${SUMMARY}$(printf 'FAIL  %-20s %s' "${n}" '(build failed)')"$'\n'
     echo "RESULT ${n}: build FAIL  (${LOGDIR}/matrix-${n}${LOG_TAG}.log)"

@@ -798,15 +798,45 @@ checkout_one(){
   fi
 }
 
+# FOREST_SEED=<forest dir | suffix>: a new forest starts from upstream, so it
+# lacks the local commits an older forest carries to build against current ITK.
+# Carry over each consumer's commits that are on no remote. ITK is the ref under
+# test and a scenario override defines its own content, so neither is seeded.
+_seed_dir(){
+  [ -n "${FOREST_SEED:-}" ] || return 0
+  local s="${FOREST_SEED}"
+  [ -d "${s}" ] || s="${TESTBED}/build_forest-${FOREST_SEED}"
+  [ -d "${s}" ] || die "FOREST_SEED=${FOREST_SEED}: no forest at ${FOREST_SEED} or ${s}"
+  s="$(cd "${s}" && pwd)"
+  [ "${s}" != "$(cd "${FOREST}" && pwd)" ] || die "FOREST_SEED is the forest being checked out"
+  printf '%s\n' "${s}"
+}
+_seed_component(){
+  local n="$1" seed="$2" dest="${FOREST}/$1" tip commits=()
+  [ "$n" != ITK ] && [ -e "${seed}/${n}/.git" ] || return 0
+  [ -n "${FOREST_REFERENCE_SUFFIX:-}" ] && [ -n "$(cfg scenario "${FOREST_REFERENCE_SUFFIX}" "$n" 2>/dev/null)" ] && return 0
+  tip="$(git -C "${seed}/${n}" rev-parse HEAD)" || return 0
+  mapfile -t commits < <(git -C "${dest}" rev-list --reverse --no-merges "${tip}" --not HEAD --remotes)
+  [ ${#commits[@]} -gt 0 ] || return 0
+  log "$n: seeding ${#commits[@]} local commit(s) from $(basename "${seed}")"
+  if ! git -C "${dest}" cherry-pick "${commits[@]}" >/dev/null; then
+    git -C "${dest}" cherry-pick --abort
+    warn "$n: seed commits from $(basename "${seed}") do not apply; left at its base"
+  fi
+}
+
 cmd_checkout(){ require git; mkdir -p "${FOREST}"
   local names=("$@"); [ ${#names[@]} -eq 0 ] && mapfile -t names < <(all_names)
+  local seed; seed="$(_seed_dir)" || exit 1
   for n in "${names[@]}"; do
     local meta; meta="$(row_for "$n")" || { warn "unknown: $n"; continue; }
     IFS='|' read -r kind url br <<<"$meta"
+    local fresh=0; [ -e "${FOREST}/$n/.git" ] || fresh=1
     if [ "$kind" = remote ]; then
       [ "$br" = 1 ] && [ "${HEAVY}" != 1 ] && { log "$n: heavy (CUDA/Java/wasm); set HEAVY=1 to include (skip)"; continue; }
       checkout_one "$n" "$url" "" || warn "$n: checkout failed (skip)"
     else checkout_one "$n" "$url" "$br" || warn "$n: checkout failed (skip)"; fi
+    [ "${fresh}" = 1 ] && [ -n "${seed}" ] && [ -e "${FOREST}/$n/.git" ] && _seed_component "$n" "${seed}"
     # ITK's component default is only a default; ITK_REF is the ref under test
     # and wins here, so `ITK_REF=<ref> checkout` needs no repoint-itk chaser.
     # Applied whether the worktree was just created or already present.

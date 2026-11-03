@@ -721,7 +721,53 @@ def cmd_compare(forest_a, forest_b):
             va, vb = ra.get(k, "<absent>"), rb.get(k, "<absent>")
             if va != vb:
                 print(f"  {n}.{k}: {va} != {vb}")
+    # SHAs always differ between forests; what changes a result is a local patch
+    # one forest carries and the other lacks (FOREST_SEED carries them over).
+    print("## local commits on no remote (A != B)")
+    for n in sorted((set(ca) | set(cb)) - {"ITK"}):
+        la = _local_commit_subjects(os.path.join(forest_a, n))
+        lb = _local_commit_subjects(os.path.join(forest_b, n))
+        for s in sorted(la - lb):
+            print(f"  {n}: only A: {s}")
+        for s in sorted(lb - la):
+            print(f"  {n}: only B: {s}")
+    # Forest contents select ITK presets (a built VTK turns on ITKVtkGlue), and
+    # hand edits land in the cache, so the manifest alone misses these.
+    print("## ITK build options (A != B)")
+    oa = _itk_cache_bools(forest_a)
+    ob = _itk_cache_bools(forest_b)
+    if oa is None or ob is None:
+        print("  (ITK/build/CMakeCache.txt missing in "
+              f"{'A' if oa is None else 'B'}; not compared)")
+    else:
+        for k in sorted(set(oa) | set(ob)):
+            va, vb = oa.get(k, "<absent>"), ob.get(k, "<absent>")
+            if va != vb:
+                print(f"  {k}: {va} != {vb}")
     return 0
+
+
+def _local_commit_subjects(worktree):
+    if not os.path.exists(os.path.join(worktree, ".git")):
+        return set()
+    r = subprocess.run(["git", "-C", worktree, "log", "--no-merges", "--format=%s",
+                        "HEAD", "--not", "--remotes"],
+                       capture_output=True, text=True)
+    return {s for s in r.stdout.splitlines() if s} if r.returncode == 0 else set()
+
+
+def _itk_cache_bools(forest):
+    path = os.path.join(forest, "ITK", "build", "CMakeCache.txt")
+    if not os.path.isfile(path):
+        return None
+    pat = re.compile(r"^((?:Module_|ITK_)[A-Za-z0-9_]+):BOOL=(.*)$")
+    out = {}
+    with open(path, encoding="utf-8", errors="replace") as f:
+        for line in f:
+            m = pat.match(line.rstrip("\n"))
+            if m:
+                out[m.group(1)] = m.group(2)
+    return out
 
 
 if __name__ == "__main__":
