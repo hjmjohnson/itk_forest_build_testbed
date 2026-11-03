@@ -112,6 +112,7 @@ Usage:
   /gh-triage-pr all-draft          All your draft PRs only
 
 Phases (strict order — do not skip):
+  0. Conflicts         "This branch has conflicts": always rebase onto base
   1. Human comments    Address reviewer feedback, fixup commits
   2. CI failures       Fix red checks on HEAD
   3. Review gate + AI  Opus 5.5 /code-review max via gh-review-pr, fix,
@@ -421,6 +422,55 @@ no fixups, no edits. Reviewers can then dismiss that push at a glance
 (GitHub shows it as "force-pushed" with an empty/mechanical range
 diff) and read the later content-only force-push in isolation. See
 "Separate force-pushes for rebase vs. content" below.
+
+### Step 0.6 — "This branch has conflicts": always resolve by rebase
+
+When GitHub reports the PR as conflicting (`mergeable == CONFLICTING`,
+shown as "This branch has conflicts that must be resolved";
+`ghtp_fetch.py` reports it as `pr.needs_conflict_rebase`), resolve it by
+**rebasing the PR's commits onto `upstream/<base>`**, at any phase and
+before any other triage work. Never resolve a conflict with a merge
+commit, the GitHub web conflict editor, or "Update branch": each one
+puts a merge of the base into the PR history.
+
+```bash
+gh pr view "$NUM" --repo "$OWNER/$REPO" --json mergeable,mergeStateStatus
+#   UNKNOWN means GitHub has not computed it yet: wait a few seconds and ask again
+git fetch upstream "$BASE_REF"
+git rebase "upstream/${BASE_REF}"      # resolve each conflicting commit in place
+#   edit the conflicted files, then: git add <files>; git rebase --continue
+#   resolve each commit's conflict as that commit would have written it
+```
+
+Then, before the push:
+
+1. **Check that the rebase changed nothing else.** Run `git range-diff`
+   from the old head to the new one. Each commit should be `=` or differ
+   only in the conflicted hunks.
+   Check the commit messages too: when git re-creates a conflicted commit
+   it strips message lines that start with `#` (an issue reference such
+   as `#4864: ...`). Restore the original with
+   `git commit --amend --cleanup=verbatim -F <(git log -1 --format=%B <old-sha>)`.
+2. **Build and run the tests** around every file the conflict touched,
+   through `jobslot` (see `pr-local-test-first.md`). A conflict in CMake
+   or a test list needs the affected test driver built.
+3. **Pass the pre-commit gate** (`pre-commit run --all-files`).
+4. **Push the rebase on its own, pinned to the old head:**
+   `git push --force-with-lease=<branch>:<old-head-sha> <remote> HEAD:<branch>`.
+5. **Explain the push** in a one-line PR comment: which merged change
+   caused the conflict, and how it was resolved.
+
+The push is "rebase only" in the sense of the next section: it carries
+only the conflict resolution, never review fixes, so reviewers can skip
+it.
+
+If a resolution needs a real design choice (two features that collide,
+not just neighboring lines), stop and ask the user before pushing.
+
+For a PR the user does not own, this skill does not apply. `gh-review-pr`
+reports a CONFLICT state and leaves the rebase to the author. Rebase
+someone else's branch only when the user asks for that PR, under the
+same procedure, and only when `maintainerCanModify` is true.
 
 ### Step 1 — Fetch and classify
 
@@ -768,6 +818,7 @@ P1/P2/P3, and dispatch it from `parse_findings()`. Nothing in
 
 Before reporting success on a PR:
 
+- [ ] GitHub does not report "This branch has conflicts" (resolved by rebase, never by a merge)
 - [ ] All human threads marked resolved on GitHub
 - [ ] CI is green on the HEAD commit
 - [ ] AI review covers the current HEAD and all P1/P2 findings are addressed

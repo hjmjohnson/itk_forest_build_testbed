@@ -93,7 +93,7 @@ def fetch_pr_metadata(owner, repo, num):
             "--repo",
             f"{owner}/{repo}",
             "--json",
-            "number,title,body,isDraft,state,headRefName,headRefOid,baseRefName,author",
+            "number,title,body,isDraft,state,headRefName,headRefOid,baseRefName,author,mergeable,mergeStateStatus",
         ]
     )
 
@@ -542,6 +542,9 @@ def main():
             "head_sha": head_sha,
             "head_ref": meta["headRefName"],
             "base_ref": meta["baseRefName"],
+            "mergeable": meta.get("mergeable"),
+            "merge_state": meta.get("mergeStateStatus"),
+            "needs_conflict_rebase": meta.get("mergeable") == "CONFLICTING",
             "author": meta["author"]["login"],
             "url": f"https://github.com/{owner}/{repo}/pull/{num}",
         },
