@@ -235,7 +235,7 @@ ctest_result(){
     grep -qE 'No tests were found' "$log" && { echo "T:0/0:no-tests"; return; }
     echo "T:unknown"; return
   fi
-  local notrun; notrun="$(grep -cE '\*\*\*Not Run' "$log")"
+  local notrun; notrun="$(grep -E '\*\*\*Not Run' "$log" | grep -cv '(Disabled)')"
   echo "T:$((total - failed))/${total}$(record_ctest_run "$n" "$log" "$((total - failed))" "${total}")$([ "${notrun}" -gt 0 ] && echo " notrun:${notrun}")"
 }
 
