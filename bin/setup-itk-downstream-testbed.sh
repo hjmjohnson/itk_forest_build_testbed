@@ -393,6 +393,31 @@ vtk_dir(){
 forest_itk_major(){
   grep -oE 'ITK_VERSION_MAJOR[^0-9]*[0-9]+' "${FOREST}/ITK/CMake/itkVersion.cmake" 2>/dev/null \
     | grep -oE '[0-9]+$' | head -1; }
+forest_itk_minor(){
+  grep -oE 'ITK_VERSION_MINOR[^0-9]*[0-9]+' "${FOREST}/ITK/CMake/itkVersion.cmake" 2>/dev/null \
+    | grep -oE '[0-9]+$' | head -1; }
+
+# BRAINSTools' SuperBuild defaults BRAINSTools_ITK_VERSION to 5.4 and derives
+# ANTs' ITK_VERSION_MAJOR and the ITK 6 zlib wiring from it, so a v6 forest must
+# say so. Empty (no KV) when the forest's ITK is not checked out yet.
+brainstools_itk_version_kv(){
+  local ma mi; ma="$(forest_itk_major)"; mi="$(forest_itk_minor)"
+  [ -n "${ma}" ] && echo "BRAINSTools_ITK_VERSION=${ma}.${mi:-0}"
+}
+
+# ITK 5.4 and later need C++17; VkFFTBackend defaults to C++14 unless it
+# builds the Metal backend, so castxml rejects ITK's headers on CUDA/OpenCL.
+vkfft_cxx_standard_kv(){ echo "CMAKE_CXX_STANDARD=17"; }
+
+# KEY=VAL overlay values that build_one must find in an existing cache; a
+# mismatch forces a reconfigure, since build_one otherwise reuses the cache.
+declared_cache_kvs(){
+  case "$1" in
+    BRAINSTools)  brainstools_itk_version_kv
+                  local _bte; for _bte in ${BRAINSTOOLS_EXTRA:-}; do echo "${_bte#-D}"; done ;;
+    VkFFTBackend) vkfft_cxx_standard_kv ;;
+  esac
+}
 
 # Hard requirement: ANTs main needs ITK v6+. ANTs dropped ITK5 in PR #1933
 # ("ITK 6", merged 2026-03-15: External_ITKv5.cmake -> External_ITKv6.cmake,
@@ -615,7 +640,7 @@ _pin_drift(){ # <cache-file> <cache-var> <declared-value> <label>
   [ -n "${want}" ] || return 0
   have="$(sed -n "s/^${var}:[^=]*=//p" "${cache}" | head -1)"
   [ "${want}" = "${have}" ] && return 0
-  warn "Slicer ${label} pin drift (cache='${have:-<unset>}' declared='${want}'); reconfiguring"
+  warn "${label} drift (cache='${have:-<unset>}' declared='${want}'); reconfiguring"
   return 1
 }
 
@@ -1278,7 +1303,7 @@ configure_one(){ require_pixi_toolchain configure
                  # variant preset itk-forest-brainstools-max-modules; fork/ANTs
                  # wiring and orthogonal flags layer here.
                  local bt_preset="itk-forest-brainstools"
-                 local bt_kvs=("ITK_DIR=$(itk_dir)"
+                 local bt_kvs=("ITK_DIR=$(itk_dir)" $(brainstools_itk_version_kv)
                    "BRAINSTools_ANTs_GIT_REPOSITORY=${BRAINSTools_ANTs_GIT_REPOSITORY:-$(cfg get subbuild.BRAINSTools.ANTs_GIT_REPOSITORY)}"
                    "BRAINSTools_ANTs_GIT_TAG=${BRAINSTools_ANTs_GIT_TAG:-$(cfg get subbuild.BRAINSTools.ANTs_GIT_TAG)}")
                  if [ "${BRAINSTOOLS_MAX_MODULES:-0}" = 1 ]; then
@@ -1480,7 +1505,7 @@ json.dump(d, open(sys.argv[2],"w", encoding="utf-8"), indent=2, sort_keys=True)'
     VkFFTBackend)
                  local _vk; _vk="$(vkfft_backend)"
                  [ -n "${_vk}" ] || die "VkFFTBackend: no GPU backend (CUDA/Metal/OpenCL) on this host"
-                 local _vk_kvs=("ITK_DIR=$(itk_dir)" "VKFFT_BACKEND=${_vk}")
+                 local _vk_kvs=("ITK_DIR=$(itk_dir)" "VKFFT_BACKEND=${_vk}" "$(vkfft_cxx_standard_kv)")
                  [ "${_vk}" = 1 ] && _vk_kvs+=("CMAKE_CUDA_COMPILER=$(_find_nvcc)")
                  local _pk _kv
                  _pk="$(itk_python_kvs)" || die "VkFFTBackend: cannot resolve ITK's python interpreter"
@@ -1718,15 +1743,24 @@ build_one(){ require cmake ninja ccache; require_pixi_toolchain build
     # SlicerExecutionModel generates the CLI wrappers against ITK.
     _pin_drift "${b}/CMakeCache.txt" Slicer_SlicerExecutionModel_GIT_TAG \
       "${SLICER_SEM_GIT_TAG:-$(cfg get subbuild.Slicer.SlicerExecutionModel_GIT_TAG 2>/dev/null || true)}" \
-      SlicerExecutionModel || _drift=1
+      "Slicer SlicerExecutionModel pin" || _drift=1
     # Slicer's vendored ITK is the whole point of a ref forest: a stale cache
     # here builds the wrong ITK while every other signal reads as current.
     # subbuild-get exits non-zero for a forest with no declared variant; that
     # is configure_one's error to raise, so an empty want just skips.
     _pin_drift "${b}/CMakeCache.txt" Slicer_ITK_GIT_TAG \
       "${SLICER_ITK_GIT_TAG:-$(cfg subbuild-get "${FOREST_REFERENCE_SUFFIX:-}" Slicer ITK_GIT_TAG 2>/dev/null || true)}" \
-      "vendored ITK" || _drift=1
+      "Slicer vendored ITK pin" || _drift=1
     if [ "${_drift}" = 1 ]; then rm -f "${b}/build.ninja"; fi
+  fi
+  if [ -f "${b}/CMakeCache.txt" ]; then
+    local _kv _key _kvdrift=0
+    while IFS= read -r _kv; do
+      [ -n "${_kv}" ] || continue
+      _key="${_kv%%=*}"; _key="${_key%%:*}"
+      _pin_drift "${b}/CMakeCache.txt" "${_key}" "${_kv#*=}" "${name} ${_key}" || _kvdrift=1
+    done <<<"$(declared_cache_kvs "${name}")"
+    [ "${_kvdrift}" = 1 ] && rm -f "${b}/build.ninja"
   fi
   # Plastimatch's force-include shim must exist before configure (CMake's
   # compiler checks use CMAKE_CXX_FLAGS, which references it).
