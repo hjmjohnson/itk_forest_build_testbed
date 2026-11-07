@@ -1504,6 +1504,11 @@ configure_one(){ require_pixi_toolchain configure
                  local _asa; for _asa in $(ants_system_args); do bt_kvs+=("${_asa#-D}"); done
                  # BRAINSTOOLS_EXTRA: space-separated -DKEY=VAL flags.
                  local _bte; for _bte in ${BRAINSTOOLS_EXTRA:-}; do bt_kvs+=("${_bte#-D}"); done
+                 # Common.cmake forwards MAKECOMMAND into every EP's cache file, and
+                 # CTest's Windows default is a backslashed native path that those
+                 # set() lines then parse as escapes ("Invalid character escape").
+                 [ "${FOREST_OS}" = windows ] \
+                   && bt_kvs+=("MAKECOMMAND=$(npath "$(command -v cmake)") --build .")
                  do_overlay BRAINSTools "${bt_preset}" "$s" "$b" "${bt_kvs[@]}" ;;
     Slicer)      warn "Slicer SuperBuild is long (builds VTK/CTK + own ITK 6; Qt6 from ${SLICER_QT_PREFIX})"
                  # Policy: Slicer NEVER uses the system ITK; it always builds a
