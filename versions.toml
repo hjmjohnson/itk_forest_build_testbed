@@ -275,8 +275,9 @@ SlicerExecutionModel_GIT_TAG        = "91b921bd5977c3384916ba4b03705d87b26067f7"
 
 [subbuild.BRAINSTools]
 # Consumed via the overridable BRAINSTools_ANTs_GIT_* vars (BRAINSia/BRAINSTools#605).
-ANTs_GIT_REPOSITORY = "https://github.com/hjmjohnson/ANTs.git"
-ANTs_GIT_TAG        = "integration/itk-forest-2026-08-22"
+# ANTsX/ANTs main @ 2026-10-30; a SHA, not a branch, so an existing EP clone moves.
+ANTs_GIT_REPOSITORY = "https://github.com/ANTsX/ANTs.git"
+ANTs_GIT_TAG        = "dcdaf4212df415b089b09b8b6b0a2560c57af546"
 
 [subbuild.SlicerANTs]
 # netstim/SlicerANTs defaults its ANTs EP to 8c4e2077 (2024.09.10) -- ~2 years
@@ -286,8 +287,8 @@ ANTs_GIT_TAG        = "integration/itk-forest-2026-08-22"
 # overrides it without patching the extension (extension CMakeCache args are a
 # closed whitelist; only the environment gets through). Kept in step with
 # subbuild.BRAINSTools above.
-ANTs_GIT_REPOSITORY = "https://github.com/hjmjohnson/ANTs.git"
-ANTs_GIT_TAG        = "integration/itk-forest-2026-08-22"
+ANTs_GIT_REPOSITORY = "https://github.com/ANTsX/ANTs.git"
+ANTs_GIT_TAG        = "dcdaf4212df415b089b09b8b6b0a2560c57af546"
 
 [subbuild.BoneTextureExtension]
 # Two ITK remote modules pinned by BoneTextureExtension via
@@ -383,38 +384,19 @@ branch = "itk-forest-integration"
 # dot in "5.4" as a TOML key separator (scenarios.itk-release-5.4.Slicer ->
 # scenarios/itk-release-5/4/Slicer) and silently never match this forest.
 ["scenarios"."itk-release-5.4"."Slicer"]
-# upstream/release-5.4 @ 9cd63da191e (ITK 5.4.6) + itk5 Slicer patches:
+# upstream/release-5.4 @ eef984f4982 (ITK 5.4.8) + itk5 Slicer patches:
 #   custom ITK namespace, itkFileTools build fix
-ITK_GIT_TAG = "slicer-v5.4.7-2026-08-21-7fefad582bf"
-# Same integration branch as itk-main: both forests build Slicer from the same
-# upstream tip, and the BRAINSTools bump is not ITK-version specific -- it moves
-# an 8-month-old pin to a current one. ITK 5.4 does not NEED it (the DCMTK
-# reader header is still public there), but building both forests against the
-# same BRAINSTools keeps this a controlled comparison: an extension that
-# differs between forests then differs because of ITK, not because one side
-# built a 2025-11 BRAINSTools and the other a 2026-07 one.
-url    = "https://github.com/hjmjohnson/Slicer.git"
-branch = "itk-forest-integration"
+ITK_GIT_TAG = "slicer-v5.4.8-2026-10-31-eef984f4982"
 
 [scenarios.itk-main.Slicer]
-# integration/itk-main (main + ITK #6667 tweak-version + tweak bump to 20260716,
-# base e161a8a612d) + itk6 Slicer patches: custom ITK namespace only -- the
-# itkFileTools fix is already upstream in main. Re-minted off the integration
-# branch so Slicer's ITK is a variant of THIS forest's actual ITK base.
-# 2026-10-22: re-minted off itk-forest-integration-itk-main (upstream/main
-# 86c6b62147 + ITK #6985 SetAutoloadPath API, base cac1e76775c) + the custom
-# ITK namespace patch. Pairs with Slicer branch itk-autoload-path-api.
-ITK_GIT_TAG = "slicer-v6.0.0-2026-10-22-cac1e76775c"
-# Slicer's SuperBuild.cmake pins BRAINSTools at ced799ad (2025-11-10), which
-# predates BRAINSTools vendoring ITK's now-private itkDCMTKFileReader.h, so
-# DWIConvert fails to compile against ITK main. Slicer_Remote_Add hardcodes
-# GIT_TAG (no ExternalProject_SetIfNotDefined), so there is no engine-side
-# override -- the bump to dbb02b6a rides an integration branch instead.
-# PENDING: mint+push hjmjohnson/Slicer@itk-forest-integration (= origin/main +
-# that one-line pin bump) before the next Slicer checkout; the branch does not
-# exist yet.
-url    = "https://github.com/hjmjohnson/Slicer.git"
-branch = "itk-forest-integration"
+# upstream/main @ ffda1aac7d0 + itk6 Slicer patch: custom ITK namespace only
+# (the itkFileTools fix is upstream in main).
+ITK_GIT_TAG = "slicer-v6.0.0-2026-10-31-ffda1aac7d0"
+
+# The hjmjohnson/Slicer itk-forest-integration override is retired in both
+# forests (2026-10-31): its BRAINSTools pin bump and Windows build fixes all
+# merged upstream (Slicer #9316, #9367, #9368, #9369, #9370), so Slicer tracks
+# Slicer/Slicer main again.
 
 # ----------------------------------------------------------------------------
 # Remote modules discovered 2026-09-21 by searching for consumers of
