@@ -1511,6 +1511,8 @@ configure_one(){ require_pixi_toolchain configure
                  local _asa; for _asa in $(ants_system_args); do bt_kvs+=("${_asa#-D}"); done
                  # BRAINSTOOLS_EXTRA: space-separated -DKEY=VAL flags.
                  local _bte; for _bte in ${BRAINSTOOLS_EXTRA:-}; do bt_kvs+=("${_bte#-D}"); done
+                 # GitHub stopped serving git:// in 2022; the SuperBuild default is ON.
+                 bt_kvs+=("BRAINSTools_USE_GIT_PROTOCOL=OFF")
                  # Common.cmake forwards MAKECOMMAND into every EP's cache file, and
                  # CTest's Windows default is a backslashed native path that those
                  # set() lines then parse as escapes ("Invalid character escape").
