@@ -77,6 +77,24 @@ Ninja does not find a toolset by itself the way the VS generator does, so
 `msvc_activate()` in `bin/platform.sh` imports `vcvars64.bat` into the engine's
 shell before cmake runs. Pin a specific toolset with `MSVC_TOOLSET=14.38.33130`.
 
+## sccache, the Windows default launcher
+
+`COMPILER_LAUNCHER` defaults to **sccache** on Windows (ccache elsewhere).
+sccache runs as a local server and caches `cl.exe` under the same `/Z7` rule
+below. It comes from the pixi env; set its cache in `config.sh` or the
+environment:
+
+```bash
+export SCCACHE_DIR=D:/sccache SCCACHE_CACHE_SIZE=300G
+sccache --show-stats            # hits and misses for the current server
+```
+
+The presets name ccache, so the engine passes its own launcher to every
+preset build and turns `ITK_USE_CCACHE` off: sccache refuses to wrap swig and
+castxml. ANTs' own `CCache.cmake` installs a shell-script launcher that Ninja
+cannot run on Windows; the engine sets `CCACHE_PROGRAM=OFF` for it.
+`COMPILER_LAUNCHER=ccache` restores the old behavior.
+
 ## Why `/Z7` and not `/Zi`
 
 `cmake/presets/00-base.windows.json` sets:
@@ -144,7 +162,21 @@ root is the real mitigation.
 Conda **win-64 environments ship `python.exe` with no `python3.exe`**, and a
 bare Windows host may offer only the `py` launcher. Nothing may call `python3`
 unconditionally: shell code uses `$FOREST_PYTHON`/`$FOREST_PYTHON_PRE` from
-`platform.sh`, and pixi tasks use `python`.
+`platform.sh`, and pixi tasks use `python`. `platform.sh` runs each candidate
+before choosing it: Windows puts App Execution Alias stubs
+(`WindowsApps\python3.exe`) on `PATH` that exist but only print "Python was
+not found".
+
+## GitHub over ssh
+
+Several forest remotes are `git@github.com:` URLs. A node with no GitHub ssh
+key fails them with "Host key verification failed". Fetch over https for the
+build's git calls only:
+
+```bash
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0=url.https://github.com/.insteadOf GIT_CONFIG_VALUE_0=git@github.com:
+```
 
 ## Encoding
 
