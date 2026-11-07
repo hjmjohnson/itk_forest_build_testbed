@@ -90,10 +90,14 @@ export PATHSEP
 # build-version source of truth). `python3` is not a safe assumption on
 # Windows: conda/pixi win-64 environments ship python.exe with NO python3.exe,
 # and a bare Windows host may have only the `py` launcher. Resolve once.
+# Run each candidate rather than trusting `command -v`: Windows puts App
+# Execution Alias stubs (WindowsApps\python3.exe) on PATH that exist but only
+# print "Python was not found", and one ahead of pixi's python.exe would win.
 _forest_resolve_python(){
   local p
   for p in python3 python; do
-    command -v "$p" >/dev/null 2>&1 && { FOREST_PYTHON="$p"; FOREST_PYTHON_PRE=""; return 0; }
+    command -v "$p" >/dev/null 2>&1 && "$p" -c 'import sys' >/dev/null 2>&1 \
+      && { FOREST_PYTHON="$p"; FOREST_PYTHON_PRE=""; return 0; }
   done
   if command -v py >/dev/null 2>&1; then
     FOREST_PYTHON="py"; FOREST_PYTHON_PRE="-3"; return 0
