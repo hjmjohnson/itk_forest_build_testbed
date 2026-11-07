@@ -244,7 +244,7 @@ ctest_result(){
     grep -qE 'No tests were found' "$log" && { echo "T:0/0:no-tests"; return; }
     echo "T:unknown"; return
   fi
-  local notrun; notrun="$(grep -cE '\*\*\*Not Run' "$log")"
+  local notrun; notrun="$(grep -E '\*\*\*Not Run' "$log" | grep -cv '(Disabled)')"
   echo "T:$((total - failed))/${total}$(record_ctest_run "$n" "$log" "$((total - failed))" "${total}")$([ "${notrun}" -gt 0 ] && echo " notrun:${notrun}")"
 }
 
@@ -371,6 +371,26 @@ EOF
   grep -q ITK_PY_OK "${LOGDIR}/itk-python-check${LOG_TAG}.log"
 }
 
+# Targets whose build drives an inner build; their artifact_ok() file can
+# survive from an earlier successful build.
+superbuild_target(){ case "$1" in BRAINSTools|Slicer) return 0 ;; esac; return 1; }
+
+# Move the orphaned *Config.py files that $1 left in ITK's package aside, so
+# that later targets are scored on their own builds rather than on $1's.
+quarantine_orphaned_wrapping(){
+  local n="$1" pkg q line mod
+  pkg="$(bdir ITK)/Wrapping/Generators/Python/itk"
+  q="${LOGDIR}/orphaned-wrapping${LOG_TAG}/${n}"
+  while IFS= read -r line; do
+    mod="${line#orphaned wrapping config: }"; mod="${mod%% *}"
+    [ -f "${pkg}/Configuration/${mod}Config.py" ] || continue
+    mkdir -p "${q}"
+    mv "${pkg}/Configuration/${mod}Config.py" "${q}/"
+    echo "  moved orphaned ${mod}Config.py to ${q}/"
+  done < <(grep '^orphaned wrapping config: ' "${LOGDIR}/itk-python-check${LOG_TAG}.log")
+  itk_python_intact || echo "  WARN: itk python package still broken after quarantine"
+}
+
 # Does this target's wrapping write into ITK's package?
 _wraps_into_itk(){
   [ "$1" = ITK ] && return 0
@@ -380,8 +400,8 @@ _wraps_into_itk(){
 build_target(){
   local n="$1" tstat=""
   echo "==================== BUILD ${n} ===================="
-  local _t0 _el; _t0=$(date +%s)
-  bash "${ENG}" build "${n}" >"${LOGDIR}/matrix-${n}${LOG_TAG}.log" 2>&1
+  local _t0 _el _rc=0; _t0=$(date +%s)
+  bash "${ENG}" build "${n}" >"${LOGDIR}/matrix-${n}${LOG_TAG}.log" 2>&1 || _rc=$?
   _el=$(( $(date +%s) - _t0 ))
   # Verify tests actually stayed off for extensions -- the args files bake
   # RUN_CTEST_TEST at their own configure time, so an env slip re-enables the
@@ -403,6 +423,13 @@ build_target(){
     echo "RESULT ${n}: build FAIL -- itk python package no longer imports after building ${n}"
     echo "  ${_pybroke}"
     echo "  (${LOGDIR}/itk-python-check${LOG_TAG}.log)"
+    quarantine_orphaned_wrapping "${n}"
+  elif [ "${_rc}" != 0 ] && superbuild_target "${n}"; then
+    # A SuperBuild's artifact can predate a failed inner build, so its exit
+    # status decides here.
+    SUMMARY="${SUMMARY}$(printf 'FAIL  %-20s %s' "${n}" "(build failed, exit ${_rc})")"$'\n'
+    echo "RESULT ${n}: build FAIL -- exit ${_rc}; existing artifacts may be stale  (${LOGDIR}/matrix-${n}${LOG_TAG}.log)"
+    grep -iE 'error:|CMake Error|library not found|No such module|undefined sym' "${LOGDIR}/matrix-${n}${LOG_TAG}.log" | head -3
   elif artifact_ok "${n}"; then
     echo "RESULT ${n}: build PASS  (${_el}s)"
     if [ "${RUN_CTEST}" = 1 ]; then
