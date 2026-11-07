@@ -1474,6 +1474,10 @@ configure_one(){ require_pixi_toolchain configure
       itk_preset="itk-forest-itk-v6-vtkglue"
       itk_kvs+=("VTK_DIR=${_itk_vtk}")
     fi
+    # ITK_FUTURE_LEGACY_REMOVE=1: build the forest's ITK with the next round of
+    # removals, so consumers prove they no longer use APIs or headers ITK 6
+    # deprecates (skills/itk-dual-version-compat).
+    [ "${ITK_FUTURE_LEGACY_REMOVE:-0}" = 1 ] && itk_kvs+=("ITK_FUTURE_LEGACY_REMOVE=ON")
     [ -n "${FOREST_MACOS_SDK:-}" ] && itk_kvs+=("CMAKE_OSX_SYSROOT=${FOREST_MACOS_SDK}")
     [ -n "${FOREST_MACOS_DEPLOYMENT_TARGET:-}" ] \
       && itk_kvs+=("CMAKE_OSX_DEPLOYMENT_TARGET=${FOREST_MACOS_DEPLOYMENT_TARGET}")
