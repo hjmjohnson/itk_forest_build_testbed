@@ -779,17 +779,23 @@ _pin_drift(){ # <cache-file> <cache-var> <declared-value> <label>
   return 1
 }
 
+# The presets name ccache as the launcher; the engine's choice wins. ITK wraps
+# swig and castxml with the launcher when ITK_USE_CCACHE is on, and sccache
+# refuses them ("Compiler not supported").
+launcher_kvs(){
+  printf '%s\n' "CMAKE_C_COMPILER_LAUNCHER=${COMPILER_LAUNCHER}" \
+    "CMAKE_CXX_COMPILER_LAUNCHER=${COMPILER_LAUNCHER}"
+  [ "${COMPILER_LAUNCHER}" = sccache ] && printf '%s\n' "ITK_USE_CCACHE=OFF"
+  return 0
+}
+
 do_overlay(){
   local name="$1" preset="$2" src="$3" bin="$4"; shift 4
   [ -n "${FOREST_MACOS_SDK:-}" ] && set -- "$@" "CMAKE_OSX_SYSROOT=${FOREST_MACOS_SDK}"
   [ -n "${FOREST_MACOS_DEPLOYMENT_TARGET:-}" ] && [[ " $* " != *" CMAKE_OSX_DEPLOYMENT_TARGET="* ]] \
     && set -- "$@" "CMAKE_OSX_DEPLOYMENT_TARGET=${FOREST_MACOS_DEPLOYMENT_TARGET}"
-  # The presets name ccache as the launcher; the engine's choice wins.
-  set -- "$@" "CMAKE_C_COMPILER_LAUNCHER=${COMPILER_LAUNCHER}" \
-    "CMAKE_CXX_COMPILER_LAUNCHER=${COMPILER_LAUNCHER}"
-  # ITK wraps swig and castxml with the launcher when ITK_USE_CCACHE is on;
-  # sccache refuses them ("Compiler not supported").
-  [ "${COMPILER_LAUNCHER}" = sccache ] && set -- "$@" "ITK_USE_CCACHE=OFF"
+  local _kv
+  while IFS= read -r _kv; do set -- "$@" "${_kv}"; done < <(launcher_kvs)
   cfg resolve-overlay "${preset}" "${src}" "${bin}" "${FOREST}" "${name}" "$@"
   cmake -S "${src}" --preset "forest-${name}-local"
 }
@@ -1436,6 +1442,7 @@ configure_one(){ require_pixi_toolchain configure
       && itk_kvs+=("CMAKE_OSX_DEPLOYMENT_TARGET=${FOREST_MACOS_DEPLOYMENT_TARGET}")
     # Two-pass: first configure fetches remote modules (may fail on one whose
     # examples/ dir is absent); stub those, then reconfigure for real.
+    while IFS= read -r _kv; do itk_kvs+=("${_kv}"); done < <(launcher_kvs)
     cfg resolve-overlay "${itk_preset}" "$s" "${ITK_BUILD}" "${FOREST}" ITK "${itk_kvs[@]}"
     cmake -S "$s" --preset "forest-ITK-local" || true
     _stub_remote_examples
@@ -1781,9 +1788,11 @@ env_python_dev_kvs(){
   local exe="$1" inc lib
   inc="$("$exe" -c 'import sysconfig;print(sysconfig.get_paths()["include"])' 2>/dev/null)"
   [ -d "${inc}" ] || die "python include dir not found for ${exe}: ${inc:-<empty>}"
-  printf '%s\n' "Python3_INCLUDE_DIR=${inc}"
+  # npath: python reports backslashed paths on Windows, and a backslash in a
+  # cache value reaches castxml and generated CMake as an escape.
+  printf '%s\n' "Python3_INCLUDE_DIR=$(npath "${inc}")"
   lib="$("$exe" -c "${_PY_LIB_PROBE}" 2>/dev/null)"
-  [ -n "${lib}" ] && [ -f "${lib}" ] && printf '%s\n' "Python3_LIBRARY=${lib}"
+  [ -n "${lib}" ] && [ -f "${lib}" ] && printf '%s\n' "Python3_LIBRARY=$(npath "${lib}")"
   return 0
 }
 
