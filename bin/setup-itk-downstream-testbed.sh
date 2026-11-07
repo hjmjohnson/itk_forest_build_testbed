@@ -1707,7 +1707,10 @@ json.dump(d, open(sys.argv[2],"w", encoding="utf-8"), indent=2, sort_keys=True)'
     VkFFTBackend)
                  local _vk; _vk="$(vkfft_backend)"
                  [ -n "${_vk}" ] || die "VkFFTBackend: no GPU backend (CUDA/Metal/OpenCL) on this host"
-                 local _vk_kvs=("ITK_DIR=$(itk_dir)" "VKFFT_BACKEND=${_vk}")
+                 # The module defaults CMAKE_CXX_STANDARD to 14; ITK 6's headers need
+                 # 17, and castxml parses its wrapping with the project's standard
+                 # (MSVC's own default is 14, so only Windows exposed it).
+                 local _vk_kvs=("ITK_DIR=$(itk_dir)" "VKFFT_BACKEND=${_vk}" "CMAKE_CXX_STANDARD=17")
                  [ "${_vk}" = 1 ] && _vk_kvs+=("CMAKE_CUDA_COMPILER=$(_find_nvcc)")
                  local _pk _kv
                  _pk="$(itk_python_kvs)" || die "VkFFTBackend: cannot resolve ITK's python interpreter"
