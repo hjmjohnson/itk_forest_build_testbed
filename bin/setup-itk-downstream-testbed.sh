@@ -109,6 +109,11 @@ BUILD_FOREST_ROOT="${BUILD_FOREST_ROOT:-build_forest}"
 # FOREST_REFERENCE_SUFFIX selects an alternate forest (build_forest-<suffix>)
 # for side-by-side scenario comparisons against the default build_forest.
 [ -n "${FOREST_REFERENCE_SUFFIX:-}" ] && BUILD_FOREST_ROOT="${BUILD_FOREST_ROOT}-${FOREST_REFERENCE_SUFFIX}"
+# FOREST_SCENARIO: whose [scenarios.<suffix>] this forest takes (integration
+# branches, Slicer's ITK tag). Defaults to the forest's own suffix; set it to
+# build a second forest of the same ITK base, e.g. FOREST_REFERENCE_SUFFIX=sc
+# FOREST_SCENARIO=itk-main.
+FOREST_SCENARIO="${FOREST_SCENARIO:-${FOREST_REFERENCE_SUFFIX:-}}"
 # Absolute => use as-is; relative => resolve against the repo root. On Windows
 # an absolute path is a drive letter ("C:/S"), not a leading slash, so both
 # shapes are matched or the Windows default forest root would be silently
@@ -909,7 +914,7 @@ _ensure_pluslib_fork(){
 # (fork config present and this forest's suffix is not the skip_suffix).
 _ants_use_fork(){
   [ -n "${ANTS_FORK_URL}" ] && [ -n "${ANTS_FORK_REF}" ] || return 1
-  [ -n "${ANTS_FORK_SKIP_SUFFIX}" ] && [ "${FOREST_REFERENCE_SUFFIX:-}" = "${ANTS_FORK_SKIP_SUFFIX}" ] && return 1
+  [ -n "${ANTS_FORK_SKIP_SUFFIX}" ] && [ "${FOREST_SCENARIO}" = "${ANTS_FORK_SKIP_SUFFIX}" ] && return 1
   return 0
 }
 
@@ -934,11 +939,11 @@ checkout_one(){
   # versions.toml [scenarios.<suffix>.<name>] entry, build the component from the
   # fork's demo-<suffix> staging branch (assembled by the gh-demo-branch skill)
   # instead of the upstream default. Only affects the matching forest.
-  if [ -n "${FOREST_REFERENCE_SUFFIX:-}" ]; then
-    local _ov; _ov="$(cfg scenario "${FOREST_REFERENCE_SUFFIX}" "${name}" 2>/dev/null)"
+  if [ -n "${FOREST_SCENARIO}" ]; then
+    local _ov; _ov="$(cfg scenario "${FOREST_SCENARIO}" "${name}" 2>/dev/null)"
     if [ -n "${_ov}" ]; then
       local ov_url ov_branch; IFS='|' read -r ov_url ov_branch <<<"${_ov}"
-      log "${name}: scenario ${FOREST_REFERENCE_SUFFIX} -> ${ov_url} @ ${ov_branch}"
+      log "${name}: scenario ${FOREST_SCENARIO} -> ${ov_url} @ ${ov_branch}"
       git -C "${repo}" fetch --force "${ov_url}" "${ov_branch}:refs/demo/${name}-${ov_branch}" \
         || { warn "${name}: fetch demo branch ${ov_branch} from ${ov_url} failed"; return 1; }
       # Suffix the local branch like the normal path: a branch lives in exactly
@@ -993,7 +998,7 @@ _seed_dir(){
 _seed_component(){
   local n="$1" seed="$2" dest="${FOREST}/$1" tip commits=()
   [ "$n" != ITK ] && [ -e "${seed}/${n}/.git" ] || return 0
-  [ -n "${FOREST_REFERENCE_SUFFIX:-}" ] && [ -n "$(cfg scenario "${FOREST_REFERENCE_SUFFIX}" "$n" 2>/dev/null)" ] && return 0
+  [ -n "${FOREST_SCENARIO}" ] && [ -n "$(cfg scenario "${FOREST_SCENARIO}" "$n" 2>/dev/null)" ] && return 0
   tip="$(git -C "${seed}/${n}" rev-parse HEAD)" || return 0
   mapfile -t commits < <(git -C "${dest}" rev-list --reverse --no-merges "${tip}" --not HEAD --remotes)
   [ ${#commits[@]} -gt 0 ] || return 0
@@ -1533,8 +1538,8 @@ configure_one(){ require_pixi_toolchain configure
                  if [ -n "${SLICER_ITK_GIT_TAG:-}" ]; then
                    _slicer_itk_tag="${SLICER_ITK_GIT_TAG}"
                  else
-                   _slicer_itk_tag="$(cfg subbuild-get "${FOREST_REFERENCE_SUFFIX:-}" Slicer ITK_GIT_TAG)" \
-                     || die "No Slicer-vendored ITK for forest '${FOREST_REFERENCE_SUFFIX:-<bare>}'. Declare [scenarios.<suffix>.Slicer].ITK_GIT_TAG and mint the variant per docs/slicer-itk-policy.md."
+                   _slicer_itk_tag="$(cfg subbuild-get "${FOREST_SCENARIO}" Slicer ITK_GIT_TAG)" \
+                     || die "No Slicer-vendored ITK for forest '${FOREST_SCENARIO:-<bare>}'. Declare [scenarios.<suffix>.Slicer].ITK_GIT_TAG and mint the variant per docs/slicer-itk-policy.md."
                  fi
                  # Slicer forwards -DCMAKE_<LANG>_COMPILER to every ExternalProject
                  # (VTK/ITK/Python/...) but NOT the ccache *launcher*, so a launcher
@@ -1589,7 +1594,7 @@ configure_one(){ require_pixi_toolchain configure
                      warn "extension descriptor not found in index: ${e}.json"; continue
                    fi
                    local _ovr
-                   _ovr="$(cfg extension-scenario "${FOREST_REFERENCE_SUFFIX:-}" "${e}" 2>/dev/null || true)"
+                   _ovr="$(cfg extension-scenario "${FOREST_SCENARIO}" "${e}" 2>/dev/null || true)"
                    if [ -n "${_ovr}" ]; then
                      log "extension override: ${e} <- ${_ovr}"
                      "${FOREST_PYTHON}" ${FOREST_PYTHON_PRE} -c 'import json,sys
@@ -1948,7 +1953,7 @@ build_one(){ require cmake ninja "${COMPILER_LAUNCHER}"; require_pixi_toolchain 
     # subbuild-get exits non-zero for a forest with no declared variant; that
     # is configure_one's error to raise, so an empty want just skips.
     _pin_drift "${b}/CMakeCache.txt" Slicer_ITK_GIT_TAG \
-      "${SLICER_ITK_GIT_TAG:-$(cfg subbuild-get "${FOREST_REFERENCE_SUFFIX:-}" Slicer ITK_GIT_TAG 2>/dev/null || true)}" \
+      "${SLICER_ITK_GIT_TAG:-$(cfg subbuild-get "${FOREST_SCENARIO}" Slicer ITK_GIT_TAG 2>/dev/null || true)}" \
       "vendored ITK" || _drift=1
     # The python EP pin. On Windows this points at the python-cmake-buildsystem
     # branch carrying the single-config _testcapi/python3.lib fix (upstream
