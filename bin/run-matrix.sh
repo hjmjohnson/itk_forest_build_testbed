@@ -360,7 +360,8 @@ for f in sorted(os.listdir(os.path.join(pkg, "Configuration"))):
         continue
     n = m.group(1)
     py = os.path.exists(os.path.join(pkg, n + "Python.py"))
-    so = bool(glob.glob(os.path.join(pkg, "_%sPython*.so" % n)))
+    so = bool(glob.glob(os.path.join(pkg, "_%sPython*.so" % n))
+              or glob.glob(os.path.join(pkg, "_%sPython*.pyd" % n)))  # Windows
     if not (py and so):
         bad.append("%s (module=%s extension=%s)" % (n, py, so))
 for b in bad:
