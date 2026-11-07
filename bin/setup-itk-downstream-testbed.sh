@@ -1987,6 +1987,14 @@ build_one(){ require cmake ninja "${COMPILER_LAUNCHER}"; require_pixi_toolchain 
     # it, and the build dies with LNK1104 while the engine asked for the fix.
     _pin_drift "${b}/CMakeCache.txt" Slicer_python_GIT_TAG \
       "$(_slicer_python_git_tag)" python-cmake-buildsystem || _drift=1
+    # No declared pin means Slicer's own; a fork pin left in the cache would win.
+    if [ -z "$(_slicer_python_git_tag)" ] && grep -qE '^Slicer_python_GIT_(TAG|REPOSITORY):' "${b}/CMakeCache.txt"; then
+      warn "python-cmake-buildsystem: dropping a stale fork pin from the cache"
+      # Drop each entry with its "//" help line; an orphaned help line is a parse error.
+      awk '/^\/\//{h = h $0 "\n"; next} /^Slicer_python_GIT_(TAG|REPOSITORY):/{h = ""; next} {printf "%s", h; h = ""; print}' \
+        "${b}/CMakeCache.txt" >"${b}/CMakeCache.txt.tmp" && mv "${b}/CMakeCache.txt.tmp" "${b}/CMakeCache.txt"
+      _drift=1
+    fi
     if [ "${_drift}" = 1 ]; then rm -f "${b}/build.ninja"; fi
   fi
   if [ -f "${b}/CMakeCache.txt" ]; then
