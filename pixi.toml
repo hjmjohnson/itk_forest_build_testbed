@@ -62,6 +62,7 @@ pytorch = ">=2.12"  # CPU build; a py314 variant exists, so the interpreter does
 textual = ">=1.0"  # noarch, so the wizard TUI is available on every platform
 pytest = ">=8.0"  # skills/*/tests (`pixi run test`) + bin/tests (tri-platform gate)
 clang-tools = "19.1.*"  # clang-tidy/clang-query/clang-apply-replacements; must match the clang series above
+tbb-devel = "==2023.0.0"
 
 # gengetopt has no win-64 build on conda-forge (linux/osx only). Only RTK's
 # applications need it (they generate *_ggo.{h,c}); nothing on the ITK or Slicer
