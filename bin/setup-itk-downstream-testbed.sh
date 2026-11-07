@@ -478,7 +478,14 @@ itk_dir(){
 # nvcc is frequently installed outside PATH (/usr/local/cuda*/bin); find it so
 # CMake's check_language(CUDA) succeeds and VkFFT can use the CUDA backend.
 _find_nvcc(){
-  command -v nvcc 2>/dev/null && return
+  local n
+  # Native path with the .exe on Windows: `command -v` drops the suffix, and
+  # CMake rejects CMAKE_CUDA_COMPILER=.../nvcc as "not a full path to an
+  # existing compiler tool".
+  if n="$(command -v nvcc 2>/dev/null)"; then
+    [ "${FOREST_OS}" = windows ] && [ -f "${n}.exe" ] && n="${n}.exe"
+    npath "${n}"; echo; return
+  fi
   local c
   for c in /usr/local/cuda/bin/nvcc $(ls -d /usr/local/cuda-*/bin/nvcc 2>/dev/null | sort -Vr); do
     [ -x "$c" ] && { echo "$c"; return; }
