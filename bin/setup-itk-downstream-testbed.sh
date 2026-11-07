@@ -1463,6 +1463,10 @@ configure_one(){ require_pixi_toolchain configure
                  # configures an ANTs that expects v6.
                  local ants_preset="itk-forest-ants" \
                        ants_kvs=("ITK_DIR=$(itk_dir)" "ITK_VERSION_MAJOR=$(forest_itk_major)")
+                 # ANTs' CMake/CCache.cmake installs `#!/usr/bin/env sh` launch scripts
+                 # as its launcher, which Ninja on Windows cannot exec. The engine
+                 # already sets the launcher; OFF reads as found-but-false.
+                 [ "${FOREST_OS}" = windows ] && ants_kvs+=("CCACHE_PROGRAM=OFF")
                  if [ "${ANTS_MAX_MODULES:-0}" = 1 ]; then
                    ants_preset="itk-forest-ants-max-modules"
                    if [ -n "${ANTS_VTK_DIR:-}" ]; then
