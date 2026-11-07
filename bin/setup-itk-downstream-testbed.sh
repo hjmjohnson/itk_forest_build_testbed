@@ -122,10 +122,15 @@ FOREST="$(npath "${FOREST}")"
 forest_log_dir(){ mkdir -p "${FOREST}/logs"; echo "${FOREST}/logs"; }
 export CCACHE_DIR="$(npath "${CCACHE_DIR:-${HOME}/.ccache}")"
 # COMPILER_LAUNCHER: the CMAKE_<LANG>_COMPILER_LAUNCHER for every compile.
-# ccache by default (the kit's tuning below is ccache's); sccache is the
-# alternative on MSVC, where it caches cl.exe with the same /Z7 requirement.
+# ccache on Unix (the kit's tuning below is ccache's); sccache on Windows, where
+# it caches cl.exe under the same /Z7 requirement and runs as a local server.
 # Its own knobs (SCCACHE_DIR, SCCACHE_CACHE_SIZE) come from the environment.
-export COMPILER_LAUNCHER="${COMPILER_LAUNCHER:-ccache}"
+if [ "${FOREST_OS}" = windows ]; then
+  export COMPILER_LAUNCHER="${COMPILER_LAUNCHER:-sccache}"
+else
+  export COMPILER_LAUNCHER="${COMPILER_LAUNCHER:-ccache}"
+fi
+[ -n "${SCCACHE_DIR:-}" ] && export SCCACHE_DIR="$(npath "${SCCACHE_DIR}")"
 # ccache basedir policy (HYBRID; the shell is the single authority — presets do
 # not set CCACHE_BASEDIR, because the rule is per-package-CLASS which preset
 # macros cannot express reliably). basedir rewrites absolute paths UNDER it to
@@ -779,6 +784,12 @@ do_overlay(){
   [ -n "${FOREST_MACOS_SDK:-}" ] && set -- "$@" "CMAKE_OSX_SYSROOT=${FOREST_MACOS_SDK}"
   [ -n "${FOREST_MACOS_DEPLOYMENT_TARGET:-}" ] && [[ " $* " != *" CMAKE_OSX_DEPLOYMENT_TARGET="* ]] \
     && set -- "$@" "CMAKE_OSX_DEPLOYMENT_TARGET=${FOREST_MACOS_DEPLOYMENT_TARGET}"
+  # The presets name ccache as the launcher; the engine's choice wins.
+  set -- "$@" "CMAKE_C_COMPILER_LAUNCHER=${COMPILER_LAUNCHER}" \
+    "CMAKE_CXX_COMPILER_LAUNCHER=${COMPILER_LAUNCHER}"
+  # ITK wraps swig and castxml with the launcher when ITK_USE_CCACHE is on;
+  # sccache refuses them ("Compiler not supported").
+  [ "${COMPILER_LAUNCHER}" = sccache ] && set -- "$@" "ITK_USE_CCACHE=OFF"
   cfg resolve-overlay "${preset}" "${src}" "${bin}" "${FOREST}" "${name}" "$@"
   cmake -S "${src}" --preset "forest-${name}-local"
 }

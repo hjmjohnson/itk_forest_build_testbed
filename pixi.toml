@@ -39,6 +39,7 @@ platforms = ["osx-arm64", "osx-64", "linux-64", "win-64"]
 cmake = ">=4.3.4,<5"  # Slicer SuperBuild needs >=3.28; CMake 4.x breaks it (CPS find_package)
 ninja = ">=1.13.2,<2"
 ccache = ">=4.13.6,<5"
+sccache = ">=0.10,<1"  # COMPILER_LAUNCHER=sccache (the Windows default)
 git = ">=2.54.0,<3"
 # conda-forge clang 19 (macOS) / gcc 14 (linux). On win-64 these resolve to the
 # vs2022 activation shim, which configures an already-installed Visual Studio

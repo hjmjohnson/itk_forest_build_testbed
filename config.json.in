@@ -31,6 +31,25 @@
     "windows": { "candidates": ["${CCACHE_DIR}", "${LOCALAPPDATA}/ccache"] }
   },
 
+  "COMPILER_LAUNCHER": {
+    "doc": "CMAKE_<LANG>_COMPILER_LAUNCHER for every compile: ccache or sccache. Empty => ccache on macOS/Linux, sccache on Windows, where sccache runs as a local server and caches cl.exe (with /Z7, which the engine sets).",
+    "value": "",
+    "required": false
+  },
+
+  "SCCACHE_DIR": {
+    "doc": "sccache local cache directory, used when COMPILER_LAUNCHER is sccache. Empty => sccache's own default.",
+    "candidates": ["${SCCACHE_DIR}"],
+    "required": false
+  },
+
+  "SCCACHE_CACHE_SIZE": {
+    "doc": "sccache cache size limit (e.g. 100G). Empty => sccache's default of 10G, which one Windows forest overflows.",
+    "value": "",
+    "required": false,
+    "windows": { "value": "100G" }
+  },
+
   "JOBS": {
     "doc": "Parallel build jobs. Empty => auto-detect (nproc/sysctl).",
     "value": "",
