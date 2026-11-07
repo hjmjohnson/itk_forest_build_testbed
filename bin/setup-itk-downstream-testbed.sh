@@ -619,7 +619,7 @@ pluslibdata_dir(){
     local url="${PLUSLIBDATA_URL:-$(cfg get subbuild.PlusLib.data_url 2>/dev/null)}"
     [ -n "${url}" ] || url="https://github.com/PlusToolkit/PlusLibData.git"
     mkdir -p "${REPOS}"
-    log "PlusLibData: shallow clone ${url} -> forest_git_repos/PlusLibData"
+    log "PlusLibData: shallow clone ${url} -> forest_git_repos/PlusLibData" >&2
     git clone --depth 1 "${url}" "${repo}" >/dev/null 2>&1 || { warn "PlusLibData: clone failed"; return 1; }
   fi
   echo "${repo}"; }
