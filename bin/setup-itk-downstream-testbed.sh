@@ -556,8 +556,14 @@ declared_cache_kvs(){
     BRAINSTools)  brainstools_itk_version_kv
                   local _bte; for _bte in ${BRAINSTOOLS_EXTRA:-}; do echo "${_bte#-D}"; done ;;
     VkFFTBackend) vkfft_cxx_standard_kv ;;
+    Slicer)       slicer_system_qt_kv ;;
   esac
 }
+
+# The conda Qt libdir also holds conda's libpython3.12.so, the same name as
+# Slicer's bundled CPython. With a non-system Qt, Slicer's launcher puts that
+# libdir ahead of python-install/lib; a system Qt resolves through RUNPATH instead.
+slicer_system_qt_kv(){ [ "${FOREST_OS}" = linux ] && echo "Slicer_USE_SYSTEM_QT=ON"; return 0; }
 
 # Hard requirement: ANTs main needs ITK v6+. ANTs dropped ITK5 in PR #1933
 # ("ITK 6", merged 2026-03-15: External_ITKv5.cmake -> External_ITKv6.cmake,
@@ -1609,6 +1615,7 @@ configure_one(){ require_pixi_toolchain configure
                  # -D) and build_one (which detects drift against the cache)
                  # cannot disagree.
                  _export_slicer_runpath_ldflags
+                 local _sq; _sq="$(slicer_system_qt_kv)"; [ -n "${_sq}" ] && slicer_kvs+=("${_sq}")
                  local _py_tag; _py_tag="$(_slicer_python_git_tag)"
                  if [ -n "${_py_tag}" ]; then
                    slicer_kvs+=("Slicer_python_GIT_REPOSITORY=$(_slicer_python_git_repository)"
