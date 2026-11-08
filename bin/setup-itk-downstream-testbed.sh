@@ -785,6 +785,16 @@ _export_extension_dep_pins(){
   export inner_ITKBoneMorphometry_GIT_TAG="$(cfg get subbuild.BoneTextureExtension.ITKBoneMorphometry_GIT_TAG 2>/dev/null || true)"
 }
 
+# Slicer bundles its own CPython 3.12 and its launcher puts python-install/lib on
+# LD_LIBRARY_PATH; the conda env also ships libpython3.12.so. An old-style
+# DT_RPATH to the conda libdir outranks LD_LIBRARY_PATH, so Slicer's interpreter
+# loaded conda's libpython (and its sysconfig name). DT_RUNPATH yields to it.
+_export_slicer_runpath_ldflags(){
+  [ "${FOREST_OS}" = linux ] || return 0
+  case " ${LDFLAGS:-} " in *" -Wl,--enable-new-dtags "*) ;;
+    *) export LDFLAGS="${LDFLAGS:+${LDFLAGS} }-Wl,--enable-new-dtags" ;; esac
+}
+
 # ctest phase switches for Slicer extensions. Exported from BOTH configure_one
 # and build_one for the same reason as the dep pins above: each extension's
 # <Ext>-test-command-args.cmake is written when that extension's own SuperBuild
@@ -1595,6 +1605,7 @@ configure_one(){ require_pixi_toolchain configure
                  # _slicer_python_git_tag() so configure_one (which passes it as
                  # -D) and build_one (which detects drift against the cache)
                  # cannot disagree.
+                 _export_slicer_runpath_ldflags
                  local _py_tag; _py_tag="$(_slicer_python_git_tag)"
                  if [ -n "${_py_tag}" ]; then
                    slicer_kvs+=("Slicer_python_GIT_REPOSITORY=$(_slicer_python_git_repository)"
@@ -1661,6 +1672,7 @@ json.dump(d, open(sys.argv[2],"w", encoding="utf-8"), indent=2, sort_keys=True)'
                  # Honored via _set_if_env_not_defined (SlicerBlockUploadExtension.cmake:44).
                  _export_extension_ctest_phases
                  _export_extension_dep_pins
+                 _export_slicer_runpath_ldflags
                  do_overlay SlicerExtensions itk-forest-base \
                    "${FOREST}/Slicer/Extensions/CMake" "$b" \
                    "Slicer_DIR=${slicer_inner}" \
@@ -1962,6 +1974,7 @@ build_one(){ require cmake ninja "${COMPILER_LAUNCHER}"; require_pixi_toolchain 
   # written during THIS phase, so a configure-only export is lost and the
   # TRUE default wins.
   [ "$name" = SlicerExtensions ] && { _export_extension_dep_pins; _export_extension_ctest_phases; }
+  case "$name" in Slicer|SlicerExtensions) _export_slicer_runpath_ldflags ;; esac
   # Slicer's EP pins are -D cache entries, so a pin changed in versions.toml is
   # invisible until Slicer reconfigures -- build_one otherwise reuses the cache
   # and the old dependency is rebuilt while the declaration claims otherwise.
