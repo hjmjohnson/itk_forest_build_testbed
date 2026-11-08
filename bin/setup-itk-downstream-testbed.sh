@@ -2028,6 +2028,8 @@ build_one(){ require cmake ninja "${COMPILER_LAUNCHER}"; require_pixi_toolchain 
       _pin_drift "${b}/CMakeCache.txt" "${_key}" "${_kv#*=}" "${name} ${_key}" || _kvdrift=1
     done <<<"$(declared_cache_kvs "${name}")"
     [ "${_kvdrift}" = 1 ] && rm -f "${b}/build.ninja"
+    # PythonSlicer reads the inner launcher settings before Slicer-build reconfigures.
+    [ "${_kvdrift}" = 1 ] && [ "$name" = Slicer ] && rm -f "${b}/Slicer-build/SlicerLauncherSettings.ini"
   fi
   # Plastimatch's force-include shim must exist before configure (CMake's
   # compiler checks use CMAKE_CXX_FLAGS, which references it).
