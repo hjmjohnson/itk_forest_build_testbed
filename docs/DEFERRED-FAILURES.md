@@ -1,103 +1,109 @@
 # Deferred / known forest-matrix failures
 
-Targets that fail for reasons **independent of the vnl/FFT change under test**.
-Each is a pre-existing consumer-vs-ITK skew or an ITK-`main` gap, reproducible
-on a vanilla `main` ITK, not introduced by the branch being validated. Recorded
-here so a red cell is never mistaken for a regression.
+Matrix targets that fail for a reason unrelated to the ITK ref under test.
+Each is a consumer-vs-ITK-version mismatch, a missing build option, or a
+platform limit. They are recorded here so that a red cell is never mistaken
+for a regression.
 
-Last validated: PocketFFT branch `pocketfft-backend` (`e817a4dc60`), macOS arm64
-+ Linux x86_64 (cortex).
+Last validated: 2026-11-07, Linux x86_64 (cortex, conda gcc 14, CUDA 13.3).
 
-## Environment fixes applied (now green)
+- `build_forest-itk-main`: ITK `upstream/main` (`4dbf73815e`, 6.0.0)
+- `build_forest-itk-release-5.4`: ITK `upstream/release-5.4` (`eef984f4982`,
+  5.4.8)
 
-These were testbed-configuration gaps, fixed in `bin/setup-vxl-downstream-testbed.sh`:
+macOS arm64 and Windows were not re-run in this pass.
 
-| Was failing | Cause | Fix |
+## Current matrix (Linux)
+
+| Target | itk-main | release-5.4 |
 |---|---|---|
-| SimpleITK (configure) | `ITK::SimpleITKFiltersModule` target absent | `-DModule_SimpleITKFilters=ON` in the ITK build |
-| ITK (configure) | `IOMeshMZ3`, `AnisotropicDiffusionLBR` call `itk_module_examples()` with no `examples/` dir under `BUILD_EXAMPLES=ON` | `_stub_remote_examples` stubs an empty `examples/CMakeLists.txt` |
-| DCMTK consumers (configure) | `ITK::ITKIODCMTK` export references dangling `ijg{8,12,16}/include` paths | `_fix_dcmtk_ijg_symlinks` symlinks them to `dcmjpeg/libijg{N}` |
-| elastix (compile, partial) | ITK `main` vnl no longer ships `vnl/vnl_matrix_exp.h` (elastix `AffineLogTransform`) | `bin/overlays/vnl/vnl_matrix_exp.{h,hxx}` overlaid header-only via `_overlay_vnl_headers` — resolves the **compile** error (see elastix link caveat below) |
+| ITK, ANTs, BRAINSTools, elastix, RTK | PASS | PASS |
+| Cleaver, PerformanceBenchmarking | PASS | PASS |
+| SimpleITKFilters, TractographyTRX | PASS | PASS |
+| VkFFTBackend (CUDA) | PASS | PASS |
+| OpenIGTLink, OpenIGTLinkIO, vtkAddon | PASS | PASS |
+| IGSIO, PlusLib | PASS | PASS |
+| Slicer, SlicerExtensions | PASS * | PASS |
+| SimpleITK | PASS | FAIL (expected) |
+| SphinxExamples | PASS | FAIL (expected) |
+| Impact | not checked out | PASS |
 
-## Still deferred — genuine upstream / consumer-version skews (not FFT)
+\* Slicer passes on ITK `main` only with ITK #7139 applied to the ITK that
+Slicer builds (see "Pending upstream" below).
 
-### elastix — `vnl_matrix_exp` explicit instantiations missing from libitkvnl
-The header overlay above fixes the compile, but elastix's `libelxCommon.a`
-(`elxTransformFactoryRegistration.cxx`) still fails to **link**:
-`Undefined symbols: vnl_matrix_exp<vnl_matrix<double>>(...)` and the
-`vnl_matrix_fixed<double,N,N>` (N=1..4) forms. ITK `main` removed not just the
-header but the `Templates/vnl_matrix_exp+*.cxx` explicit instantiations that
-elastix expects compiled into libitkvnl. Fully fixing this needs those
-instantiation TUs re-added to ITK's vnl `CMakeLists.txt` and an ITK rebuild — an
-ITK-side change, out of scope for testbed env. Pre-existing on vanilla `main`,
-orthogonal to the FFT change.
+## Expected failures on ITK 5.4
 
-### SimpleITK — `EnhancementEnum` API mismatch
-After enabling `Module_SimpleITKFilters`, SimpleITK fails compiling
-`Code/BasicFilters/src/sitkCoherenceEnhancingDiffusionImageFilter.cxx`:
-`no type named 'EnhancementEnum' in itk::CoherenceEnhancingDiffusionImageFilter`.
-The SimpleITK checkout predates a rename in the `AnisotropicDiffusionLBR` remote
-module. A SimpleITK-vs-module version mismatch; unrelated to vnl/FFT. Fix is to
-bump the SimpleITK checkout (or the module) — not a testbed-env change.
+These do not show a defect in ITK 5.4; the consumer or the preset needs
+something ITK 5.4 does not provide.
 
-### Slicer / SlicerExtensions — `itkNamespace.h` absent from ITK
-Slicer's vendored `Libs/ITKFactoryRegistration/itkFactoryRegistration.h`
-`#include`s `itkNamespace.h`, which does not exist in current ITK `main`
-(nor on this branch — verified). Slicer's ITKFactoryRegistration snapshot is
-matched to its pinned older ITK; building Slicer against a newer `main` ITK
-fails. Being addressed upstream (ITK-side). On re-point, Slicer's ITK
-ExternalProject may also hit an `ITK-gitupdate` "could not apply" conflict from
-a stale clone at the previous tip — clear `Slicer-build/ITK*` to force a fresh
-clone. The ITK *library* builds clean for Slicer; only Slicer's own factory-reg
-lib is blocked.
+**SimpleITK requires ITK 6.** SimpleITK `main` links `ITK::ITKCommonModule`
+and the other module interface targets, which ITK 5.4 does not export:
 
-### VkFFTBackend — RESOLVED (now built per-host GPU backend)
-Previously failed `Could NOT find OpenCL` on cortex. The engine now selects the
-VkFFT compute backend per host (`vkfft_backend`): **CUDA** where `nvcc` is found
-(including outside PATH, e.g. cortex's CUDA 13.2 + RTX 6000 Ada), **Metal** on
-macOS arm, **OpenCL** otherwise; `run-matrix` **skips** (not fails) hosts with no
-GPU backend. cortex now builds `libitkVkFFTBackend` with `VKFFT_BACKEND=1`.
+    Target "SimpleITKCommon" links to: ITK::ITKCommonModule
+    but the target was not found.
 
-### BRAINSTools — fixed the ANTs include; deeper `FindProgramPath` skew remains
-**Fixed (committed):** ~10 ANTs `Utilities/Examples` headers used
-`ImageRegionIteratorWithIndex` without including its header, relying on a
-transitive include Apple clang provides but GCC does not — broke BRAINSTools on
-Linux/GCC. `_patch_ants_missing_includes` adds the include to every offending
-file in every ANTs checkout. This lets ANTs compile and `BRAINSFit` build, so
-the matrix (artifact = `BRAINSFit`) now scores BRAINSTools **PASS** on cortex.
+To cover SimpleITK in the 5.4 forest, pin it to a release that supports
+ITK 5.4 rather than `main`.
 
-**Fixed (committed):** `BRAINSConstellationDetector.cxx` called
-`itksys::SystemTools::FindProgramPath`, removed from ITK's current KWSys.
-`_patch_brainstools_kwsys` rewrites it to `FindProgram(name)` (modern KWSys).
+**SphinxExamples requires ITK's Python wrapping.** The v5 preset
+(`cmake/presets/10-itk-v5.json`) does not set `ITK_WRAP_PYTHON`, so
+`setup-itk-downstream-testbed.sh` stops with "ITK ... was built without
+ITK_WRAP_PYTHON". The v6 preset wraps, so it passes in the itk-main forest.
 
-**Still incomplete (full SuperBuild) — a chain of BRAINSTools bit-rot vs current
-ITK/GCC, all pre-existing and non-FFT:**
-- `BRAINSABCUtilities.h` includes `tbb/blocked_range.h` directly; no TBB include
-  path on hosts without a system TBB (cortex).
-- `BRAINSLinearModelerEPCA.cxx` / `BRAINSAlignMSP.cxx`: `expected ';' before '}'`
-  from a tclap `MultiArg<T>` injected-class-name issue (SlicerExecutionModel's
-  bundled tclap) under GCC.
+## Pending upstream
 
-Each is a separate consumer-vs-toolchain skew needing a BRAINSTools/SEM source
-update. The matrix's representative-tool artifact (`BRAINSFit`) passes on both
-platforms; the full SuperBuild does not complete on GCC. None caused by the FFT
-change.
+**ITK #7139: GDCM with `ITK_USE_SYSTEM_ZLIB=ON`.** Slicer configures ITK
+with its own zlib. Since ITK ffb72589ad and 371fc394d6, `gdcmCommon` compiles
+`gdcmDeflateStream.cxx` without zlib's include directory:
 
-## Platform matrix (PocketFFT branch e817a4dc60)
+    itk_zlib.h:35:11: fatal error: zlib.h: No such file or directory
 
-| Target | macOS arm64 | Linux x86_64 (cortex) | Blocker (if red) |
-|---|---|---|---|
-| ITK, RTK, Cleaver, PerfBenchmarking, SimpleITKFilters, TractographyTRX, ANTs | PASS | PASS | — |
-| VkFFTBackend | PASS (Metal) | PASS (CUDA) | per-host backend; skip if no GPU |
-| BRAINSTools | PASS | PASS* | *artifact (`BRAINSFit`) passes both; full SuperBuild blocked by KWSys `FindProgramPath` skew. cortex also needed the ANTs include patch |
-| SimpleITK | FAIL | PASS | macOS: SimpleITK `EnhancementEnum` skew |
-| elastix | FAIL | FAIL | vnl_matrix_exp instantiations |
-| Slicer / SlicerExtensions | FAIL | FAIL | `itkNamespace.h` (ITK-side, upstream) |
+ITK #7139 links `gdcmCommon` to `ITK::ITKZLIBModule`. Until it merges, the
+itk-main forest carries that change as an uncommitted edit in
+`build_forest-itk-main/Slicer/build/ITK`. A clean Slicer build loses the edit
+and fails again. After the merge, re-mint `[scenarios.itk-main.Slicer]
+ITK_GIT_TAG` in `versions.toml`. The earlier report on #6563 described the
+same failure on Windows.
 
-## Notes
+## Testbed pitfalls fixed on 2026-11-07
 
-- All targets above fail identically on a vanilla `main` ITK (or for a
-  platform-dependency reason); none are caused by the PocketFFT backend change.
-- Every FFT-relevant consumer builds clean against the branch where its platform
-  dependencies are satisfied: ITK, ANTs, RTK, Cleaver, PerformanceBenchmarking,
-  SimpleITKFilters, TractographyTRX on both; VkFFTBackend + BRAINSTools on macOS.
+Each of these produced a red cell unrelated to ITK. They are fixed in the
+kit, and they are listed here so the symptoms are recognizable.
+
+- **Slicer loaded conda's libpython.** The pixi env and Slicer both ship
+  `libpython3.12.so`. Slicer now links with `--enable-new-dtags` and is
+  configured with `Slicer_USE_SYSTEM_QT=ON` on Linux, so its launcher puts
+  `python-install/lib` first. Symptom: `python-ensurepip` or
+  `GenerateLazyVtkModule.py` fails with
+  `No module named '_sysconfigdata__linux_x86_64-linux-gnu'` or
+  "exit abnormally".
+- **conda's cross linker ignores a library's RPATH.** The engine restores
+  `-Wl,--allow-shlib-undefined` on Linux. Symptom: CTK's `ctkDICOM` link
+  fails with `libopenjp2.so.7, needed by libdcmjp2kcs ... not found`.
+- **CUDA upgraded in place.** `/usr/local/cuda/bin/nvcc` kept its path while
+  `cuda-13.2` disappeared. The engine now reconfigures from scratch when the
+  cached `CUDA_cudart_LIBRARY` is gone. Symptom: ninja error on a missing
+  `libcudart.so`, and an orphaned `VkFFTBackendConfig.py` in ITK's package.
+- **Patches leaking into ExternalProject sources.** The BRAINSTools TBB patch
+  no longer edits checkouts under `BRAINSTools/build/`. Symptom:
+  `tbb-gitupdate.cmake` fails to move oneTBB to a new tag.
+- **A hung NFS PATH entry.** A stalled `/nas4321` mount in `PATH` blocked
+  matrix lanes in uninterruptible I/O. Run the matrix with NFS entries
+  removed from `PATH`.
+
+## Resolved since the PocketFFT validation (2026-06/07)
+
+The earlier version of this file listed these as deferred. All of them now
+pass on Linux against ITK `main`:
+
+- elastix: the `vnl_matrix_exp` link failure.
+- SimpleITK: the `EnhancementEnum` mismatch.
+- Slicer: `itkNamespace.h`. Slicer's ITK tags now carry the custom-namespace
+  patch.
+- BRAINSTools: the full SuperBuild. BRAINSTools #691 fixed the `vnl_svd` use
+  that ITK 6's `ITK_LEGACY_REMOVE` exposed.
+
+The environment fixes from that pass are still applied by the engine:
+`Module_SimpleITKFilters`, `_stub_remote_examples`, `_fix_dcmtk_ijg_symlinks`,
+`_overlay_vnl_headers`, `_patch_ants_missing_includes`, and
+`_patch_brainstools_kwsys`.
