@@ -1280,7 +1280,10 @@ _patch_brainstools_tbb(){
   # oneTBB's TBBConfig sets TBB::tbb's interface link to Threads::Threads at
   # config-load time, so find_package(Threads) MUST precede find_package(TBB)
   # (top level), or CMake errors "link interface ... contains Threads::Threads".
-  for f in $(grep -rlE "find_package\(\s*TBB" "${FOREST}/BRAINSTools" 2>/dev/null | grep -vE '/[A-Za-z]+-build/'); do
+  # Only BRAINSTools' own sources: its build tree holds ExternalProject checkouts
+  # (oneTBB, ANTs, VTK) whose git update fails on local edits.
+  local bt="${FOREST}/BRAINSTools" bb; bb="$(build_dir BRAINSTools)"
+  for f in $(grep -rlE "find_package\(\s*TBB" "${bt}" 2>/dev/null | grep -vE '/[A-Za-z]+-build/' | grep -vF "${bb}/"); do
     grep -q "find_package(Threads" "${f}" || {
       perl -0pi -e 's{^(\s*)(find_package\(\s*TBB)}{$1find_package(Threads REQUIRED)\n$1$2}m' "${f}"
       log "added find_package(Threads) before TBB in ${f#"${FOREST}/"}"; }
@@ -1290,7 +1293,7 @@ _patch_brainstools_tbb(){
   while IFS= read -r f; do
     grep -q "TBB::tbb" "${f}" || { perl -0pi -e 's{\$\{TBB_IMPORTED_TARGETS\}}{TBB::tbb}g' "${f}"; \
       log "linked TBB::tbb in ${f#"${FOREST}/"}"; }
-  done < <(grep -rlE "TBB_IMPORTED_TARGETS" "${FOREST}/BRAINSTools" 2>/dev/null | grep -vE '/[A-Za-z]+-build/')
+  done < <(grep -rlE "TBB_IMPORTED_TARGETS" "${bt}" 2>/dev/null | grep -vE '/[A-Za-z]+-build/' | grep -vF "${bb}/")
 }
 
 # The SuperBuild's inner BRAINSTools sub-build does not reliably pick up patches
