@@ -96,7 +96,8 @@ Keep this current. When a PR merges, do the retirement steps and delete its row.
 |---|---|---|---|---|
 | TractographyTRX | itk-main, itk-release-5.4 | `hjmjohnson/ITKTractographyTRX@itk-forest-integration` | tee-ar-ex/ITKTractographyTRX#30 | #30 merges; drop both scenarios |
 | ITK (itk-main only) | itk-main | `<fork>/itk-forest-integration-itk-main` (built by `itk-forest-refresh`) | InsightSoftwareConsortium/ITK#6884 (VariationalRegistration Python-wrapping fix) | #6884 merges; drop `[itk.v6]` from `skills/itk-forest-refresh/integration-requests.toml`, re-enable `Module_VariationalRegistration` |
-| Slicer | itk-main only | `hjmjohnson/Slicer@itk-forest-integration` *(not yet pushed)* | none yet — bump `SuperBuild.cmake` BRAINSTools pin `ced799ad` → `dbb02b6a` | Slicer upstream bumps its BRAINSTools pin past the itkDCMTKFileReader vendoring; drop the `url`/`branch` keys from `[scenarios.itk-main.Slicer]` (keep `ITK_GIT_TAG`) |
+| Slicer | itk-main | `hjmjohnson/Slicer@itk-forest-integration` (Slicer main + BRAINSTools pin `768345a7` → `96cb1e87`) | none yet; the pin bump is upstreamable as is | Slicer upstream moves its BRAINSTools pin past `96cb1e87` (BRAINSia/BRAINSTools#691); drop `url`/`branch` from `[scenarios.itk-main.Slicer]`, keep `ITK_GIT_TAG` |
+| ANTs | itk-main, itk-release-5.4 | `hjmjohnson/ANTs@itk-forest-integration` | ANTsX/ANTs#2064 | #2064 merges; drop both `ANTs` scenarios |
 
 Retired 2026-10-18 (upstream merged, scenario overrides removed from
 `versions.toml`): BRAINSTools#616 (2026-07-21), ANTsX/ANTs#2008 (2026-07-17),

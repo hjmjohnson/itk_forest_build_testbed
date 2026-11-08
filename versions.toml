@@ -392,11 +392,24 @@ ITK_GIT_TAG = "slicer-v5.4.8-2026-10-31-eef984f4982"
 # upstream/main @ ffda1aac7d0 + itk6 Slicer patch: custom ITK namespace only
 # (the itkFileTools fix is upstream in main).
 ITK_GIT_TAG = "slicer-v6.0.0-2026-10-31-ffda1aac7d0"
+# Slicer main + its BRAINSTools pin moved 768345a7 -> 96cb1e87, which includes
+# BRAINSia/BRAINSTools#691 (merged 2026-11-07: MSVC portability and
+# itk::bridge::Math::SVD on ITK 6). Slicer_Remote_Add hardcodes the pin, so the
+# bump rides this branch. Retire once Slicer upstream moves its pin past 96cb1e87.
+url    = "https://github.com/hjmjohnson/Slicer.git"
+branch = "itk-forest-integration"
 
-# The hjmjohnson/Slicer itk-forest-integration override is retired in both
-# forests (2026-10-31): its BRAINSTools pin bump and Windows build fixes all
-# merged upstream (Slicer #9316, #9367, #9368, #9369, #9370), so Slicer tracks
-# Slicer/Slicer main again.
+# --- ANTs: ANTsX/ANTs#2064 computes determinants through itk::bridge on ITK 6
+# instead of the deprecated vnl/algo/vnl_determinant.h, and includes
+# vnl_diag_matrix.h in ConvertTransformFile (MSVC). Tested on both forests
+# (185/185 tests each). Retire both scenarios once #2064 merges.
+[scenarios.itk-main.ANTs]
+url    = "https://github.com/hjmjohnson/ANTs.git"
+branch = "itk-forest-integration"
+
+["scenarios"."itk-release-5.4"."ANTs"]
+url    = "https://github.com/hjmjohnson/ANTs.git"
+branch = "itk-forest-integration"
 
 # ----------------------------------------------------------------------------
 # Remote modules discovered 2026-09-21 by searching for consumers of
