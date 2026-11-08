@@ -323,6 +323,9 @@ unset CFLAGS CPPFLAGS CXXFLAGS LDFLAGS CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH
 # PATH, which is handled where each dependency is set up).
 if [ "${FOREST_OS}" != windows ] && [ -n "${CONDA_PREFIX:-}" ]; then
   export LDFLAGS="-L${CONDA_PREFIX}/lib -Wl,-rpath,${CONDA_PREFIX}/lib"
+  # conda's ld is a cross linker, which never searches a shared library's own
+  # rpath for its DT_NEEDED entries; conda's default LDFLAGS carry this for that.
+  [ "${FOREST_OS}" = linux ] && LDFLAGS="${LDFLAGS} -Wl,--allow-shlib-undefined"
 fi
 
 # Forest toolchain via the CMAKE_TOOLCHAIN_FILE *environment* variable (CMake
