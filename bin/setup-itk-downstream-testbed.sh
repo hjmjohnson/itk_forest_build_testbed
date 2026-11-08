@@ -2023,6 +2023,15 @@ build_one(){ require cmake ninja "${COMPILER_LAUNCHER}"; require_pixi_toolchain 
     fi
     if [ "${_drift}" = 1 ]; then rm -f "${b}/build.ninja"; fi
   fi
+  # A CUDA toolkit upgraded in place (/usr/local/cuda -> cuda-13.x) keeps nvcc's
+  # path but strands FindCUDAToolkit's cached library paths; start over.
+  if [ -f "${b}/CMakeCache.txt" ]; then
+    local _cudart; _cudart="$(sed -n 's/^CUDA_cudart_LIBRARY:[^=]*=//p' "${b}/CMakeCache.txt" | head -1)"
+    if [ -n "${_cudart}" ] && [ ! -e "${_cudart}" ]; then
+      warn "${name}: cached CUDA runtime ${_cudart} is gone; reconfiguring from scratch"
+      rm -rf "${b}/CMakeCache.txt" "${b}/CMakeFiles" "${b}/build.ninja"
+    fi
+  fi
   if [ -f "${b}/CMakeCache.txt" ]; then
     local _kv _key _kvdrift=0
     while IFS= read -r _kv; do
