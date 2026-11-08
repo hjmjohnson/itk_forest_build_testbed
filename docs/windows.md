@@ -157,6 +157,27 @@ characters before Slicer's own nesting
 several bundled third-party tools never opt in via their manifest, so the short
 root is the real mitigation.
 
+A short root is no longer enough for Slicer. Its deepest object sits 236
+characters below the Slicer build directory (2026-11-07), and `cl.exe` fails
+past about 250 whatever `LongPathsEnabled` says, so the build directory may be
+at most about 13 characters: even `X:/Slicer/build` is too long. Build Slicer
+at the root of a `subst` drive instead:
+
+```bat
+subst S: D:\S-sc\Slicer\build
+```
+
+```bash
+FOREST_BUILD_DIR_Slicer=S:/b pixi run bash bin/setup-itk-downstream-testbed.sh build Slicer
+```
+
+`FOREST_BUILD_DIR_<name>` moves one package's build tree out of the forest.
+Use a one-letter subdirectory, not the drive root itself: CMake's Ninja
+generator writes `default all` into a build.ninja at `S:/` and ninja then
+rejects it (`unknown target 'all'`). A `subst` mapping lasts until the user
+logs off or the machine restarts, so recreate it before each build; CMake
+records `S:/b` in the cache.
+
 ## Python
 
 Conda **win-64 environments ship `python.exe` with no `python3.exe`**, and a

@@ -443,8 +443,10 @@ _path_budget_preflight(){                 # <name> <build_dir>
   deepest object   : + ${_SLICER_DEEPEST_OBJ_TAIL} chars  =>  ${projected}
   budget           : ${FOREST_OBJ_PATH_MAX}  (cl.exe ignores LongPathsEnabled)
 
-  Shorten the forest root by at least $(( projected - FOREST_OBJ_PATH_MAX )) characters, e.g.
-      FOREST=C:/M FOREST_REFERENCE_SUFFIX=${FOREST_REFERENCE_SUFFIX:-<suffix>} ...
+  Shorten the build dir by at least $(( projected - FOREST_OBJ_PATH_MAX )) characters: build just
+  below the root of a subst drive,
+      subst S: $(npath "${FOREST}")/Slicer/build   (backslashes in cmd)
+      FOREST_BUILD_DIR_Slicer=S:/b ...
   Override the budget with FOREST_OBJ_PATH_MAX if you know better."
 }
 
@@ -466,7 +468,18 @@ _path_budget_verify(){                    # <name> <build_dir>
   Shorten the forest root by at least $(( n - FOREST_OBJ_PATH_MAX )) characters and reconfigure."
 }
 
-build_dir(){   echo "${FOREST}/${1}/build"; }
+# FOREST_BUILD_DIR_<name> puts one package's build tree outside the forest.
+# Slicer on Windows needs it: its deepest object sits _SLICER_DEEPEST_OBJ_TAIL
+# characters below the build dir, more than even X:/Slicer/build leaves, so the
+# build runs just below the root of a subst drive (see docs/windows.md).
+# Windows hands environment names to bash uppercased (FOREST_BUILD_DIR_SLICER).
+build_dir(){
+  local v="FOREST_BUILD_DIR_${1//[^A-Za-z0-9_]/_}" u
+  u="${v^^}"
+  if [ -n "${!v:-}" ]; then npath "${!v}"
+  elif [ -n "${!u:-}" ]; then npath "${!u}"
+  else echo "${FOREST}/${1}/build"; fi
+}
 # Dropped by the presets restructure while its caller below stayed, so every
 # engine verb died at parse time with "install_dir: command not found".
 install_dir(){ echo "${FOREST}/installed/${1}"; }   # install already uses installed/ target

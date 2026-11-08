@@ -88,7 +88,13 @@ CTEST_TARGET_TIMEOUT="${CTEST_TARGET_TIMEOUT:-1800}"
 # Build tree for a target: nested layout (<name>/build, mirrors the engine's
 # build_dir()) with a fallback to the legacy flat <name>-build.
 bdir(){
-  local d="${TB}/${1}/build"
+  # FOREST_BUILD_DIR_<name> moves a build out of the forest, as the engine's
+  # build_dir() does; Windows hands the name over uppercased.
+  local v="FOREST_BUILD_DIR_${1//[^A-Za-z0-9_]/_}" u d
+  u="${v^^}"
+  if [ -n "${!v:-}" ]; then npath "${!v}"; return; fi
+  if [ -n "${!u:-}" ]; then npath "${!u}"; return; fi
+  d="${TB}/${1}/build"
   [ -d "${d}" ] || { [ -d "${TB}/${1}-build" ] && d="${TB}/${1}-build"; }
   echo "${d}"
 }
