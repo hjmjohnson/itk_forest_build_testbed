@@ -97,11 +97,11 @@ Keep this current. When a PR merges, do the retirement steps and delete its row.
 | TractographyTRX | itk-main, itk-release-5.4 | `hjmjohnson/ITKTractographyTRX@itk-forest-integration` | tee-ar-ex/ITKTractographyTRX#30 | #30 merges; drop both scenarios |
 | ITK (itk-main only) | itk-main | `<fork>/itk-forest-integration-itk-main` (built by `itk-forest-refresh`) | InsightSoftwareConsortium/ITK#6884 (VariationalRegistration Python-wrapping fix) | #6884 merges; drop `[itk.v6]` from `skills/itk-forest-refresh/integration-requests.toml`, re-enable `Module_VariationalRegistration` |
 | Slicer | itk-main | `hjmjohnson/Slicer@itk-forest-integration` (Slicer main + BRAINSTools pin `768345a7` → `506631a0`) | Slicer#9545 | Slicer upstream moves its BRAINSTools pin to `506631a0` or later (BRAINSia/BRAINSTools#691, #692); drop `url`/`branch` from `[scenarios.itk-main.Slicer]`, keep `ITK_GIT_TAG` |
-| ANTs | itk-main, itk-release-5.4 | `hjmjohnson/ANTs@itk-forest-integration` | ANTsX/ANTs#2064 | #2064 merges; drop both `ANTs` scenarios |
 
 Retired 2026-10-18 (upstream merged, scenario overrides removed from
 `versions.toml`): BRAINSTools#616 (2026-07-21), ANTsX/ANTs#2008 (2026-07-17),
 tee-ar-ex/trx-cpp#52 (2026-08-04), PerkLab/SlicerFreeSurfer#23 (2026-07-23).
+Retired 2026-11-09: ANTsX/ANTs#2064 (merged 2026-11-08).
 
 ITK#6655 (NrrdIO `sampleIO.c`) needed no integration branch — it **merged** into
 `upstream/main`, so every forest tracking main already has it. Likewise ITK#6883

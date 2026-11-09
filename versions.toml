@@ -275,9 +275,9 @@ SlicerExecutionModel_GIT_TAG        = "91b921bd5977c3384916ba4b03705d87b26067f7"
 
 [subbuild.BRAINSTools]
 # Consumed via the overridable BRAINSTools_ANTs_GIT_* vars (BRAINSia/BRAINSTools#605).
-# ANTsX/ANTs main @ 2026-10-30; a SHA, not a branch, so an existing EP clone moves.
+# ANTsX/ANTs main @ 2026-11-08 (ANTsX/ANTs#2064 merged); a SHA, not a branch, so an existing EP clone moves.
 ANTs_GIT_REPOSITORY = "https://github.com/ANTsX/ANTs.git"
-ANTs_GIT_TAG        = "dcdaf4212df415b089b09b8b6b0a2560c57af546"
+ANTs_GIT_TAG        = "eb096f0fecc405e063ba14e45dcfc048e204220f"
 
 [subbuild.SlicerANTs]
 # netstim/SlicerANTs defaults its ANTs EP to 8c4e2077 (2024.09.10) -- ~2 years
@@ -288,7 +288,7 @@ ANTs_GIT_TAG        = "dcdaf4212df415b089b09b8b6b0a2560c57af546"
 # closed whitelist; only the environment gets through). Kept in step with
 # subbuild.BRAINSTools above.
 ANTs_GIT_REPOSITORY = "https://github.com/ANTsX/ANTs.git"
-ANTs_GIT_TAG        = "dcdaf4212df415b089b09b8b6b0a2560c57af546"
+ANTs_GIT_TAG        = "eb096f0fecc405e063ba14e45dcfc048e204220f"
 
 [subbuild.BoneTextureExtension]
 # Two ITK remote modules pinned by BoneTextureExtension via
@@ -397,18 +397,6 @@ ITK_GIT_TAG = "slicer-v6.0.0-2026-10-31-ffda1aac7d0"
 # tests). Slicer_Remote_Add hardcodes the pin, so the bump rides this branch.
 # Retire once Slicer upstream moves its pin to 506631a0 or later (Slicer#9545).
 url    = "https://github.com/hjmjohnson/Slicer.git"
-branch = "itk-forest-integration"
-
-# --- ANTs: ANTsX/ANTs#2064 computes determinants through itk::bridge on ITK 6
-# instead of the deprecated vnl/algo/vnl_determinant.h, and includes
-# vnl_diag_matrix.h in ConvertTransformFile (MSVC). Tested on both forests
-# (185/185 tests each). Retire both scenarios once #2064 merges.
-[scenarios.itk-main.ANTs]
-url    = "https://github.com/hjmjohnson/ANTs.git"
-branch = "itk-forest-integration"
-
-["scenarios"."itk-release-5.4"."ANTs"]
-url    = "https://github.com/hjmjohnson/ANTs.git"
 branch = "itk-forest-integration"
 
 # ----------------------------------------------------------------------------
