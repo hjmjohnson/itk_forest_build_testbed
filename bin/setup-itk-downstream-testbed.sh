@@ -590,8 +590,16 @@ vkfft_cxx_standard_kv(){ echo "CMAKE_CXX_STANDARD=17"; }
 
 # KEY=VAL overlay values that build_one must find in an existing cache; a
 # mismatch forces a reconfigure, since build_one otherwise reuses the cache.
+# Settings only the Windows (Ninja + MSVC) build needs; empty elsewhere.
+# LibTorch's c10 headers need C++20 under MSVC (bit-field initializers).
+impact_windows_kv(){ [ "${FOREST_OS}" = windows ] && echo "CMAKE_CXX_STANDARD=20"; return 0; }
+# PlusLib tests CMAKE_VS_PLATFORM_NAME unquoted; Ninja leaves it empty.
+pluslib_windows_kv(){ [ "${FOREST_OS}" = windows ] && echo "CMAKE_VS_PLATFORM_NAME=x64"; return 0; }
+
 declared_cache_kvs(){
   case "$1" in
+    Impact)       impact_windows_kv ;;
+    PlusLib)      pluslib_windows_kv ;;
     BRAINSTools)  brainstools_itk_version_kv
                   local _bte; for _bte in ${BRAINSTOOLS_EXTRA:-}; do echo "${_bte#-D}"; done ;;
     VkFFTBackend) vkfft_cxx_standard_kv ;;
@@ -1218,6 +1226,19 @@ _patch_igsio_iostream(){
   done < <(grep -rlE 'std::(cout|cerr|endl)' "${d}" --include='*.cxx' --include='*.h' --include='*.hxx' 2>/dev/null)
 }
 
+# IGSIO and PlusLib add -D_MSC_PLATFORM_TOOLSET_$(PlatformToolset), an MSBuild
+# macro that ninja rejects as a bad $-escape; keep it to the Visual Studio
+# generators.
+_patch_msbuild_platform_toolset(){       # <name>
+  local f="${FOREST}/$1/CMakeLists.txt"
+  [ "${FOREST_OS}" = windows ] && [ -f "${f}" ] || return 0
+  grep -q 'Visual Studio") # itk_forest_build_testbed' "${f}" && return 0
+  grep -qi '^ *add_definitions(-D_MSC_PLATFORM_TOOLSET_\$(PlatformToolset))' "${f}" || return 0
+  perl -i -pe 's{^(\s*)(add_definitions\(-D_MSC_PLATFORM_TOOLSET_\$\(PlatformToolset\)\))}{${1}if(CMAKE_GENERATOR MATCHES "Visual Studio") # itk_forest_build_testbed: PlatformToolset\n${1}  ${2}\n${1}endif()}i' "${f}" \
+    && rm -f "$(build_dir "$1")/build.ninja" \
+    && log "patched $1: \$(PlatformToolset) only for Visual Studio generators"
+}
+
 # Plastimatch bundles dlib-19.1, whose unicode.h only defines unichar_traits for
 # GCC <4.4 and otherwise uses std::basic_string<uint32>; modern libc++ has no
 # char_traits<unsigned int>, so force the bundled traits path on all compilers.
@@ -1792,7 +1813,7 @@ json.dump(d, open(sys.argv[2],"w", encoding="utf-8"), indent=2, sort_keys=True)'
                  do_overlay PlusLib itk-forest-base "$s" "$b" \
                    "ITK_DIR=$(itk_dir)" "VTK_DIR=${_vtk}" "IGSIO_DIR=${_igsio}" "PLUS_USE_OpenIGTLink=ON" \
                    "OpenIGTLink_DIR=${_oi}" "OpenIGTLinkIO_DIR=${_oio}" \
-                   ${_data:+"PLUSLIB_DATA_DIR=${_data}"} ;;
+                   ${_data:+"PLUSLIB_DATA_DIR=${_data}"} $(pluslib_windows_kv) ;;
     VkFFTBackend)
                  local _vk; _vk="$(vkfft_backend)"
                  [ -n "${_vk}" ] || die "VkFFTBackend: no GPU backend (CUDA/Metal/OpenCL) on this host"
@@ -1846,7 +1867,7 @@ json.dump(d, open(sys.argv[2],"w", encoding="utf-8"), indent=2, sort_keys=True)'
                  # via torch.utils.cmake_prefix_path, queried with the interpreter
                  # passed below. IMPACT_AUTO_INSTALL_TORCH=OFF keeps a missing torch
                  # from pip-installing into the locked environment.
-                 local _im_kvs=("ITK_DIR=$(itk_dir)" "IMPACT_AUTO_INSTALL_TORCH=OFF") _pki _kvi
+                 local _im_kvs=("ITK_DIR=$(itk_dir)" "IMPACT_AUTO_INSTALL_TORCH=OFF" $(impact_windows_kv)) _pki _kvi
                  _pki="$(itk_python_kvs)" || die "Impact: cannot resolve ITK's python interpreter"
                  while IFS= read -r _kvi; do [ -n "${_kvi}" ] && _im_kvs+=("${_kvi}"); done <<<"${_pki}"
                  do_overlay Impact itk-forest-base "$s" "$b" "${_im_kvs[@]}" ;;
@@ -2085,6 +2106,7 @@ build_one(){ require cmake ninja "${COMPILER_LAUNCHER}"; require_pixi_toolchain 
   # Plastimatch's force-include shim must exist before configure (CMake's
   # compiler checks use CMAKE_CXX_FLAGS, which references it).
   [ "$name" = Plastimatch ] && { _patch_plastimatch_vcl_aliases; _patch_plastimatch_ransac_test; }
+  case "$name" in IGSIO|PlusLib) _patch_msbuild_platform_toolset "$name" ;; esac
   # A complete configure leaves build.ninja; a half-failed one leaves only
   # CMakeCache.txt. Require build.ninja so a broken tree is reconfigured.
   # Fail in seconds on an impossible forest root rather than an hour into the
