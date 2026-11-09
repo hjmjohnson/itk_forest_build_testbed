@@ -230,6 +230,9 @@ git add --renormalize .     # review, then commit
 - **`gengetopt`** has no conda-forge win-64 build, so RTK's *applications*
   cannot generate their `*_ggo.{h,c}`. Scoped to `[target.unix.dependencies]`;
   nothing on the ITK or Slicer path needs it.
+- **Impact's Python wrapping.** LibTorch's headers need C++20 under MSVC,
+  and castxml cannot parse the MSVC C++20 standard library, so the kit
+  builds Impact with `Impact_WRAP_PYTHON=OFF`; the C++ module still builds.
 - **`bin/run-fft-bench.sh`** still resolves `python3` directly and expects a
   macOS Python framework layout; set `BENCH_PY` to use it.
 
