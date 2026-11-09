@@ -107,6 +107,33 @@ _forest_resolve_python(){
 _forest_resolve_python || { FOREST_PYTHON="python3"; FOREST_PYTHON_PRE=""; }
 export FOREST_PYTHON FOREST_PYTHON_PRE
 
+# pip walks PATH and aborts the install on an entry Windows refuses to traverse
+# (WinError 448, "untrusted mount point"; app installers create these), so drop
+# such entries before any build runs.
+_forest_drop_untraversable_path(){
+  local bad e out=""
+  bad="$("${FOREST_PYTHON}" ${FOREST_PYTHON_PRE} -c '
+import os
+for p in os.environ["PATH"].split(os.pathsep):
+    try:
+        os.listdir(p)
+    except OSError as e:
+        if getattr(e, "winerror", None) == 448:
+            print(os.path.normcase(os.path.normpath(p)))
+' 2>/dev/null | tr -d '\r')" || return 0
+  [ -n "${bad}" ] || return 0
+  while IFS= read -r -d: e || [ -n "${e}" ]; do
+    [ -n "${e}" ] || continue
+    if printf '%s\n' "${bad}" | grep -qixF -- "$(cygpath -w -- "${e}" 2>/dev/null)"; then
+      echo "[platform] dropping untraversable PATH entry: ${e}" >&2
+      continue
+    fi
+    out="${out:+${out}:}${e}"
+  done < <(printf '%s' "${PATH}")
+  PATH="${out}"; export PATH
+}
+if [ "${FOREST_OS}" = windows ]; then _forest_drop_untraversable_path; fi
+
 # --- build artifacts -------------------------------------------------------
 #
 # "Verify by artifact, not exit code" needs the platform's real filenames.

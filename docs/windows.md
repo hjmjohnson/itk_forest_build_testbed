@@ -188,6 +188,14 @@ before choosing it: Windows puts App Execution Alias stubs
 (`WindowsApps\python3.exe`) on `PATH` that exist but only print "Python was
 not found".
 
+## Untraversable `PATH` entries
+
+Some app installers put a directory on `PATH` that Windows refuses to traverse
+(the OpenAI Codex `bin` directory is one). pip walks `PATH` during an install
+and aborts with `WinError 448 ... untrusted mount point`, which stops Slicer's
+SuperBuild at numpy. `platform.sh` drops every such entry at startup and logs
+each one it drops.
+
 ## GitHub over ssh
 
 Several forest remotes are `git@github.com:` URLs. A node with no GitHub ssh
