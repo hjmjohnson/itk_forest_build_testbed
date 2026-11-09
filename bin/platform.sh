@@ -221,28 +221,34 @@ msvc_activate(){
   vcvars="$(cygpath -u "${vsroot}")/VC/Auxiliary/Build/vcvars64.bat"
   [ -f "${vcvars}" ] || return 1
 
-  # Run vcvars in cmd and read back the environment it produced. `cmd //c`
-  # (doubled slash) stops MSYS2 from rewriting the /c switch into a path, and
-  # MSYS2_ARG_CONV_EXCL keeps it from mangling the batch-file argument.
-  out="$(MSYS2_ARG_CONV_EXCL='*' cmd //c "call \"$(cygpath -w "${vcvars}")\" \
-          ${MSVC_TOOLSET:+-vcvars_ver=${MSVC_TOOLSET}} >nul 2>&1 && set" 2>/dev/null | tr -d '\r')"
+  # Run vcvars in cmd and read back the environment it produced, through a
+  # batch file: cmd does not parse the \" escapes MSYS2 writes for embedded
+  # quotes, and an unparsed /c leaves cmd interactive, waiting on stdin.
+  local bat
+  bat="$(mktemp -d)/forest_vcvars.bat" || return 1
+  printf '@call "%s" %s >nul 2>&1 && set\r\n' "$(cygpath -w "${vcvars}")" \
+    "${MSVC_TOOLSET:+-vcvars_ver=${MSVC_TOOLSET}}" > "${bat}"
+  out="$(MSYS2_ARG_CONV_EXCL='*' cmd /d /c "$(cygpath -w "${bat}")" </dev/null 2>/dev/null | tr -d '\r')"
+  rm -rf "$(dirname "${bat}")"
   [ -n "${out}" ] || return 1
 
+  # cmd reports variables it inherited from MSYS2 in upper case, so match the
+  # name case-insensitively and export the spelling cl.exe documents.
   while IFS= read -r line; do
     k="${line%%=*}"; v="${line#*=}"
     [ "${k}" = "${line}" ] && continue          # not a KEY=VALUE line
-    case "${k}" in
+    case "${k^^}" in
       # cl.exe/link.exe read these natively; they must stay in Windows form,
       # and MSYS2 does not auto-convert them.
-      INCLUDE|LIB|LIBPATH|VCINSTALLDIR|VCToolsInstallDir|VCToolsVersion|\
-      VSINSTALLDIR|VisualStudioVersion|WindowsSdkDir|WindowsSdkVerBinPath|\
-      WindowsSDKVersion|UniversalCRTSdkDir|UCRTVersion|VSCMD_ARG_HOST_ARCH|\
+      INCLUDE|LIB|LIBPATH|VCINSTALLDIR|VCTOOLSINSTALLDIR|VCTOOLSVERSION|\
+      VSINSTALLDIR|VISUALSTUDIOVERSION|WINDOWSSDKDIR|WINDOWSSDKVERBINPATH|\
+      WINDOWSSDKVERSION|UNIVERSALCRTSDKDIR|UCRTVERSION|VSCMD_ARG_HOST_ARCH|\
       VSCMD_ARG_TGT_ARCH)
         export "${k}=${v}" ;;
       # PATH is bash's own, so it must be converted to Unix list form. vcvars
       # inherits and prepends to the PATH cmd got from us, so anything pixi put
       # there (cmake, ninja, ccache, python) survives.
-      Path|PATH)
+      PATH)
         PATH="$(cygpath -up "${v}")"; export PATH ;;
     esac
   done <<< "${out}"
