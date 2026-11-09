@@ -591,8 +591,11 @@ vkfft_cxx_standard_kv(){ echo "CMAKE_CXX_STANDARD=17"; }
 # KEY=VAL overlay values that build_one must find in an existing cache; a
 # mismatch forces a reconfigure, since build_one otherwise reuses the cache.
 # Settings only the Windows (Ninja + MSVC) build needs; empty elsewhere.
-# LibTorch's c10 headers need C++20 under MSVC (bit-field initializers).
-impact_windows_kv(){ [ "${FOREST_OS}" = windows ] && echo "CMAKE_CXX_STANDARD=20"; return 0; }
+# LibTorch's c10 headers need C++20 under MSVC (bit-field initializers), and
+# castxml cannot parse the MSVC C++20 standard library, so no Python wrapping.
+impact_windows_kv(){
+  [ "${FOREST_OS}" = windows ] || return 0
+  printf '%s\n' "CMAKE_CXX_STANDARD=20" "Impact_WRAP_PYTHON=OFF"; }
 # PlusLib tests CMAKE_VS_PLATFORM_NAME unquoted; Ninja leaves it empty.
 pluslib_windows_kv(){ [ "${FOREST_OS}" = windows ] && echo "CMAKE_VS_PLATFORM_NAME=x64"; return 0; }
 
