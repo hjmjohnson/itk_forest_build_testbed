@@ -94,6 +94,9 @@ bdir(){
   u="${v^^}"
   if [ -n "${!v:-}" ]; then npath "${!v}"; return; fi
   if [ -n "${!u:-}" ]; then npath "${!u}"; return; fi
+  if [ "${FOREST_OS}" = windows ] && [ "$1" = Slicer ] && [ "${FOREST_SUBST_DRIVE:-S:}" != none ]; then
+    echo "${FOREST_SUBST_DRIVE:-S:}/b"; return
+  fi
   d="${TB}/${1}/build"
   [ -d "${d}" ] || { [ -d "${TB}/${1}-build" ] && d="${TB}/${1}-build"; }
   echo "${d}"

@@ -160,23 +160,22 @@ root is the real mitigation.
 A short root is no longer enough for Slicer. Its deepest object sits 236
 characters below the Slicer build directory (2026-11-07), and `cl.exe` fails
 past about 250 whatever `LongPathsEnabled` says, so the build directory may be
-at most about 13 characters: even `X:/Slicer/build` is too long. Build Slicer
-at the root of a `subst` drive instead:
+at most about 13 characters: even `X:/Slicer/build` is too long. The kit
+therefore builds Slicer in `S:/b`, mapping `S:` with `subst` onto
+`<forest>/Slicer/build` before configure. The mapping lasts until logoff or a
+restart; the kit recreates it on each Slicer build, and CMake records `S:/b`
+in the cache.
 
-```bat
-subst S: D:\S-sc\Slicer\build
-```
+- `FOREST_SUBST_DRIVE=T:` picks another letter. Each forest that builds Slicer
+  on one machine needs its own; the kit stops if the letter maps another
+  forest or is a real drive.
+- `FOREST_SUBST_DRIVE=none` turns it off.
+- `FOREST_BUILD_DIR_<name>` sets any package's build tree explicitly and wins
+  over both.
 
-```bash
-FOREST_BUILD_DIR_Slicer=S:/b pixi run bash bin/setup-itk-downstream-testbed.sh build Slicer
-```
-
-`FOREST_BUILD_DIR_<name>` moves one package's build tree out of the forest.
-Use a one-letter subdirectory, not the drive root itself: CMake's Ninja
-generator writes `default all` into a build.ninja at `S:/` and ninja then
-rejects it (`unknown target 'all'`). A `subst` mapping lasts until the user
-logs off or the machine restarts, so recreate it before each build; CMake
-records `S:/b` in the cache.
+The build sits in a one-letter subdirectory, not at the drive root: CMake's
+Ninja generator writes `default all` into a build.ninja at `S:/` and ninja
+then rejects it (`unknown target 'all'`).
 
 ## Python
 

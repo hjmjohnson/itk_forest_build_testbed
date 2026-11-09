@@ -443,10 +443,9 @@ _path_budget_preflight(){                 # <name> <build_dir>
   deepest object   : + ${_SLICER_DEEPEST_OBJ_TAIL} chars  =>  ${projected}
   budget           : ${FOREST_OBJ_PATH_MAX}  (cl.exe ignores LongPathsEnabled)
 
-  Shorten the build dir by at least $(( projected - FOREST_OBJ_PATH_MAX )) characters: build just
-  below the root of a subst drive,
-      subst S: $(npath "${FOREST}")/Slicer/build   (backslashes in cmd)
-      FOREST_BUILD_DIR_Slicer=S:/b ...
+  Shorten the build dir by at least $(( projected - FOREST_OBJ_PATH_MAX )) characters. Unset
+  FOREST_BUILD_DIR_Slicer and FOREST_SUBST_DRIVE so that Slicer builds in S:/b, a
+  subst drive the kit maps over the forest's Slicer/build.
   Override the budget with FOREST_OBJ_PATH_MAX if you know better."
 }
 
@@ -469,16 +468,43 @@ _path_budget_verify(){                    # <name> <build_dir>
 }
 
 # FOREST_BUILD_DIR_<name> puts one package's build tree outside the forest.
-# Slicer on Windows needs it: its deepest object sits _SLICER_DEEPEST_OBJ_TAIL
-# characters below the build dir, more than even X:/Slicer/build leaves, so the
-# build runs just below the root of a subst drive (see docs/windows.md).
-# Windows hands environment names to bash uppercased (FOREST_BUILD_DIR_SLICER).
+# Slicer on Windows needs that: its deepest object sits _SLICER_DEEPEST_OBJ_TAIL
+# characters below the build dir, more than even X:/Slicer/build leaves, so by
+# default it builds in <FOREST_SUBST_DRIVE>/b, a subst drive over
+# ${FOREST}/Slicer/build (see docs/windows.md). FOREST_SUBST_DRIVE=none turns
+# that off. Windows hands environment names to bash uppercased.
+FOREST_SUBST_DRIVE="${FOREST_SUBST_DRIVE:-S:}"
 build_dir(){
   local v="FOREST_BUILD_DIR_${1//[^A-Za-z0-9_]/_}" u
   u="${v^^}"
   if [ -n "${!v:-}" ]; then npath "${!v}"
   elif [ -n "${!u:-}" ]; then npath "${!u}"
+  elif [ "${FOREST_OS}" = windows ] && [ "$1" = Slicer ] && [ "${FOREST_SUBST_DRIVE}" != none ]; then
+    echo "${FOREST_SUBST_DRIVE}/b"
   else echo "${FOREST}/${1}/build"; fi
+}
+
+# Map FOREST_SUBST_DRIVE onto the forest's Slicer build directory when the
+# Slicer build dir lives on it. A mapping lasts only until logoff or restart.
+_ensure_slicer_subst(){                   # <build_dir>
+  [ "${FOREST_OS}" = windows ] || return 0
+  [ "${FOREST_SUBST_DRIVE}" != none ] || return 0
+  case "$1" in "${FOREST_SUBST_DRIVE}"/*) ;; *) return 0 ;; esac
+  local drv="${FOREST_SUBST_DRIVE^^}" target cur
+  target="$(cygpath -w -- "${FOREST}/Slicer/build")"
+  mkdir -p "${FOREST}/Slicer/build"
+  cur="$(MSYS2_ARG_CONV_EXCL='*' subst.exe 2>/dev/null | tr -d '\r' \
+    | awk -v d="${drv}" 'toupper(substr($0,1,length(d)+1))==toupper(d "\\") { sub(/^[^>]*=> */,""); print }')"
+  if [ -z "${cur}" ]; then
+    [ ! -e "${drv}/" ] || die "${drv} is already a drive; set FOREST_SUBST_DRIVE to a free letter."
+    MSYS2_ARG_CONV_EXCL='*' subst.exe "${drv}" "${target}" \
+      || die "subst ${drv} ${target} failed; set FOREST_SUBST_DRIVE to a free letter."
+    log "mapped ${drv} -> ${target} for the Slicer build"
+  elif [ "${cur,,}" != "${target,,}" ]; then
+    die "${drv} maps ${cur}, not this forest's ${target}.
+  Set FOREST_SUBST_DRIVE to a free letter for this forest, or FOREST_SUBST_DRIVE=none."
+  fi
+  mkdir -p "$1"
 }
 # Dropped by the presets restructure while its caller below stayed, so every
 # engine verb died at parse time with "install_dir: command not found".
@@ -2064,6 +2090,7 @@ build_one(){ require cmake ninja "${COMPILER_LAUNCHER}"; require_pixi_toolchain 
   # Fail in seconds on an impossible forest root rather than an hour into the
   # build. CMake reports the same condition at generate time ("cannot be safely
   # placed under this directory") but only as a warning.
+  [ "$name" = Slicer ] && _ensure_slicer_subst "${b}"
   _path_budget_preflight "$name" "${b}"
   [ -f "${b}/build.ninja" ] || configure_one "$name"
   _path_budget_verify "$name" "${b}"
