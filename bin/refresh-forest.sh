@@ -25,6 +25,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "${HERE}/platform.sh"
 ROOT="$(npath "$(cd "${HERE}/.." && pwd)")"
 SUFFIX="${FOREST_REFERENCE_SUFFIX:-}"
+# Whose [scenarios.<key>] this forest takes, as the engine resolves it.
+SCENARIO="${FOREST_SCENARIO:-${SUFFIX}}"
 # The engine is the authority on the forest name (it applies BUILD_FOREST_ROOT,
 # the suffix, absolute-vs-relative resolution and native-path conversion);
 # recomputing it here drifted on Windows, where the default root is absolute.
@@ -80,12 +82,20 @@ for name in "${names[@]}"; do
   git -C "${repo}" fetch --all --tags --prune --quiet 2>/dev/null
 
   # Resolve the target this component should sit on.
-  target=""; label=""
-  ov="$([ -n "${SUFFIX}" ] && cfg scenario "${SUFFIX}" "${name}")"
+  target=""; label=""; base=""
+  ov="$([ -n "${SCENARIO}" ] && cfg scenario "${SCENARIO}" "${name}")"
   if [ -n "${ov}" ]; then
     IFS='|' read -r ov_url ov_branch <<<"${ov}"
-    if git -C "${repo}" fetch --force "${ov_url}" "${ov_branch}:refs/demo/${name}-${ov_branch}" --quiet; then
-      target="refs/demo/${name}-${ov_branch}"; label="scenario ${ov_branch}"
+    # A force-pushed scenario branch replaces its old commits; only commits made
+    # on top of the previously fetched tip are local and get replayed.
+    # A dry run must not move refs/demo, or the next run loses the old tip.
+    prev="$(git -C "${repo}" rev-parse -q --verify "refs/demo/${name}-${ov_branch}" 2>/dev/null || true)"
+    if git -C "${repo}" fetch --force "${ov_url}" "${ov_branch}" --quiet; then
+      target="$(git -C "${repo}" rev-parse FETCH_HEAD)"; label="scenario ${ov_branch}"
+      [ -n "${prev}" ] && git -C "${dest}" merge-base --is-ancestor "${prev}" HEAD 2>/dev/null \
+        && ! git -C "${dest}" merge-base --is-ancestor "${prev}" "${target}" 2>/dev/null \
+        && base="${prev}"
+      [ "${APPLY}" = 1 ] && git -C "${repo}" update-ref "refs/demo/${name}-${ov_branch}" "${target}"
     else
       say "${name}" "scenario fetch failed (skip)"; skipped+=("${name}:scenario-fetch"); continue
     fi
@@ -99,7 +109,8 @@ for name in "${names[@]}"; do
 
   old="$(git -C "${dest}" rev-parse --short HEAD)"
   new="$(git -C "${repo}" rev-parse --short "${target}" 2>/dev/null)"
-  ahead="$(git -C "${dest}" rev-list --count "${target}"..HEAD 2>/dev/null || echo 0)"
+  base="${base:-${target}}"
+  ahead="$(git -C "${dest}" rev-list --count "${base}"..HEAD 2>/dev/null || echo 0)"
   behind="$(git -C "${dest}" rev-list --count "HEAD..${target}" 2>/dev/null || echo 0)"
 
   if [ "${behind}" = 0 ]; then
@@ -111,7 +122,7 @@ for name in "${names[@]}"; do
     moved+=("${name}"); continue
   fi
 
-  if git -C "${dest}" rebase "${target}" --quiet 2>/dev/null; then
+  if git -C "${dest}" rebase --onto "${target}" "${base}" --quiet 2>/dev/null; then
     say "${name}" "advanced ${old} -> $(git -C "${dest}" rev-parse --short HEAD) (${label})"
     moved+=("${name}")
   else
