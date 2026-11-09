@@ -392,10 +392,10 @@ ITK_GIT_TAG = "slicer-v5.4.8-2026-10-31-eef984f4982"
 # upstream/main @ ffda1aac7d0 + itk6 Slicer patch: custom ITK namespace only
 # (the itkFileTools fix is upstream in main).
 ITK_GIT_TAG = "slicer-v6.0.0-2026-10-31-ffda1aac7d0"
-# Slicer main + its BRAINSTools pin moved 768345a7 -> 96cb1e87, which includes
-# BRAINSia/BRAINSTools#691 (merged 2026-11-07: MSVC portability and
-# itk::bridge::Math::SVD on ITK 6). Slicer_Remote_Add hardcodes the pin, so the
-# bump rides this branch. Retire once Slicer upstream moves its pin past 96cb1e87.
+# Slicer main + its BRAINSTools pin moved 768345a7 -> 506631a0, which includes
+# BRAINSia/BRAINSTools#691 (ITK 6, MSVC) and #692 (DWIConvert on MSVC, Windows
+# tests). Slicer_Remote_Add hardcodes the pin, so the bump rides this branch.
+# Retire once Slicer upstream moves its pin to 506631a0 or later (Slicer#9545).
 url    = "https://github.com/hjmjohnson/Slicer.git"
 branch = "itk-forest-integration"
 
