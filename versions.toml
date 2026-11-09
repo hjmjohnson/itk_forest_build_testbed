@@ -389,9 +389,9 @@ branch = "itk-forest-integration"
 ITK_GIT_TAG = "slicer-v5.4.8-2026-10-31-eef984f4982"
 
 [scenarios.itk-main.Slicer]
-# upstream/main @ ffda1aac7d0 + itk6 Slicer patch: custom ITK namespace only
+# upstream/main @ e2efc42ed32 + itk6 Slicer patch: custom ITK namespace only
 # (the itkFileTools fix is upstream in main).
-ITK_GIT_TAG = "slicer-v6.0.0-2026-10-31-ffda1aac7d0"
+ITK_GIT_TAG = "slicer-v6.0.0-2026-11-09-e2efc42ed32"
 # Slicer main + its BRAINSTools pin moved 768345a7 -> 506631a0, which includes
 # BRAINSia/BRAINSTools#691 (ITK 6, MSVC) and #692 (DWIConvert on MSVC, Windows
 # tests). Slicer_Remote_Add hardcodes the pin, so the bump rides this branch.
