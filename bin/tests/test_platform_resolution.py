@@ -120,6 +120,15 @@ def test_override_block_replaces_the_competing_strategy():
     assert _as("linux", config._for_host, spec) == spec
 
 
+def test_fallback_skips_candidates_with_unset_variables(monkeypatch, tmp_path):
+    monkeypatch.delenv("FOREST_UNSET_VAR", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    spec = {"candidates": ["${FOREST_UNSET_VAR}", "${HOME}/.ccache"], "required": False}
+    assert _as("linux", config.resolve, "K", spec) == (f"{tmp_path}/.ccache", True)
+    only_unset = {"candidates": ["${FOREST_UNSET_VAR}"], "required": False}
+    assert _as("linux", config.resolve, "K", only_unset) == ("", True)
+
+
 def test_no_override_block_leaves_the_spec_identical():
     spec = {"value": "x", "required": False}
     for os_name in ("linux", "macos", "windows"):

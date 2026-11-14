@@ -422,9 +422,9 @@ def resolve(key, spec):
     # nothing existed
     if spec.get("required"):
         return SENTINEL, False
-    # best-effort default: first expanded candidate (may not exist yet)
-    cands = spec.get("candidates", [])
-    return (_npath(expand(cands[0])) if cands else ""), True
+    # best-effort default: first candidate whose variables are all set (may not exist yet)
+    cands = [c for c in (expand(c) for c in spec.get("candidates", [])) if "$" not in c]
+    return (_npath(cands[0]) if cands else ""), True
 
 
 def shquote(v):
